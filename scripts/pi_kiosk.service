@@ -1,0 +1,14 @@
+[Unit]
+Description=ISS Tracker Kiosk Chromium
+After=graphical.target network-online.target
+
+[Service]
+Type=simple
+User=pi
+Environment=DISPLAY=:0
+ExecStart=/usr/bin/chromium-browser --kiosk --incognito --disable-pinch --overscroll-history-navigation=0 http://localhost:8000/
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target

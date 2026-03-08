@@ -1,0 +1,47 @@
+{
+  "settings": {
+    "iss_display_mode": "SunlitOnlyVideo",
+    "iss_stream_urls": [
+      "https://www.youtube.com/embed/DDU-rZs-Ic4?autoplay=1&mute=1",
+      "https://www.youtube.com/embed/21X5lGlDOfg?autoplay=1&mute=1"
+    ],
+    "force_stream_unhealthy": false
+  },
+  "location": {
+    "source_mode": "browser",
+    "selected_profile_id": null,
+    "profiles": [],
+    "browser_location": {
+      "lat": -27.600371,
+      "lon": 153.120332,
+      "alt_m": 0.0,
+      "timestamp": null
+    },
+    "gps_location": {
+      "lat": 0.0,
+      "lon": 0.0,
+      "alt_m": 0.0,
+      "timestamp": null
+    },
+    "last_known_location": {
+      "lat": -27.600371,
+      "lon": 153.120332,
+      "alt_m": 0.0,
+      "timestamp": null
+    }
+  },
+  "network": {
+    "mode": "station",
+    "connected_ssid": null,
+    "known_ssids": [],
+    "ap_ssid": "ISS-Tracker-Setup",
+    "internet_available": false,
+    "last_checked": null
+  },
+  "cache_policy": {
+    "retention_days": 30,
+    "max_storage_mb": 512,
+    "stale_after_hours": 24
+  },
+  "snapshots": []
+}

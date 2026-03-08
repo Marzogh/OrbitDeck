@@ -1,0 +1,2305 @@
+[
+  {
+    "sat_id": "oscar-7-ao-7",
+    "norad_id": 7530,
+    "name": "OSCAR 7 (AO-7)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U TLM Beacon CW",
+      "Mode U/V (B) TLM Beacon CW",
+      "Mode V/A (A) Lin SSB USB",
+      "Mode V/A (A) Lin CW CW",
+      "Mode U/V (B) Lin USB",
+      "Mode V/A (A) TLM Beacon CW",
+      "13 cm Beacon (40mW) CW"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435100000",
+      "Uplink n/a / Downlink 145977500",
+      "Uplink 145850000 / Downlink 29400000",
+      "Uplink 145850000 / Downlink 29400000",
+      "Uplink 432125000 / Downlink 145925000",
+      "Uplink n/a / Downlink 29502000",
+      "Uplink n/a / Downlink 2304100000"
+    ],
+    "period_minutes": 98.8,
+    "phase_offset": 0.6288659793814433
+  },
+  {
+    "sat_id": "phase-3b-ao-10",
+    "norad_id": 14129,
+    "name": "PHASE 3B (AO-10)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Engineering Beacon CW",
+      "Beacon (unmodulated carrier) CW"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 145987000",
+      "Uplink n/a / Downlink 145810000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.6597938144329897
+  },
+  {
+    "sat_id": "uosat-2-uo-11",
+    "norad_id": 14781,
+    "name": "UOSAT 2 (UO-11)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "1k2 AFSK TLM AFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 145825000"
+    ],
+    "period_minutes": 97.0,
+    "phase_offset": 0.38144329896907214
+  },
+  {
+    "sat_id": "lusat-lo-19",
+    "norad_id": 20442,
+    "name": "LUSAT (LO-19)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "BPSK 1k2 Transceiver BPSK",
+      "Mode U TLM CW",
+      "Carrier"
+    ],
+    "repeaters": [
+      "Uplink 145840000 / Downlink 437150000",
+      "Uplink n/a / Downlink 437125000",
+      "Uplink n/a / Downlink 435078000"
+    ],
+    "period_minutes": 100.6,
+    "phase_offset": 0.7422680412371134
+  },
+  {
+    "sat_id": "eyesat-a-ao-27",
+    "norad_id": 22825,
+    "name": "EYESAT A (AO-27)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode V/U FM FM",
+      "Mode U AFSK Beacon AFSK",
+      "Mode S FM",
+      "Mode U - GMSK9k6 GMSK"
+    ],
+    "repeaters": [
+      "Uplink 145850000 / Downlink 436795000",
+      "Uplink n/a / Downlink 436795000",
+      "Uplink n/a / Downlink 2218000000",
+      "Uplink n/a / Downlink 436797000"
+    ],
+    "period_minutes": 103.0,
+    "phase_offset": 0.30927835051546393
+  },
+  {
+    "sat_id": "itamsat-io-26",
+    "norad_id": 22826,
+    "name": "ITAMSAT (IO-26)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "BPSK CW carrier BPSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435772000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.31958762886597936
+  },
+  {
+    "sat_id": "radio-rosto-rs15",
+    "norad_id": 23439,
+    "name": "RADIO ROSTO (RS15)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode T TLM 1 CW"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 29352500"
+    ],
+    "period_minutes": 97.0,
+    "phase_offset": 0.6391752577319587
+  },
+  {
+    "sat_id": "jas-2-fo-29",
+    "norad_id": 24278,
+    "name": "JAS-2 (FO-29)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U CW Beacon CW",
+      "Mode V/U Linear Transponder USB",
+      "Mode U Digitalker FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435795000",
+      "Uplink 145900000 / Downlink 435800000",
+      "Uplink n/a / Downlink 435910000"
+    ],
+    "period_minutes": 101.2,
+    "phase_offset": 0.28865979381443296
+  },
+  {
+    "sat_id": "techsat-1b-go-32",
+    "norad_id": 25397,
+    "name": "TECHSAT 1B (GO-32)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode V/U APRS,BBS 9K6 FSK FSK",
+      "Mode V/U APRS 9K6 FSK FSK",
+      "Mode V/U BBS 9k6 FSK FSK",
+      "Mode L/U 9K6 FSK FSK",
+      "Mode L/U 9K6 FSK FSK",
+      "Mode L/U 9K6 FSK FSK",
+      "Mode U 9k6 FSK FSK",
+      "Mode U 9k6 FSK FSK"
+    ],
+    "repeaters": [
+      "Uplink 145930000 / Downlink 435225000",
+      "Uplink 145850000 / Downlink 435225000",
+      "Uplink 145890000 / Downlink 435225000",
+      "Uplink 1269900000 / Downlink 435225000",
+      "Uplink 1269800000 / Downlink 435225000",
+      "Uplink 1269700000 / Downlink 435225000",
+      "Uplink n/a / Downlink 435225000",
+      "Uplink n/a / Downlink 435325000"
+    ],
+    "period_minutes": 101.8,
+    "phase_offset": 0.8247422680412371
+  },
+  {
+    "sat_id": "iss-zarya",
+    "norad_id": 25544,
+    "name": "ISS (ZARYA)",
+    "is_iss": true,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode V APRS AFSK",
+      "Mode V/V FM (crew R2+3) FM",
+      "Mode V/V FM (crew R1) FM",
+      "VHF-1 Soyuz Communication - FMN FMN",
+      "VHF-2 Soyuz Communication - FMN FMN",
+      "Soyuz / Orlan space suit FM",
+      "Mystery transmitter 137.6257MHz CW",
+      "ISS CCSDS Data 1 QPSK",
+      "IORS Telemetry FSK",
+      "ICARUS Animal-Tracker Experiment PSK",
+      "Control Module \"Zarya\" FM",
+      "Service Module \"Zvezda\" (Upper side band) FM",
+      "Mode U - Possibly Voice FM",
+      "Suit 1 FM",
+      "Suit 2 FM",
+      "EMU Alt FSK",
+      "Mode S1 FM",
+      "Mode S2 FM",
+      "EVA/WVS FM",
+      "Rassvet FM",
+      "CUCU (SpaceX COTS UHF Communication Unit) BPSK",
+      "SpaceX Dragon Wideband Telemetry BPSK",
+      "SpaceX Dragon narrowband telemetry BPSK",
+      "SpaceX Falcon Wideband Telemetry BPSK",
+      "Suit 3 FMN",
+      "CW Soyuz-TM and Progress M1 beacon FM",
+      "Soyuz-TM and Progress M-1 TLM FM",
+      "Regul CW",
+      "TORU S1 AM",
+      "Toru S2 AM",
+      "Kvant FMN",
+      "Falcon 9 CCSDS 2272.5 GMSK",
+      "Falcon 9 CCSDS 2232.5 GMSK",
+      "EMU (695000) FSK",
+      "Mode U - SSTV SSTV",
+      "Mode S - HamTV DVB-S DVB-S2",
+      "Mode V/U FM - Voice Repeater CTCSS 67.0 Hz FM",
+      "Mode V Imaging SSTV",
+      "Mode U APRS test AFSK"
+    ],
+    "repeaters": [
+      "Uplink 145825000 / Downlink 145825000",
+      "Uplink 144490000 / Downlink 145800000",
+      "Uplink 145200000 / Downlink 145800000",
+      "Uplink n/a / Downlink 143625000",
+      "Uplink n/a / Downlink 130167000",
+      "Uplink n/a / Downlink 121750000",
+      "Uplink n/a / Downlink 137625700",
+      "Uplink n/a / Downlink 2265000000",
+      "Uplink n/a / Downlink 437800000",
+      "Uplink n/a / Downlink 468100000",
+      "Uplink n/a / Downlink 632000000",
+      "Uplink n/a / Downlink 630128000",
+      "Uplink n/a / Downlink 435400000",
+      "Uplink n/a / Downlink 121100000",
+      "Uplink n/a / Downlink 121275000",
+      "Uplink n/a / Downlink 417100000",
+      "Uplink n/a / Downlink 2425000000",
+      "Uplink n/a / Downlink 2375000000",
+      "Uplink n/a / Downlink 400575000",
+      "Uplink n/a / Downlink 637500000",
+      "Uplink n/a / Downlink 400500000",
+      "Uplink n/a / Downlink 2205500000",
+      "Uplink n/a / Downlink 2216000000",
+      "Uplink n/a / Downlink 2213500000",
+      "Uplink n/a / Downlink 139208000",
+      "Uplink n/a / Downlink 922750000",
+      "Uplink n/a / Downlink 166000000",
+      "Uplink n/a / Downlink 922763000",
+      "Uplink n/a / Downlink 2860000000",
+      "Uplink n/a / Downlink 2725000000",
+      "Uplink n/a / Downlink 768975000",
+      "Uplink n/a / Downlink 2272500000",
+      "Uplink n/a / Downlink 2232500000",
+      "Uplink n/a / Downlink 414200000",
+      "Uplink n/a / Downlink 437800000",
+      "Uplink n/a / Downlink 2395000000",
+      "Uplink 145990000 / Downlink 437800000",
+      "Uplink n/a / Downlink 145800000",
+      "Uplink 437825000 / Downlink 437825000"
+    ],
+    "period_minutes": 92.9,
+    "phase_offset": 0.3402061855670103
+  },
+  {
+    "sat_id": "pcsat-no-44",
+    "norad_id": 26931,
+    "name": "PCSAT (NO-44)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode V/V APRS AFSK AFSK",
+      "PE0SAT - 1k2 AFSK APRS AFSK",
+      "Mode V - R2 Backup APRS 1K2 AFSK"
+    ],
+    "repeaters": [
+      "Uplink 145825000 / Downlink 145825000",
+      "Uplink n/a / Downlink 145826800",
+      "Uplink n/a / Downlink 144390000"
+    ],
+    "period_minutes": 101.8,
+    "phase_offset": 0.6391752577319587
+  },
+  {
+    "sat_id": "saudisat-1c-so-50",
+    "norad_id": 27607,
+    "name": "SAUDISAT 1C (SO-50)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode V/U FM Voice CTCSS 67.0 Hz FM",
+      "Mode V TLM FM"
+    ],
+    "repeaters": [
+      "Uplink 145850000 / Downlink 436795000",
+      "Uplink n/a / Downlink 149025000"
+    ],
+    "period_minutes": 101.8,
+    "phase_offset": 0.6082474226804123
+  },
+  {
+    "sat_id": "cute-1-co-55",
+    "norad_id": 27844,
+    "name": "CUTE-1 (CO-55)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U TLM AFSK",
+      "Mode U TLM CW",
+      "PE0SAT - CW Beacon CW"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437470000",
+      "Uplink n/a / Downlink 436837500",
+      "Uplink n/a / Downlink 436835820"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.05154639175257732
+  },
+  {
+    "sat_id": "cubesat-xi-iv-co-57",
+    "norad_id": 27848,
+    "name": "CUBESAT XI-IV (CO-57)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U CW Beacon CW",
+      "Mode U AFSK TLM AFSK",
+      "PE0SAT - CW Beacon CW"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436847500",
+      "Uplink n/a / Downlink 437490000",
+      "Uplink n/a / Downlink 436848700"
+    ],
+    "period_minutes": 98.2,
+    "phase_offset": 0.09278350515463918
+  },
+  {
+    "sat_id": "mozhaets-4-rs22",
+    "norad_id": 27939,
+    "name": "MOZHAETS 4 (RS22)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U CW Beacon CW",
+      "PE0SAT - CW Beacon CW",
+      "Mode U FM Doka DOKA"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435352000",
+      "Uplink n/a / Downlink 435352800",
+      "Uplink n/a / Downlink 435353000"
+    ],
+    "period_minutes": 98.2,
+    "phase_offset": 0.030927835051546393
+  },
+  {
+    "sat_id": "cubesat-xi-v",
+    "norad_id": 28895,
+    "name": "CUBESAT XI-V",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U CW BEACON CW"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437463100"
+    ],
+    "period_minutes": 102.4,
+    "phase_offset": 0.8865979381443299
+  },
+  {
+    "sat_id": "cute-1.7+apd-ii-co-65",
+    "norad_id": 32785,
+    "name": "CUTE-1.7+APD II (CO-65)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U TLM 1 CW",
+      "Mode U TLM 2 AFSK",
+      "PE0SAT - CW Beacon CW",
+      "Mode L/U Digipeater GMSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437275000",
+      "Uplink n/a / Downlink 437475000",
+      "Uplink n/a / Downlink 437274600",
+      "Uplink 1267600000 / Downlink 437475000"
+    ],
+    "period_minutes": 104.2,
+    "phase_offset": 0.9896907216494846
+  },
+  {
+    "sat_id": "seeds-ii-co-66",
+    "norad_id": 32791,
+    "name": "SEEDS II (CO-66)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U Digi FMN",
+      "PE0SAT - CW Beacon CW",
+      "Mode U TLM AFSK",
+      "CW CW",
+      "Mode U SSTV SSTV"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437485000",
+      "Uplink n/a / Downlink 437485700",
+      "Uplink n/a / Downlink 437485000",
+      "Uplink n/a / Downlink 437485000",
+      "Uplink n/a / Downlink 437485000"
+    ],
+    "period_minutes": 100.0,
+    "phase_offset": 0.05154639175257732
+  },
+  {
+    "sat_id": "yubileiny-rs30",
+    "norad_id": 32953,
+    "name": "YUBILEINY (RS30)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "PE0SAT - CW Beacon CW",
+      "Telemetry Beacon 1 Beacon PSK",
+      "Telemetry Beacon 2 Beacon DOKA",
+      "435.353 FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435315700",
+      "Uplink n/a / Downlink 435215000",
+      "Uplink n/a / Downlink 435315000",
+      "Uplink n/a / Downlink 435353000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.7216494845360825
+  },
+  {
+    "sat_id": "kks-1-kiseki",
+    "norad_id": 33499,
+    "name": "KKS-1 (KISEKI)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "CW Beacon CW",
+      "Mode U MSG AFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437385000",
+      "Uplink n/a / Downlink 437445000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.35051546391752575
+  },
+  {
+    "sat_id": "swisscube",
+    "norad_id": 35932,
+    "name": "SWISSCUBE",
+    "is_iss": true,
+    "has_amateur_radio": true,
+    "transponders": [
+      "CW Beacon CW",
+      "FSK 1k2 Beacon AFSK",
+      "PE0SAT - CW Beacon CW",
+      "PE0SAT - 1k2 BPSK AFSK Tones BPSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437505000",
+      "Uplink n/a / Downlink 437505000",
+      "Uplink n/a / Downlink 437500700",
+      "Uplink n/a / Downlink 437500000"
+    ],
+    "period_minutes": 92.9,
+    "phase_offset": 0.4329896907216495
+  },
+  {
+    "sat_id": "beesat-1",
+    "norad_id": 35933,
+    "name": "BEESAT-1",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "TLM Mobitex GMSK GMSK",
+      "Digipeater (Mobitex, idle mode: 10 sec interval) GMSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435950000",
+      "Uplink 435950000 / Downlink 435950000"
+    ],
+    "period_minutes": 97.6,
+    "phase_offset": 0.44329896907216493
+  },
+  {
+    "sat_id": "itupsat1",
+    "norad_id": 35935,
+    "name": "ITUPSAT1",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "GFSK Telemetry GFSK",
+      "CW Beacon CW",
+      "GMSK Telemetry Drifted GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437325000",
+      "Uplink n/a / Downlink 437325000",
+      "Uplink n/a / Downlink 437322500"
+    ],
+    "period_minutes": 98.8,
+    "phase_offset": 0.4639175257731959
+  },
+  {
+    "sat_id": "xiwang-1-hope-1",
+    "norad_id": 36122,
+    "name": "XIWANG-1 (HOPE-1)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "CW Beacon CW",
+      "Mode V/U FM FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435791000",
+      "Uplink 145825000 / Downlink 435675000"
+    ],
+    "period_minutes": 101.8,
+    "phase_offset": 0.3917525773195876
+  },
+  {
+    "sat_id": "o/oreos-usa-219",
+    "norad_id": 37224,
+    "name": "O/OREOS (USA 219)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "AFSK Beacon AFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437305000"
+    ],
+    "period_minutes": 100.0,
+    "phase_offset": 0.7525773195876289
+  },
+  {
+    "sat_id": "jugnu",
+    "norad_id": 37839,
+    "name": "JUGNU",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "CW Beacon CW",
+      "TLM FSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437275000",
+      "Uplink n/a / Downlink 437505000"
+    ],
+    "period_minutes": 102.4,
+    "phase_offset": 0.09278350515463918
+  },
+  {
+    "sat_id": "srmsat",
+    "norad_id": 37841,
+    "name": "SRMSAT",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "CW Beacon CW"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437425000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.1134020618556701
+  },
+  {
+    "sat_id": "strand-1",
+    "norad_id": 39090,
+    "name": "STRAND-1",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 104.2,
+    "phase_offset": 0.9896907216494846
+  },
+  {
+    "sat_id": "zacube-1-tshepisosat",
+    "norad_id": 39417,
+    "name": "ZACUBE-1 (TSHEPISOSAT)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "FSK1k2 TLM FSK",
+      "FSK9K6 TLM FSK",
+      "14.099 MHz CW Beacon CW"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437356000",
+      "Uplink n/a / Downlink 437356000",
+      "Uplink n/a / Downlink 14099000"
+    ],
+    "period_minutes": 97.6,
+    "phase_offset": 0.36082474226804123
+  },
+  {
+    "sat_id": "gomx-1",
+    "norad_id": 39430,
+    "name": "GOMX-1",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode X (8MHz) FM",
+      "4k8 GMSK GMSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 8198000000",
+      "Uplink n/a / Downlink 437250000"
+    ],
+    "period_minutes": 97.6,
+    "phase_offset": 0.4948453608247423
+  },
+  {
+    "sat_id": "cubebug-2-lo-74",
+    "norad_id": 39440,
+    "name": "CUBEBUG-2 (LO-74)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "UHF 1K2 AFSK Telemetry AFSK",
+      "Mode U - FSK9k6 - AX.25 TLM FSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437445000",
+      "Uplink n/a / Downlink 437445000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.5979381443298969
+  },
+  {
+    "sat_id": "funcube-1-ao-73",
+    "norad_id": 39444,
+    "name": "FUNCUBE-1 (AO-73)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U/V Linear USB",
+      "CW Beacon CW",
+      "BPSK Telemetry BPSK"
+    ],
+    "repeaters": [
+      "Uplink 435130000 / Downlink 145950000",
+      "Uplink n/a / Downlink 145815000",
+      "Uplink n/a / Downlink 145935000"
+    ],
+    "period_minutes": 98.2,
+    "phase_offset": 0.6391752577319587
+  },
+  {
+    "sat_id": "uwe-3",
+    "norad_id": 39446,
+    "name": "UWE-3",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "PE0SAT - 9k6 FSK TLM FSK",
+      "9k6 FSK TLM FSK",
+      "Transmitter FSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437384000",
+      "Uplink n/a / Downlink 437385000",
+      "Uplink n/a / Downlink 436395000"
+    ],
+    "period_minutes": 99.4,
+    "phase_offset": 0.6597938144329897
+  },
+  {
+    "sat_id": "unisat-6",
+    "norad_id": 40012,
+    "name": "UNISAT-6",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "9k6 FSK TLM FSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437421500"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.4948453608247423
+  },
+  {
+    "sat_id": "duchifat-1",
+    "norad_id": 40021,
+    "name": "DUCHIFAT-1",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "CW TLM beacon callsign 4X4HSL CW",
+      "BPSK TLM 1k2 callsign 4X4HSL BPSK",
+      "PE0SAT - 1k2 BPSK TLM BPSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 145980000",
+      "Uplink n/a / Downlink 145980000",
+      "Uplink n/a / Downlink 145981400"
+    ],
+    "period_minutes": 101.2,
+    "phase_offset": 0.5876288659793815
+  },
+  {
+    "sat_id": "qb50p1",
+    "norad_id": 40025,
+    "name": "QB50P1",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "BPSK Telemetry BPSK",
+      "PE0SAT - 1k2 BPSK TLM BPSK",
+      "Linear Transponder USB",
+      "CW Beacon CW"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 145815000",
+      "Uplink n/a / Downlink 145813660",
+      "Uplink 435047000 / Downlink 145935000",
+      "Uplink n/a / Downlink 145880000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.6288659793814433
+  },
+  {
+    "sat_id": "lilacsat-2",
+    "norad_id": 40908,
+    "name": "LILACSAT-2",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "CW Beacon CW",
+      "APRS Digipeater AFSK",
+      "GFSK Telemetry GFSK",
+      "BPSK Telemetry BPSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437200000",
+      "Uplink 144390000 / Downlink 144390000",
+      "Uplink n/a / Downlink 437225000",
+      "Uplink n/a / Downlink 437200000"
+    ],
+    "period_minutes": 103.0,
+    "phase_offset": 0.7319587628865979
+  },
+  {
+    "sat_id": "fox-1a-ao-85",
+    "norad_id": 40967,
+    "name": "FOX-1A (AO-85)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 99.4,
+    "phase_offset": 0.3402061855670103
+  },
+  {
+    "sat_id": "cas-2t-&-ks-1q",
+    "norad_id": 41847,
+    "name": "CAS-2T & KS-1Q",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "FM Transponder FMN",
+      "CW Telemetry CW"
+    ],
+    "repeaters": [
+      "Uplink 145925000 / Downlink 435615000",
+      "Uplink n/a / Downlink 435710000"
+    ],
+    "period_minutes": 97.0,
+    "phase_offset": 0.41237113402061853
+  },
+  {
+    "sat_id": "radfxsat-fox-1b",
+    "norad_id": 43017,
+    "name": "RADFXSAT (FOX-1B)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "DUV TLM DUV",
+      "Mode U/V FM Voice CTCSS 67.0Hz FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 145960000",
+      "Uplink 435250000 / Downlink 145960000"
+    ],
+    "period_minutes": 97.0,
+    "phase_offset": 0.4742268041237113
+  },
+  {
+    "sat_id": "diwata-2b",
+    "norad_id": 43678,
+    "name": "DIWATA-2B",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode S FM",
+      "FM VOICE FM",
+      "CW Beacon CW"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 2284991000",
+      "Uplink 437500000 / Downlink 145900000",
+      "Uplink n/a / Downlink 145900000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.28865979381443296
+  },
+  {
+    "sat_id": "es'hail-2",
+    "norad_id": 43700,
+    "name": "ES'HAIL 2",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "BPSK400 Upper Beacon BPSK",
+      "CW Lower Beacon CW",
+      "CW Only Transpoder CW",
+      "Narrowband digimodes(500Hz max BW) FM",
+      "digimodes(2700Hz max BW) FM",
+      "SSB Only Transpoder FM",
+      "SSB Only Transpoder FM",
+      "BPSK400 Middle Beacon BPSK",
+      "Mixed modes(2700Hz max BW) FM",
+      "CW Experimental Beacon CW",
+      "BPSK400 Middle Beacon BPSK",
+      "Experimental Beacon FM",
+      "International Emergency Frequency USB",
+      "IS0GRB Winlink Server OFDM",
+      "IS0GRB Winlink Server OFDM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 10489795000",
+      "Uplink n/a / Downlink 10489500000",
+      "Uplink 2400005000 / Downlink 10489505000",
+      "Uplink 2400040000 / Downlink 10489540000",
+      "Uplink 2400080000 / Downlink 10489580000",
+      "Uplink 2400150000 / Downlink 10489650000",
+      "Uplink 2400255000 / Downlink 10489755000",
+      "Uplink n/a / Downlink 10489745000",
+      "Uplink 2400350000 / Downlink 10489850000",
+      "Uplink n/a / Downlink 10489995000",
+      "Uplink n/a / Downlink 10489745000",
+      "Uplink n/a / Downlink 10489995000",
+      "Uplink 2400360000 / Downlink 10489860000",
+      "Uplink n/a / Downlink 10489635000",
+      "Uplink n/a / Downlink 10489635000"
+    ],
+    "period_minutes": 101.2,
+    "phase_offset": 0.5154639175257731
+  },
+  {
+    "sat_id": "fox-1cliff-ao-95",
+    "norad_id": 43770,
+    "name": "FOX-1CLIFF (AO-95)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "DUV TLM DUV",
+      "AFSK9k6 digital data AFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 145920000",
+      "Uplink n/a / Downlink 145920000"
+    ],
+    "period_minutes": 104.2,
+    "phase_offset": 0.23711340206185566
+  },
+  {
+    "sat_id": "itasat",
+    "norad_id": 43786,
+    "name": "ITASAT",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "BPSK1k2 AX.25 TLM BPSK",
+      "BPSK14k4 BPSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 145860000",
+      "Uplink n/a / Downlink 2400150000"
+    ],
+    "period_minutes": 98.2,
+    "phase_offset": 0.4020618556701031
+  },
+  {
+    "sat_id": "jy1sat-jo-97",
+    "norad_id": 43803,
+    "name": "JY1SAT (JO-97)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "BPSK1k2 TLM BPSK",
+      "U/V SSB Transponder USB",
+      "U/V CW Transponder CW"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 145840000",
+      "Uplink 435100000 / Downlink 145855000",
+      "Uplink 435100000 / Downlink 145855000"
+    ],
+    "period_minutes": 100.6,
+    "phase_offset": 0.5773195876288659
+  },
+  {
+    "sat_id": "uwe-4",
+    "norad_id": 43880,
+    "name": "UWE-4",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - FSK 9600 AX.25 FSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435600000"
+    ],
+    "period_minutes": 100.0,
+    "phase_offset": 0.3711340206185567
+  },
+  {
+    "sat_id": "tianyan-01",
+    "norad_id": 44881,
+    "name": "TIANYAN 01",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode V CW TLM CW",
+      "Mode V GMSK4k8 AX.25 TLM GMSK",
+      "Mode U/V Linear Transponder USB",
+      "Transmitter 401.545-401.555 FM",
+      "S-band telemetry FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 145910000",
+      "Uplink n/a / Downlink 145890000",
+      "Uplink 435270000 / Downlink 145915000",
+      "Uplink n/a / Downlink 401550000",
+      "Uplink n/a / Downlink 2278328000"
+    ],
+    "period_minutes": 100.0,
+    "phase_offset": 0.6907216494845361
+  },
+  {
+    "sat_id": "rs-44-&-breeze-km-r/b",
+    "norad_id": 44909,
+    "name": "RS-44 & BREEZE-KM R/B",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - Beacon CW",
+      "Mode U FSK",
+      "Mode V/U - Transponder USB",
+      "Doka-B DOKA",
+      "Mode U Audio BPSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435605000",
+      "Uplink n/a / Downlink 435315000",
+      "Uplink 145935000 / Downlink 435610000",
+      "Uplink n/a / Downlink 435215000",
+      "Uplink n/a / Downlink 435660000"
+    ],
+    "period_minutes": 101.2,
+    "phase_offset": 0.979381443298969
+  },
+  {
+    "sat_id": "salsat",
+    "norad_id": 46495,
+    "name": "SALSAT",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "AFSK 1k2 TLM AFSK TUBiX10",
+      "BPSK BPSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435950000",
+      "Uplink n/a / Downlink 2266000000"
+    ],
+    "period_minutes": 101.2,
+    "phase_offset": 0.32989690721649484
+  },
+  {
+    "sat_id": "xw-3-cas-9",
+    "norad_id": 50466,
+    "name": "XW-3 (CAS-9)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - Telemetry CW",
+      "Mode U - GMSK4k8 AX.25 Telemetry GMSK",
+      "Mode V/U - Transponder USB",
+      "Mode U Audio BPSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435575000",
+      "Uplink n/a / Downlink 435725000",
+      "Uplink 145855000 / Downlink 435165000",
+      "Uplink n/a / Downlink 435180000"
+    ],
+    "period_minutes": 97.0,
+    "phase_offset": 0.26804123711340205
+  },
+  {
+    "sat_id": "greencube-io-117",
+    "norad_id": 53109,
+    "name": "GREENCUBE (IO-117)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U TLM 2k4 GMSK AX25 GMSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436750000"
+    ],
+    "period_minutes": 99.4,
+    "phase_offset": 0.5154639175257731
+  },
+  {
+    "sat_id": "umka-1-rs40s",
+    "norad_id": 57172,
+    "name": "UMKA 1 (RS40S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GMSK 9k6 (USP) TLM GMSK USP",
+      "Mode S - BPSK 2Mbps TLM BPSK",
+      "Mode U - SSTV SSTV",
+      "Mode U - GMSK 4k8 (USP) TLM GMSK USP",
+      "Mode U - CW CW"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437625000",
+      "Uplink n/a / Downlink 2402400000",
+      "Uplink n/a / Downlink 437625000",
+      "Uplink n/a / Downlink 437625000",
+      "Uplink n/a / Downlink 437625000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.4020618556701031
+  },
+  {
+    "sat_id": "cubesx-hse-3-rs42s",
+    "norad_id": 57178,
+    "name": "CUBESX-HSE 3 (RS42S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GMSK 4k8 (USP FEC) TLM GMSK USP"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436570000"
+    ],
+    "period_minutes": 99.4,
+    "phase_offset": 0.4639175257731959
+  },
+  {
+    "sat_id": "monitor-3-rs58s",
+    "norad_id": 57180,
+    "name": "MONITOR-3 (RS58S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GMSK 4k8 (USP FEC) TLM GMSK USP",
+      "Mode U - Robot 36 SSTV SSTV",
+      "Mode U - GMSK 9k6 (USP FEC) GMSK USP"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435290000",
+      "Uplink n/a / Downlink 435290000",
+      "Uplink n/a / Downlink 435290000"
+    ],
+    "period_minutes": 100.6,
+    "phase_offset": 0.4845360824742268
+  },
+  {
+    "sat_id": "monitor-4-rs57s",
+    "norad_id": 57182,
+    "name": "MONITOR-4 (RS57S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GMSK 4k8 (USP FEC) TLM GMSK USP",
+      "Mode U - GMSK 2k4 (USP FEC) TLM GMSK USP",
+      "Mode U - GMSK 9k6 (USP FEC) GMSK USP"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436080000",
+      "Uplink n/a / Downlink 436080000",
+      "Uplink n/a / Downlink 436080000"
+    ],
+    "period_minutes": 101.8,
+    "phase_offset": 0.5051546391752577
+  },
+  {
+    "sat_id": "monitor-2-rs39s",
+    "norad_id": 57184,
+    "name": "MONITOR-2 (RS39S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - FSK9k6 FSK",
+      "Mode U AFSK 1k2 AFSK",
+      "Mode U - DOKA 9k6 DOKA",
+      "Mode U - DOKA 9k6 DOKA",
+      "Mode U - AFSK 1k2 AFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435860000",
+      "Uplink n/a / Downlink 435815000",
+      "Uplink n/a / Downlink 435915000",
+      "Uplink n/a / Downlink 435000000",
+      "Uplink n/a / Downlink 435650000"
+    ],
+    "period_minutes": 103.0,
+    "phase_offset": 0.5257731958762887
+  },
+  {
+    "sat_id": "svyatobor-1-rs60s",
+    "norad_id": 57187,
+    "name": "SVYATOBOR 1 (RS60S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GMSK 2k4 (USP FEC) TLM GMSK USP",
+      "Mode U - GMSK 4k8 (USP FEC) TLM GMSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437875000",
+      "Uplink n/a / Downlink 437875000"
+    ],
+    "period_minutes": 97.0,
+    "phase_offset": 0.5567010309278351
+  },
+  {
+    "sat_id": "vizard-meteo-rs38s",
+    "norad_id": 57189,
+    "name": "VIZARD-METEO (RS38S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GMSK 2k4 (USP FEC) TLM GMSK USP",
+      "SSTV - Robot 72 SSTV"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437825000",
+      "Uplink n/a / Downlink 437825000"
+    ],
+    "period_minutes": 98.2,
+    "phase_offset": 0.5773195876288659
+  },
+  {
+    "sat_id": "nanozond-1-rs49s",
+    "norad_id": 57190,
+    "name": "NANOZOND 1 (RS49S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GMSK 2k4 (USP FEC) TLM GMSK USP",
+      "Mode U - SSTV SSTV"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437000000",
+      "Uplink n/a / Downlink 437000000"
+    ],
+    "period_minutes": 98.8,
+    "phase_offset": 0.5876288659793815
+  },
+  {
+    "sat_id": "polytech-universe-3-r*",
+    "norad_id": 57191,
+    "name": "POLYTECH-UNIVERSE 3 (R*)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - LoRa 62.5k LoRa",
+      "[Experiment] LoRa (62.5 kHz bandwidth) (as FSK) FSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436550000",
+      "Uplink n/a / Downlink 436550000"
+    ],
+    "period_minutes": 99.4,
+    "phase_offset": 0.5979381443298969
+  },
+  {
+    "sat_id": "utmn-2-rs27s",
+    "norad_id": 57203,
+    "name": "UTMN 2 (RS27S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GMSK 4k8 (USP FEC) TLM GMSK USP",
+      "Mode U - GMSK 2k4 (USP FEC) TLM GMSK USP",
+      "Mode U - GMSK 9k6 (USP FEC) TLM GMSK USP",
+      "Mode U - Robot 36 SSTV SSTV"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436125000",
+      "Uplink n/a / Downlink 436125000",
+      "Uplink n/a / Downlink 435680000",
+      "Uplink n/a / Downlink 436125000"
+    ],
+    "period_minutes": 98.8,
+    "phase_offset": 0.7216494845360825
+  },
+  {
+    "sat_id": "kuzgtu-1-rs47s",
+    "norad_id": 57217,
+    "name": "KUZGTU 1 (RS47S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GMSK 4k8 (USP FEC) TLM GMSK USP"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437100000"
+    ],
+    "period_minutes": 99.4,
+    "phase_offset": 0.865979381443299
+  },
+  {
+    "sat_id": "sonate-2",
+    "norad_id": 59112,
+    "name": "SONATE-2",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode V - CW CW",
+      "Mode U - GMSK9k6 - AX.25 G3RUH - Telemetry GMSK",
+      "Mode V - SSTV - Martin M1 SSTV SSTV",
+      "Mode V/V - APRS digipeater AFSK",
+      "Mode S - QPSK 2.048 Msps - CCSDS 131.0-B Convolutional code k=7, r=0.5, randomizer on QPSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 145840000",
+      "Uplink n/a / Downlink 437025000",
+      "Uplink n/a / Downlink 145880000",
+      "Uplink 145825000 / Downlink 145825000",
+      "Uplink n/a / Downlink 2267700000"
+    ],
+    "period_minutes": 97.6,
+    "phase_offset": 0.4020618556701031
+  },
+  {
+    "sat_id": "mesat1",
+    "norad_id": 60209,
+    "name": "MESAT1",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "GlobalStar EyeStar 2M32G1D BPSK",
+      "UHF TLM 1k2 BPSK BPSK",
+      "Mode V/U - SSB - Transponder USB"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 1616250000",
+      "Uplink n/a / Downlink 435800000",
+      "Uplink 145910000 / Downlink 435810000"
+    ],
+    "period_minutes": 100.6,
+    "phase_offset": 0.711340206185567
+  },
+  {
+    "sat_id": "oov-cube-tubsat-30",
+    "norad_id": 60240,
+    "name": "OOV-CUBE (TUBSAT-30)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode S - Transmitter FM",
+      "Mode U - AFSK1k2 AFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 2263000000",
+      "Uplink n/a / Downlink 435950000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.030927835051546393
+  },
+  {
+    "sat_id": "colibri-s-rs67s",
+    "norad_id": 61746,
+    "name": "COLIBRI-S (RS67S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode X - DVB-S2 DVB-S2",
+      "Mode U - CW Beacon CW",
+      "Mode U - GFSK9k6 - AX.25 Beacon and Telemetry (Geoscan framing) GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 10475000000",
+      "Uplink n/a / Downlink 436835000",
+      "Uplink n/a / Downlink 436835000"
+    ],
+    "period_minutes": 102.4,
+    "phase_offset": 0.5567010309278351
+  },
+  {
+    "sat_id": "hors-3-rs81s",
+    "norad_id": 61753,
+    "name": "HORS 3 (RS81S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - FSK38k4 FSK",
+      "Mode U - Telemetry FSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435650000",
+      "Uplink n/a / Downlink 435200000"
+    ],
+    "period_minutes": 98.8,
+    "phase_offset": 0.6288659793814433
+  },
+  {
+    "sat_id": "hors-4-rs82s",
+    "norad_id": 61754,
+    "name": "HORS 4 (RS82S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - FSK38k4 FSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435700000"
+    ],
+    "period_minutes": 99.4,
+    "phase_offset": 0.6391752577319587
+  },
+  {
+    "sat_id": "horizon-rs59s",
+    "norad_id": 61757,
+    "name": "HORIZON (RS59S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode X - DVB-S2 DVB-S2",
+      "Mode U - CW CW",
+      "Mode U - GFSK9k6 - AX.25 Beacon and Telemetry (Geoscan framing) GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 10474000000",
+      "Uplink n/a / Downlink 435430000",
+      "Uplink n/a / Downlink 435430000"
+    ],
+    "period_minutes": 101.2,
+    "phase_offset": 0.6701030927835051
+  },
+  {
+    "sat_id": "arcticsat-1-rs74s",
+    "norad_id": 61762,
+    "name": "ARCTICSAT 1 (RS74S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - Robot 36 SSTV SSTV",
+      "Mode U - GMSK 2k4 (USP) TLM GMSK USP"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435890000",
+      "Uplink n/a / Downlink 435890000"
+    ],
+    "period_minutes": 104.2,
+    "phase_offset": 0.7216494845360825
+  },
+  {
+    "sat_id": "sit-2086",
+    "norad_id": 61764,
+    "name": "SIT-2086",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GMSK2k4 USP GMSK USP"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 401030000"
+    ],
+    "period_minutes": 97.6,
+    "phase_offset": 0.7422680412371134
+  },
+  {
+    "sat_id": "ruzaevka-390-rs44s",
+    "norad_id": 61766,
+    "name": "RUZAEVKA 390 (RS44S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - AFSK 1143 Beacon TLM AFSK",
+      "SSTV - Robot 36 SSTV"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437050000",
+      "Uplink n/a / Downlink 437050000"
+    ],
+    "period_minutes": 98.8,
+    "phase_offset": 0.7628865979381443
+  },
+  {
+    "sat_id": "hyperview-1g-rs66s",
+    "norad_id": 61772,
+    "name": "HYPERVIEW 1G (RS66S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GMSK2k4 USP GMSK USP",
+      "Mode U - GMSK2k4 USP GMSK USP",
+      "Mode X - DVB-S2 DVB-S2"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436540000",
+      "Uplink n/a / Downlink 436600000",
+      "Uplink n/a / Downlink 10465000000"
+    ],
+    "period_minutes": 102.4,
+    "phase_offset": 0.8247422680412371
+  },
+  {
+    "sat_id": "altair-rs65s",
+    "norad_id": 61779,
+    "name": "ALTAIR (RS65S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - BPSK (DOKA) - 4k8 BPSK",
+      "Mode U - BPSK (DOKA) - 4k8 BPSK",
+      "Mode U - Transmitter AFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435615000",
+      "Uplink n/a / Downlink 435715000",
+      "Uplink n/a / Downlink 435215000"
+    ],
+    "period_minutes": 98.8,
+    "phase_offset": 0.8969072164948454
+  },
+  {
+    "sat_id": "asrtu-1-ao-123",
+    "norad_id": 61781,
+    "name": "ASRTU-1 (AO-123)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Image download QPSK",
+      "Mode V/U - FM Transceiver FM",
+      "Mode U - Telemetry BPSK",
+      "Mode U - SSDV BPSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 10460000000",
+      "Uplink 145850000 / Downlink 435400000",
+      "Uplink n/a / Downlink 435400000",
+      "Uplink n/a / Downlink 436210000"
+    ],
+    "period_minutes": 100.0,
+    "phase_offset": 0.9175257731958762
+  },
+  {
+    "sat_id": "tusur-go-rs78s",
+    "norad_id": 61782,
+    "name": "TUSUR GO (RS78S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode X - DVB-S2 DVB-S2",
+      "Mode U - GFSK9k6 - AX.25 Beacon and Telemetry (Geoscan framing) GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 10475000000",
+      "Uplink n/a / Downlink 437730000"
+    ],
+    "period_minutes": 100.6,
+    "phase_offset": 0.9278350515463918
+  },
+  {
+    "sat_id": "samsat-ionosphere-rs7*",
+    "norad_id": 61784,
+    "name": "SAMSAT-IONOSPHERE (RS7*)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "FSK1k2 - AX.25 Beacon FSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437400000"
+    ],
+    "period_minutes": 101.8,
+    "phase_offset": 0.9484536082474226
+  },
+  {
+    "sat_id": "rtu-mirea-1-rs51s",
+    "norad_id": 61785,
+    "name": "RTU MIREA 1 (RS51S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - CW Beacon CW",
+      "Mode X - DVB-S2 QPSK",
+      "Mode U - GFSK9k6 - AX.25 Beacon and Telemetry (Geoscan framing) GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436200000",
+      "Uplink n/a / Downlink 10473000000",
+      "Uplink n/a / Downlink 436200000"
+    ],
+    "period_minutes": 102.4,
+    "phase_offset": 0.9587628865979382
+  },
+  {
+    "sat_id": "tevel2-4",
+    "norad_id": 63213,
+    "name": "TEVEL2-4",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - BPSK9k6 G3RUH - Beacon BPSK",
+      "Mode V/U - FM Transponder FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436400000",
+      "Uplink 145970000 / Downlink 436400000"
+    ],
+    "period_minutes": 101.2,
+    "phase_offset": 0.6804123711340206
+  },
+  {
+    "sat_id": "tevel2-5",
+    "norad_id": 63214,
+    "name": "TEVEL2-5",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - BPSK9k6 G3RUH - Beacon BPSK",
+      "Mode V/U - FM Transponder FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436400000",
+      "Uplink 145970000 / Downlink 436400000"
+    ],
+    "period_minutes": 101.8,
+    "phase_offset": 0.6907216494845361
+  },
+  {
+    "sat_id": "tevel2-6",
+    "norad_id": 63215,
+    "name": "TEVEL2-6",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - BPSK9k6 G3RUH - Beacon BPSK",
+      "Mode V/U - FM Transponder FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436400000",
+      "Uplink 145970000 / Downlink 436400000"
+    ],
+    "period_minutes": 102.4,
+    "phase_offset": 0.7010309278350515
+  },
+  {
+    "sat_id": "tevel2-1",
+    "norad_id": 63217,
+    "name": "TEVEL2-1",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - BPSK9k6 G3RUH - Beacon BPSK",
+      "Mode V/U - FM Transponder FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436400000",
+      "Uplink 145970000 / Downlink 436400000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.7216494845360825
+  },
+  {
+    "sat_id": "tevel2-3",
+    "norad_id": 63218,
+    "name": "TEVEL2-3",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - BPSK9k6 G3RUH - Beacon BPSK",
+      "Mode V/U - FM Transponder FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436400000",
+      "Uplink 145970000 / Downlink 436400000"
+    ],
+    "period_minutes": 104.2,
+    "phase_offset": 0.7319587628865979
+  },
+  {
+    "sat_id": "tevel2-2",
+    "norad_id": 63219,
+    "name": "TEVEL2-2",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - BPSK9k6 G3RUH BPSK",
+      "Mode V/U - FM Transponder - Beacon FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436400000",
+      "Uplink 145970000 / Downlink 436400000"
+    ],
+    "period_minutes": 97.0,
+    "phase_offset": 0.7422680412371134
+  },
+  {
+    "sat_id": "tevel2-9",
+    "norad_id": 63237,
+    "name": "TEVEL2-9",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - BPSK9k6 G3RUH - Beacon BPSK",
+      "Mode V/U - FM Transponder FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436400000",
+      "Uplink 145970000 / Downlink 436400000"
+    ],
+    "period_minutes": 100.0,
+    "phase_offset": 0.9278350515463918
+  },
+  {
+    "sat_id": "tevel2-7",
+    "norad_id": 63238,
+    "name": "TEVEL2-7",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - BPSK9k6 G3RUH - Beacon BPSK",
+      "Mode V/U - FM Transponder FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436400000",
+      "Uplink 145970000 / Downlink 436400000"
+    ],
+    "period_minutes": 100.6,
+    "phase_offset": 0.9381443298969072
+  },
+  {
+    "sat_id": "tevel2-8",
+    "norad_id": 63239,
+    "name": "TEVEL2-8",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - BPSK9k6 G3RUH BPSK",
+      "Mode V/U - FM Transponder - Beacon FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436400000",
+      "Uplink 145970000 / Downlink 436400000"
+    ],
+    "period_minutes": 101.2,
+    "phase_offset": 0.9484536082474226
+  },
+  {
+    "sat_id": "hades-icm",
+    "norad_id": 63492,
+    "name": "HADES-ICM",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - CW Beacon CW",
+      "Mode U - FSK 200 FSK",
+      "Mode U - TLM Sideband replay BPSK",
+      "Mode V/U - FM Transceiver FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436666000",
+      "Uplink n/a / Downlink 436666000",
+      "Uplink n/a / Downlink 436666000",
+      "Uplink 145875000 / Downlink 436666000"
+    ],
+    "period_minutes": 97.0,
+    "phase_offset": 0.5567010309278351
+  },
+  {
+    "sat_id": "innosat-16-rs92s7",
+    "norad_id": 64878,
+    "name": "INNOSAT 16 (RS92S7)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GFSK9k6 - AX.25 Beacon and Ham Payload (Geoscan framing) GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435830000"
+    ],
+    "period_minutes": 101.8,
+    "phase_offset": 0.845360824742268
+  },
+  {
+    "sat_id": "geoscan-6-rs92s6",
+    "norad_id": 64879,
+    "name": "GEOSCAN 6 (RS92S6)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GFSK9k6 - AX.25 Beacon and Ham Payload (Geoscan framing) GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436940000"
+    ],
+    "period_minutes": 102.4,
+    "phase_offset": 0.8556701030927835
+  },
+  {
+    "sat_id": "geoscan-1-rs92s1",
+    "norad_id": 64880,
+    "name": "GEOSCAN 1 (RS92S1)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GFSK9k6 - AX.25 Beacon and Ham Payload (Geoscan framing) GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435970000"
+    ],
+    "period_minutes": 103.0,
+    "phase_offset": 0.865979381443299
+  },
+  {
+    "sat_id": "239alferov-rs61s",
+    "norad_id": 64881,
+    "name": "239ALFEROV (RS61S)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode X - DVB-S2 DVB-S2",
+      "Mode U - GFSK9k6 - AX.25 Beacon and Telemetry (Geoscan framing) GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 10473350000",
+      "Uplink n/a / Downlink 436270000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.8762886597938144
+  },
+  {
+    "sat_id": "geoscan-2-rs92s2",
+    "norad_id": 64890,
+    "name": "GEOSCAN 2 (RS92S2)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GFSK9k6 - AX.25 Beacon and Ham Payload (Geoscan framing) GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436160000"
+    ],
+    "period_minutes": 101.2,
+    "phase_offset": 0.9690721649484536
+  },
+  {
+    "sat_id": "geoscan-5-rs92s5",
+    "norad_id": 64891,
+    "name": "GEOSCAN 5 (RS92S5)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GFSK9k6 - AX.25 Beacon and Ham Payload (Geoscan framing) GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436660000"
+    ],
+    "period_minutes": 101.8,
+    "phase_offset": 0.979381443298969
+  },
+  {
+    "sat_id": "geoscan-4-rs92s4",
+    "norad_id": 64892,
+    "name": "GEOSCAN 4 (RS92S4)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GFSK9k6 - AX.25 Beacon and Ham Payload (Geoscan framing) GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435335000"
+    ],
+    "period_minutes": 102.4,
+    "phase_offset": 0.9896907216494846
+  },
+  {
+    "sat_id": "geoscan-3-rs92s3",
+    "norad_id": 64893,
+    "name": "GEOSCAN 3 (RS92S3)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GFSK9k6 - AX.25 Beacon and Ham Payload (Geoscan framing) GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 435740000"
+    ],
+    "period_minutes": 103.0,
+    "phase_offset": 0.0
+  },
+  {
+    "sat_id": "innosat-3-rs92s0",
+    "norad_id": 64894,
+    "name": "INNOSAT 3 (RS92S0)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - GFSK9k6 - AX.25 Beacon and Ham Payload (Geoscan framing) GFSK"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 436436000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.010309278350515464
+  },
+  {
+    "sat_id": "poisk",
+    "norad_id": 36086,
+    "name": "POISK",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 103.6,
+    "phase_offset": 0.020618556701030927
+  },
+  {
+    "sat_id": "css-tianhe",
+    "norad_id": 48274,
+    "name": "CSS (TIANHE)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "S TLM 1 FM",
+      "S TLM 2 FM",
+      "2208.722 FM",
+      "1A V/V crew voice NFM FMN",
+      "1B U/U crew voice NFM FMN",
+      "2A V/U FM repeater NFM FMN",
+      "2B U/V FM repeater NFM FMN",
+      "3A V/V digipeater AFSK-FM 1200 AFSK",
+      "3B U/U digipeater AFSK-FM 1200 AFSK",
+      "4A V/V imaging SSTV-FM SSTV",
+      "4B U/U imaging SSTV-FM SSTV"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 2232220000",
+      "Uplink n/a / Downlink 2250720000",
+      "Uplink n/a / Downlink 2208722000",
+      "Uplink 145850000 / Downlink 145985000",
+      "Uplink 435050000 / Downlink 436510000",
+      "Uplink 145875000 / Downlink 436510000",
+      "Uplink 435075000 / Downlink 145985000",
+      "Uplink 145825000 / Downlink 145825000",
+      "Uplink 437550000 / Downlink 437550000",
+      "Uplink 145850000 / Downlink 145985000",
+      "Uplink 435050000 / Downlink 436510000"
+    ],
+    "period_minutes": 100.0,
+    "phase_offset": 0.6701030927835051
+  },
+  {
+    "sat_id": "iss-nauka",
+    "norad_id": 49044,
+    "name": "ISS (NAUKA)",
+    "is_iss": true,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Telemetry FM",
+      "NAUKA strong sideband FM",
+      "NAUKA strong sideband FM",
+      "Mode V - FM FM"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 631000000",
+      "Uplink n/a / Downlink 631129000",
+      "Uplink n/a / Downlink 630873000",
+      "Uplink n/a / Downlink 166075000"
+    ],
+    "period_minutes": 92.9,
+    "phase_offset": 0.6082474226804123
+  },
+  {
+    "sat_id": "fregat-deb",
+    "norad_id": 49271,
+    "name": "FREGAT DEB",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 97.6,
+    "phase_offset": 0.9484536082474226
+  },
+  {
+    "sat_id": "css-wentian",
+    "norad_id": 53239,
+    "name": "CSS (WENTIAN)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 99.4,
+    "phase_offset": 0.8556701030927835
+  },
+  {
+    "sat_id": "css-mengtian",
+    "norad_id": 54216,
+    "name": "CSS (MENGTIAN)",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 100.6,
+    "phase_offset": 0.9278350515463918
+  },
+  {
+    "sat_id": "progress-ms-31",
+    "norad_id": 64751,
+    "name": "PROGRESS-MS 31",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 103.6,
+    "phase_offset": 0.5360824742268041
+  },
+  {
+    "sat_id": "tianzhou-9",
+    "norad_id": 64786,
+    "name": "TIANZHOU-9",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 101.2,
+    "phase_offset": 0.8969072164948454
+  },
+  {
+    "sat_id": "progress-ms-32",
+    "norad_id": 65586,
+    "name": "PROGRESS-MS 32",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 97.6,
+    "phase_offset": 0.14432989690721648
+  },
+  {
+    "sat_id": "cygnus-ng-23",
+    "norad_id": 65616,
+    "name": "CYGNUS NG-23",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 100.0,
+    "phase_offset": 0.4536082474226804
+  },
+  {
+    "sat_id": "iss-object-xk",
+    "norad_id": 65731,
+    "name": "ISS OBJECT XK",
+    "is_iss": true,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 92.9,
+    "phase_offset": 0.6391752577319587
+  },
+  {
+    "sat_id": "yotsuba-kulover",
+    "norad_id": 65941,
+    "name": "YOTSUBA-KULOVER",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 100.0,
+    "phase_offset": 0.8041237113402062
+  },
+  {
+    "sat_id": "e-kagaku-1",
+    "norad_id": 65943,
+    "name": "E-KAGAKU-1",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 101.2,
+    "phase_offset": 0.8247422680412371
+  },
+  {
+    "sat_id": "hrc-monoblock-camera",
+    "norad_id": 66052,
+    "name": "HRC MONOBLOCK CAMERA",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 104.2,
+    "phase_offset": 0.9484536082474226
+  },
+  {
+    "sat_id": "htv-x1",
+    "norad_id": 66174,
+    "name": "HTV-X1",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 99.4,
+    "phase_offset": 0.20618556701030927
+  },
+  {
+    "sat_id": "sz-21-module",
+    "norad_id": 66515,
+    "name": "SZ-21 MODULE",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 101.2,
+    "phase_offset": 0.7216494845360825
+  },
+  {
+    "sat_id": "shenzhou-22",
+    "norad_id": 66645,
+    "name": "SHENZHOU-22",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 101.2,
+    "phase_offset": 0.061855670103092786
+  },
+  {
+    "sat_id": "soyuz-ms-28",
+    "norad_id": 66664,
+    "name": "SOYUZ-MS 28",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 97.0,
+    "phase_offset": 0.25773195876288657
+  },
+  {
+    "sat_id": "duplex",
+    "norad_id": 66906,
+    "name": "DUPLEX",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 101.8,
+    "phase_offset": 0.7525773195876289
+  },
+  {
+    "sat_id": "iss-object-xt",
+    "norad_id": 66907,
+    "name": "ISS OBJECT XT",
+    "is_iss": true,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 92.9,
+    "phase_offset": 0.7628865979381443
+  },
+  {
+    "sat_id": "iss-object-xu",
+    "norad_id": 66908,
+    "name": "ISS OBJECT XU",
+    "is_iss": true,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 92.9,
+    "phase_offset": 0.7731958762886598
+  },
+  {
+    "sat_id": "silversat",
+    "norad_id": 66909,
+    "name": "SILVERSAT",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - CW - Beacon CW",
+      "Mode U - GMSK9k6 - Transmitter GMSK",
+      "Mode U - SSDV SSDV"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437175000",
+      "Uplink n/a / Downlink 437175000",
+      "Uplink n/a / Downlink 437175000"
+    ],
+    "period_minutes": 103.6,
+    "phase_offset": 0.7835051546391752
+  },
+  {
+    "sat_id": "iss-object-xw",
+    "norad_id": 66910,
+    "name": "ISS OBJECT XW",
+    "is_iss": true,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 92.9,
+    "phase_offset": 0.7938144329896907
+  },
+  {
+    "sat_id": "iss-object-xx",
+    "norad_id": 66911,
+    "name": "ISS OBJECT XX",
+    "is_iss": true,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 92.9,
+    "phase_offset": 0.8041237113402062
+  },
+  {
+    "sat_id": "iss-object-xy",
+    "norad_id": 66912,
+    "name": "ISS OBJECT XY",
+    "is_iss": true,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 92.9,
+    "phase_offset": 0.8144329896907216
+  },
+  {
+    "sat_id": "iss-object-xz",
+    "norad_id": 67683,
+    "name": "ISS OBJECT XZ",
+    "is_iss": true,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode V/V - FSK9k6 - Digipeater - AX.25 G3RUH FSK",
+      "Mode U - FSK9k6 - AX.25 G3RUH -TLM FSK"
+    ],
+    "repeaters": [
+      "Uplink 145825000 / Downlink 145825000",
+      "Uplink n/a / Downlink 400630000"
+    ],
+    "period_minutes": 92.9,
+    "phase_offset": 0.7628865979381443
+  },
+  {
+    "sat_id": "gxiba-1",
+    "norad_id": 67684,
+    "name": "GXIBA-1",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "9k6 AX100 MSK AX.100 Mode 5"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 437300000"
+    ],
+    "period_minutes": 100.6,
+    "phase_offset": 0.7731958762886598
+  },
+  {
+    "sat_id": "coral",
+    "norad_id": 67685,
+    "name": "CORAL",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Mode U - Transmitter MSK AX.100 Mode 5"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 401140000"
+    ],
+    "period_minutes": 101.2,
+    "phase_offset": 0.7835051546391752
+  },
+  {
+    "sat_id": "iss-object-yc",
+    "norad_id": 67686,
+    "name": "ISS OBJECT YC",
+    "is_iss": true,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 92.9,
+    "phase_offset": 0.7938144329896907
+  },
+  {
+    "sat_id": "leopard",
+    "norad_id": 67687,
+    "name": "LEOPARD",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "S-Band BPSK BPSK",
+      "Mode U - GMSK4k8 - AX.25 (active after command) GMSK",
+      "Mode U - CW - Beacon CW"
+    ],
+    "repeaters": [
+      "Uplink n/a / Downlink 2279100000",
+      "Uplink n/a / Downlink 400960000",
+      "Uplink n/a / Downlink 400960000"
+    ],
+    "period_minutes": 102.4,
+    "phase_offset": 0.8041237113402062
+  },
+  {
+    "sat_id": "iss-object-ye",
+    "norad_id": 67688,
+    "name": "ISS OBJECT YE",
+    "is_iss": true,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 92.9,
+    "phase_offset": 0.8144329896907216
+  },
+  {
+    "sat_id": "crew-dragon-12",
+    "norad_id": 67796,
+    "name": "CREW DRAGON 12",
+    "is_iss": false,
+    "has_amateur_radio": true,
+    "transponders": [
+      "Amateur payload"
+    ],
+    "repeaters": [],
+    "period_minutes": 97.6,
+    "phase_offset": 0.9278350515463918
+  }
+]
