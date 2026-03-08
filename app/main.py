@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +17,10 @@ from app.models import (
     LocationSourceMode,
     LocationUpdate,
     NetworkUpdate,
+    PassFilterUpdate,
+    PassProfileMode,
     SettingsUpdate,
+    TimezoneUpdate,
 )
 from app.services import (
     CacheService,
@@ -77,6 +81,24 @@ def _pick_active_track(tracks, sat_id: str | None):
     return _pick_iss_track(tracks)
 
 
+def _pass_sat_ids(settings) -> set[str]:
+    if settings.pass_profile == PassProfileMode.favorites:
+        ids = {x for x in settings.pass_sat_ids if isinstance(x, str) and x.strip()}
+        if ids:
+            return ids
+    return {"iss-zarya"}
+
+
+def _is_valid_timezone(tz_name: str) -> bool:
+    if tz_name == "UTC":
+        return True
+    try:
+        ZoneInfo(tz_name)
+        return True
+    except Exception:
+        return False
+
+
 async def _periodic_refresh_loop() -> None:
     while True:
         await asyncio.sleep(6 * 60 * 60)
@@ -114,6 +136,16 @@ def kiosk_index() -> FileResponse:
 @app.get("/lite")
 def lite_index() -> FileResponse:
     return FileResponse("app/static/lite/index.html")
+
+
+@app.get("/settings")
+def settings_index() -> FileResponse:
+    return FileResponse("app/static/kiosk/settings.html")
+
+
+@app.get("/kiosk-rotator")
+def kiosk_rotator_index() -> FileResponse:
+    return FileResponse("app/static/kiosk/rotator.html")
 
 
 @app.get("/health")
@@ -164,10 +196,19 @@ def get_passes(
     hours: int = Query(default=24, ge=1, le=168),
     location_source: LocationSourceMode | None = Query(default=None),
     min_max_el: float = Query(default=0.0, ge=0.0, le=90.0),
+    include_all_sats: bool = Query(default=False),
+    include_ongoing: bool = Query(default=False),
 ) -> dict:
-    _, location = _resolve_location(location_source)
+    state, location = _resolve_location(location_source)
     now = datetime.now(UTC)
-    passes = tracking_service.pass_predictions(now, hours, location)
+    sat_ids = None if include_all_sats else _pass_sat_ids(state.settings)
+    passes = tracking_service.pass_predictions(
+        now,
+        hours,
+        location,
+        sat_ids=sat_ids,
+        include_ongoing=include_ongoing,
+    )
     if min_max_el > 0:
         passes = [p for p in passes if p.max_el_deg >= min_max_el]
     return {
@@ -192,6 +233,44 @@ def set_iss_display_mode(payload: SettingsUpdate) -> dict:
     state.settings.iss_display_mode = payload.mode
     store.save(state)
     return {"mode": state.settings.iss_display_mode}
+
+
+@app.get("/api/v1/settings/timezone")
+def get_timezone() -> dict:
+    state = store.get()
+    return {"timezone": state.settings.display_timezone}
+
+
+@app.post("/api/v1/settings/timezone")
+def set_timezone(payload: TimezoneUpdate) -> dict:
+    tz = (payload.timezone or "").strip()
+    if not _is_valid_timezone(tz):
+        raise HTTPException(status_code=400, detail=f"invalid timezone: {tz}")
+    state = store.get()
+    state.settings.display_timezone = tz
+    store.save(state)
+    return {"timezone": state.settings.display_timezone}
+
+
+@app.get("/api/v1/settings/pass-filter")
+def get_pass_filter() -> dict:
+    state = store.get()
+    return {"profile": state.settings.pass_profile, "satIds": state.settings.pass_sat_ids}
+
+
+@app.post("/api/v1/settings/pass-filter")
+def set_pass_filter(payload: PassFilterUpdate) -> dict:
+    state = store.get()
+    state.settings.pass_profile = payload.profile
+    if payload.sat_ids is not None:
+        cleaned = [s for s in payload.sat_ids if isinstance(s, str) and s.strip()]
+        state.settings.pass_sat_ids = cleaned
+    if state.settings.pass_profile == PassProfileMode.iss_only:
+        state.settings.pass_sat_ids = ["iss-zarya"]
+    elif not state.settings.pass_sat_ids:
+        state.settings.pass_sat_ids = ["iss-zarya"]
+    store.save(state)
+    return {"profile": state.settings.pass_profile, "satIds": state.settings.pass_sat_ids}
 
 
 @app.get("/api/v1/iss/state")
@@ -308,7 +387,6 @@ def get_system_state(
         "issTrack": iss_track,
         "activeTrack": active_track,
         "tracks": tracks,
-        "passes": tracking_service.pass_predictions(now, 24, location)[:30],
         "bodies": bodies,
     }
 

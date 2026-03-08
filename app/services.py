@@ -30,7 +30,7 @@ from app.models import (
 
 SEED_SATELLITES: list[Satellite] = [
     Satellite(
-        sat_id="iss",
+        sat_id="iss-zarya",
         norad_id=25544,
         name="ISS (ZARYA)",
         is_iss=True,
@@ -161,7 +161,7 @@ class TrackingService:
     def __init__(self, cache_path: str = "data/snapshots/latest_catalog.json") -> None:
         self.cache_path = Path(cache_path)
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-        self._satellites = self._ensure_iss(self._load_cached_catalog())
+        self._satellites = self._filter_amateur_catalog(self._ensure_iss(self._load_cached_catalog()))
         self._sat_cache: dict[str, Any] = {}
         self._sky_load = None
         self._sky_wgs84 = None
@@ -187,6 +187,72 @@ class TrackingService:
     def satellites(self) -> list[Satellite]:
         return [s.model_copy(deep=True) for s in self._satellites]
 
+    def _is_amateur_satellite(self, sat: Satellite) -> bool:
+        if sat.is_iss:
+            return True
+        if "ISS" in sat.name.upper():
+            return False
+        if sat.has_amateur_radio is False:
+            return False
+        tx = [str(x or "") for x in (sat.transponders or [])]
+        rx = [str(x or "") for x in (sat.repeaters or [])]
+        text = " ".join(tx + rx).lower()
+        if not text.strip():
+            return False
+        # Exclude payloads that are only available after commanding or are marked
+        # experimental/engineering rather than normal amateur operation.
+        blocked_markers = (
+            "active after command",
+            "after command",
+            "experimental",
+            "engineering mode",
+            "engineering transponder",
+            "test mode",
+        )
+        if any(marker in text for marker in blocked_markers):
+            return False
+        has_beacon = ("beacon" in text) or ("cw" in text)
+        has_placeholder_payload_only = bool(text.strip()) and all(
+            line.strip().lower() in {"amateur payload", "transmitter"}
+            for line in (tx + rx)
+            if line.strip()
+        )
+        has_valid_pair = any(
+            ("uplink" in line.lower())
+            and ("downlink" in line.lower())
+            and ("uplink n/a" not in line.lower())
+            and ("downlink n/a" not in line.lower())
+            for line in rx
+        )
+        has_transponder = any(
+            ("transponder" in line.lower() or "repeater" in line.lower())
+            and ("experimental" not in line.lower())
+            and ("after command" not in line.lower())
+            and ("amateur payload" not in line.lower())
+            and ("transmitter" not in line.lower())
+            for line in tx + rx
+        )
+        if has_placeholder_payload_only and not has_valid_pair and not has_beacon and not has_transponder:
+            return False
+        mode_keywords = (
+            "mhz",
+            "aprs",
+            "fm",
+            "ssb",
+            "cw",
+            "bpsk",
+            "fsk",
+            "afsk",
+            "ctcss",
+            "sstv",
+        )
+        has_named_radio_mode = any(keyword in text for keyword in mode_keywords)
+        return has_valid_pair or has_transponder or (has_beacon and has_named_radio_mode)
+
+    def _filter_amateur_catalog(self, satellites: list[Satellite]) -> list[Satellite]:
+        filtered = [s for s in satellites if self._is_amateur_satellite(s)]
+        return filtered if filtered else self._ensure_iss(SEED_SATELLITES)
+
     def _ensure_iss(self, satellites: list[Satellite]) -> list[Satellite]:
         has_iss = any(s.is_iss or s.norad_id == 25544 or "ISS" in s.name.upper() for s in satellites)
         if has_iss:
@@ -199,7 +265,7 @@ class TrackingService:
     def replace_catalog(self, satellites: list[Satellite]) -> None:
         if not satellites:
             return
-        self._satellites = self._ensure_iss(satellites)
+        self._satellites = self._filter_amateur_catalog(self._ensure_iss(satellites))
         self._sat_cache.clear()
         self._save_cached_catalog()
 
@@ -273,6 +339,8 @@ class TrackingService:
             range_km=round(float(distance.km), 1),
             range_rate_km_s=round(range_rate, 3),
             sunlit=sunlit,
+            subpoint_lat=round(float(sat_obj.at(t).subpoint().latitude.degrees), 4),
+            subpoint_lon=round(float(sat_obj.at(t).subpoint().longitude.degrees), 4),
         )
 
     def _phase(self, sat: Satellite, now: datetime) -> float:
@@ -309,96 +377,79 @@ class TrackingService:
                     range_km=round(range_km, 1),
                     range_rate_km_s=round(range_rate, 3),
                     sunlit=self._sunlit(sat, now, location),
+                    subpoint_lat=round(-50.0 + 100.0 * sin_term, 4),
+                    subpoint_lon=round(((phase * 360.0) % 360.0) - 180.0, 4),
                 )
             )
         return tracks
 
-    def pass_predictions(self, now: datetime, hours: int, location: ResolvedLocation | None = None) -> list[PassEvent]:
+    def pass_predictions(
+        self,
+        now: datetime,
+        hours: int,
+        location: ResolvedLocation | None = None,
+        sat_ids: set[str] | None = None,
+        include_ongoing: bool = False,
+    ) -> list[PassEvent]:
         events: list[PassEvent] = []
         horizon = now + timedelta(hours=hours)
+        # Highly elliptical satellites can remain above the horizon for many hours,
+        # so include a wide enough lookback window to capture the rise event.
+        search_start = now - timedelta(hours=12) if include_ongoing else now
         observer_location = location or ResolvedLocation(source="default", lat=0.0, lon=0.0, alt_m=0.0)
+        satellites = self._satellites if sat_ids is None else [s for s in self._satellites if s.sat_id in sat_ids]
 
-        for sat in self._satellites:
+        for sat in satellites:
             sat_obj = self._sat_obj(sat)
-            if sat_obj is not None and self._sky_wgs84 is not None and self._sky_ts is not None:
-                try:
-                    observer = self._sky_wgs84.latlon(
-                        observer_location.lat,
-                        observer_location.lon,
-                        elevation_m=observer_location.alt_m,
-                    )
-                    t0 = self._sky_ts.from_datetime(now.astimezone(UTC).replace(tzinfo=UTC))
-                    t1 = self._sky_ts.from_datetime(horizon.astimezone(UTC).replace(tzinfo=UTC))
-                    tt, ev = sat_obj.find_events(observer, t0, t1, altitude_degrees=0.0)
-                    rise = None
-                    maxe = None
-                    max_el_val = None
-                    for t_val, e_val in zip(tt, ev):
-                        dt = t_val.utc_datetime().replace(tzinfo=UTC)
-                        if e_val == 0:
-                            rise = dt
-                            maxe = None
-                            max_el_val = None
-                        elif e_val == 1 and rise is not None:
-                            maxe = dt
-                            alt, _, _ = (sat_obj - observer).at(t_val).altaz()
-                            max_el_val = float(alt.degrees)
-                        elif e_val == 2 and rise is not None:
-                            los = dt
-                            tca = maxe or (rise + (los - rise) / 2)
-                            if max_el_val is None and maxe is not None:
-                                tca_sf = self._sky_ts.from_datetime(maxe.astimezone(UTC).replace(tzinfo=UTC))
-                                alt, _, _ = (sat_obj - observer).at(tca_sf).altaz()
-                                max_el_val = float(alt.degrees)
-                            events.append(
-                                PassEvent(
-                                    sat_id=sat.sat_id,
-                                    name=sat.name,
-                                    aos=rise,
-                                    tca=tca,
-                                    los=los,
-                                    max_el_deg=round(max_el_val if max_el_val is not None else 0.0, 1),
-                                )
-                            )
-                            rise = None
-                            maxe = None
-                            max_el_val = None
-                    continue
-                except Exception:
-                    pass
+            if sat_obj is None or self._sky_wgs84 is None or self._sky_ts is None:
+                # Do not return synthetic pass predictions; they are too misleading.
+                continue
 
-            phase = self._phase(sat, now)
-            period = sat.period_minutes
-
-            # Passes start at phase 0 and end at phase 0.5 in this approximation.
-            next_aos_offset_min = ((1.0 - phase) % 1.0) * period
-            aos = now + timedelta(minutes=next_aos_offset_min)
-
-            while aos < horizon:
-                tca = aos + timedelta(minutes=period * 0.25)
-                los = aos + timedelta(minutes=period * 0.5)
-                # Compute a numeric max elevation estimate in fallback mode
-                # by sampling 31 points across the pass window.
-                max_el = -90.0
-                for i in range(31):
-                    t = aos + timedelta(seconds=(los - aos).total_seconds() * i / 30)
-                    tr = self.live_tracks(t, observer_location)
-                    tt = next((x for x in tr if x.sat_id == sat.sat_id), None)
-                    if tt is not None:
-                        max_el = max(max_el, tt.el_deg)
-                if max_el < -89.0:
-                    max_el = 0.0
-                events.append(
-                    PassEvent(
-                        sat_id=sat.sat_id,
-                        name=sat.name,
-                        aos=aos,
-                        tca=tca,
-                        los=los,
-                        max_el_deg=round(max_el, 1),
-                    )
+            try:
+                observer = self._sky_wgs84.latlon(
+                    observer_location.lat,
+                    observer_location.lon,
+                    elevation_m=observer_location.alt_m,
                 )
-                aos = aos + timedelta(minutes=period)
+                t0 = self._sky_ts.from_datetime(search_start.astimezone(UTC).replace(tzinfo=UTC))
+                t1 = self._sky_ts.from_datetime(horizon.astimezone(UTC).replace(tzinfo=UTC))
+                tt, ev = sat_obj.find_events(observer, t0, t1, altitude_degrees=0.0)
+                rise = None
+                maxe = None
+                max_el_val = None
+                for t_val, e_val in zip(tt, ev):
+                    dt = t_val.utc_datetime().replace(tzinfo=UTC)
+                    if e_val == 0:
+                        rise = dt
+                        maxe = None
+                        max_el_val = None
+                    elif e_val == 1 and rise is not None:
+                        maxe = dt
+                        alt, _, _ = (sat_obj - observer).at(t_val).altaz()
+                        max_el_val = float(alt.degrees)
+                    elif e_val == 2 and rise is not None:
+                        los = dt
+                        tca = maxe or (rise + (los - rise) / 2)
+                        if max_el_val is None and maxe is not None:
+                            tca_sf = self._sky_ts.from_datetime(maxe.astimezone(UTC).replace(tzinfo=UTC))
+                            alt, _, _ = (sat_obj - observer).at(tca_sf).altaz()
+                            max_el_val = float(alt.degrees)
+                        event = PassEvent(
+                            sat_id=sat.sat_id,
+                            name=sat.name,
+                            aos=rise,
+                            tca=tca,
+                            los=los,
+                            max_el_deg=round(max_el_val if max_el_val is not None else 0.0, 1),
+                        )
+                        if event.los >= now and event.aos <= horizon:
+                            if include_ongoing or event.aos >= now:
+                                events.append(event)
+                        rise = None
+                        maxe = None
+                        max_el_val = None
+            except Exception:
+                continue
 
         events.sort(key=lambda e: e.aos)
         return events
@@ -477,8 +528,40 @@ class DataIngestionService:
     def __init__(self, eph_path: str = "data/ephemeris/de421.bsp") -> None:
         self.eph_path = Path(eph_path)
         self.eph_path.parent.mkdir(parents=True, exist_ok=True)
+        self.refresh_meta_path = Path("data/snapshots/catalog_refresh_meta.json")
+        self.refresh_meta_path.parent.mkdir(parents=True, exist_ok=True)
         self._ephem_loaded = None
         self._ephem_ts = None
+
+    def _load_refresh_meta(self) -> dict[str, Any]:
+        if not self.refresh_meta_path.exists():
+            return {}
+        try:
+            return json.loads(self.refresh_meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def _save_refresh_meta(self, meta: dict[str, Any]) -> None:
+        self.refresh_meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+    def _catalog_refresh_guard(self, min_interval_hours: float) -> tuple[bool, str | None]:
+        if min_interval_hours <= 0:
+            return True, None
+        now = datetime.now(UTC)
+        meta = self._load_refresh_meta()
+        last_success_raw = meta.get("last_success_utc")
+        if last_success_raw:
+            try:
+                last_success = datetime.fromisoformat(last_success_raw.replace("Z", "+00:00")).astimezone(UTC)
+                delta = now - last_success
+                min_delta = timedelta(hours=min_interval_hours)
+                if delta < min_delta:
+                    remaining = min_delta - delta
+                    mins = max(1, int(remaining.total_seconds() // 60))
+                    return False, f"Catalog refresh cooldown active ({mins} min remaining)"
+            except Exception:
+                pass
+        return True, None
 
     def _parse_tle(self, text: str) -> list[tuple[str, int, str, str]]:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -500,7 +583,15 @@ class DataIngestionService:
             i += 1
         return out
 
-    def refresh_catalog(self, timeout_seconds: float = 10.0) -> tuple[list[Satellite], dict]:
+    def refresh_catalog(
+        self,
+        timeout_seconds: float = 10.0,
+        min_interval_hours: float = 3.0,
+    ) -> tuple[list[Satellite], dict]:
+        allowed, reason = self._catalog_refresh_guard(min_interval_hours=min_interval_hours)
+        if not allowed:
+            raise RuntimeError(reason or "Catalog refresh cooldown active")
+
         with httpx.Client(timeout=timeout_seconds) as client:
             amateur_tle = client.get(self.CELESTRAK_AMATEUR_URL).text
             stations_tle = client.get(self.CELESTRAK_STATIONS_URL).text
@@ -521,10 +612,11 @@ class DataIngestionService:
             if down or up:
                 repeaters_by_norad.setdefault(norad, []).append(f"Uplink {up or 'n/a'} / Downlink {down or 'n/a'}")
 
+        parsed_tles = self._parse_tle(amateur_tle) + self._parse_tle(stations_tle)
         merged: dict[int, Satellite] = {}
-        for name, norad, tle1, tle2 in self._parse_tle(amateur_tle) + self._parse_tle(stations_tle):
+        for name, norad, tle1, tle2 in parsed_tles:
             sat_id = name.lower().replace(" ", "-").replace("(", "").replace(")", "")
-            is_iss = norad == 25544 or "ISS" in name.upper()
+            is_iss = norad == 25544
             sat = Satellite(
                 sat_id=sat_id,
                 norad_id=norad,
@@ -541,15 +633,22 @@ class DataIngestionService:
             merged[norad] = sat
 
         satellites = list(merged.values())
-        # Keep at least seed items if remote data is incomplete.
+        # Treat empty/invalid TLE parses as refresh failure instead of replacing with seed-only data.
         if not satellites:
-            satellites = SEED_SATELLITES
+            raise RuntimeError("No satellites parsed from TLE sources")
+        has_iss_tle = any(s.norad_id == 25544 and s.tle_line1 and s.tle_line2 for s in satellites)
+        if not has_iss_tle:
+            raise RuntimeError("ISS TLE missing from refreshed catalog")
 
         meta = {
             "count": len(satellites),
+            "parsed_tle_records": len(parsed_tles),
             "sources": ["celestrak", "satnogs"],
             "includes_iss": any(s.is_iss for s in satellites),
         }
+        refresh_meta = self._load_refresh_meta()
+        refresh_meta["last_success_utc"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        self._save_refresh_meta(refresh_meta)
         return satellites, meta
 
     def refresh_ephemeris(self, timeout_seconds: float = 30.0) -> dict[str, Any]:

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ISS Tracker Rotator</title>
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260309b" />
+    <script defer src="/static/common/app.js?v=20260308al"></script>
+    <script defer src="/static/kiosk/rotator.js?v=20260309g"></script>
+  </head>
+  <body class="kiosk rotator">
+    <header class="rotator-topbar">
+      <h1>ISS + Amateur Satellite Tracker</h1>
+      <div class="rotator-meta">
+        <span id="rotatorTracked" class="mono">Tracked: --</span>
+        <span id="rotatorLocation" class="mono">Loc: --</span>
+        <span id="clockUtc" class="mono">UTC: --</span>
+        <span id="clockLocal" class="mono">Local: --</span>
+      </div>
+    </header>
+    <main class="rotator-main">
+      <section id="sceneVideo" class="scene hidden">
+        <div class="scene-title">Screen 1: Live Video Focus</div>
+        <iframe
+          id="rotatorVideo"
+          title="ISS Live Feed"
+          referrerpolicy="strict-origin-when-cross-origin"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen
+        ></iframe>
+        <div id="videoOverlay" class="scene-overlay mono"></div>
+      </section>
+
+      <section id="sceneTelemetry" class="scene hidden">
+        <div class="scene-title" id="telemetryTitle">Telemetry</div>
+        <div class="telemetry-layout">
+          <div>
+            <div class="compass">
+              <svg id="skyplot" viewBox="0 0 240 240" class="skyplot" aria-label="Telemetry sky plot">
+                <circle cx="120" cy="120" r="108" class="plot-ring"></circle>
+                <circle cx="120" cy="120" r="58" class="plot-ring-inner"></circle>
+                <line x1="120" y1="12" x2="120" y2="228" class="plot-axis"></line>
+                <line x1="12" y1="120" x2="228" y2="120" class="plot-axis"></line>
+                <polyline id="issTrail" class="plot-trail" points=""></polyline>
+                <line id="issVector" x1="120" y1="120" x2="120" y2="120" class="plot-vector"></line>
+                <circle id="issDot" cx="120" cy="120" r="7" class="plot-dot"></circle>
+                <circle cx="120" cy="120" r="4" class="plot-center"></circle>
+                <text x="120" y="28" text-anchor="middle" class="plot-dir">N</text>
+                <text x="212" y="124" text-anchor="middle" class="plot-dir">E</text>
+                <text x="120" y="224" text-anchor="middle" class="plot-dir">S</text>
+                <text x="28" y="124" text-anchor="middle" class="plot-dir">W</text>
+                <g id="bodyLayer"></g>
+              </svg>
+            </div>
+            <div id="bodyLegend" class="label"></div>
+          </div>
+          <div id="telemetryRight">
+            <div id="telemetryReadout" class="mono telemetry-readout">Az -- | Alt -- | Range --</div>
+            <div id="telemetryPassTime" class="mono telemetry-readout">AOS -- | TCA -- | LOS --</div>
+            <div id="telemetryDiag" class="mono"></div>
+            <table class="data-table freq-table">
+              <thead><tr><th>Mode</th><th>Up</th><th>Down</th></tr></thead>
+              <tbody id="telemetryFreqRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="scenePasses" class="scene">
+        <div class="scene-title">Screen 4: Passes Console</div>
+        <div id="passesMeta" class="scene-overlay mono"></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>Satellite</th><th>AOS</th><th>TCA</th><th>LOS</th><th>Max El</th></tr>
+            </thead>
+            <tbody id="rotatorPassRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="sceneRadio" class="scene hidden">
+        <div class="scene-title">Screen 9: Radio Ops</div>
+        <div id="radioPrimary" class="scene-overlay mono"></div>
+        <div class="table-wrap">
+          <table class="data-table freq-table">
+            <thead><tr><th>Satellite</th><th>Mode</th><th>Uplink</th><th>Downlink</th><th>Bands</th></tr></thead>
+            <tbody id="radioRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <footer class="kiosk-attribution">
+      Background image:
+      <a href="https://www.nasa.gov/image-detail/amf-iss073e0870099/" target="_blank" rel="noopener noreferrer">NASA ISS 073E0870099</a>
+    </footer>
+  </body>
+</html>
