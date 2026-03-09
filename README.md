@@ -6,6 +6,7 @@ OrbitDeck currently supports:
 - kiosk UI at `/`
 - lite/mobile UI at `/lite`
 - rotator/operator UI at `/kiosk-rotator`
+- settings UI at `/settings`
 
 macOS is supported for local development and windowed use, and this project has been exercised on macOS in that mode. Raspberry Pi is the intended kiosk deployment target. On Pi Zero-class hardware, OrbitDeck automatically serves the lite UI instead of the full kiosk and rotator surfaces.
 
@@ -49,13 +50,18 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 - Manual location profiles
 - Browser geolocation
 - GPS configuration for USB or Bluetooth receivers
-- Persisted settings for timezone, pass filter/favorites, cache policy, and developer overrides
+- Persisted settings for ISS display mode, tracked satellite selection, timezone, pass filter/favorites, cache policy, and developer overrides
+- The kiosk settings screen exposes display mode, tracked satellite selection, pass filters, location-source inputs, timezone, video source overrides, and direct navigation back to the kiosk or rotator view
 
 ### UI surfaces
 - Main kiosk screen for large displays
-- Rotator/operator screen for tracking-focused presentation
+- Rotator/operator screen for tracking-focused presentation, including the pass globe/hemisphere view and radio-ops telemetry layout
 - Lite/mobile screen optimized for remote use on phones and low-powered devices
 - Lite offline shell/API caching with stale snapshot fallback behavior
+
+### Developer mode
+- Kiosk developer overrides are available for debugging and demo control of the rotator
+- Current override support includes enabling debug mode and forcing a specific rotator scene
 
 ## Quick Start
 
@@ -72,6 +78,7 @@ Open:
 - Kiosk UI: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
 - Lite UI: [http://127.0.0.1:8000/lite](http://127.0.0.1:8000/lite)
 - Rotator UI: [http://127.0.0.1:8000/kiosk-rotator](http://127.0.0.1:8000/kiosk-rotator)
+- Settings UI: [http://127.0.0.1:8000/settings](http://127.0.0.1:8000/settings)
 - API docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
 What to expect on macOS:
@@ -179,4 +186,5 @@ Validation status:
   - `orbitdeck_api.service`
   - `pi_kiosk.service`
   - `network_fallback.sh`
+- The rotator globe/hemisphere view depends on `app/static/common/hemisphere.js` and `app/static/common/hemisphere-land.js`
 - The `references/` tree is design and research material, not a runtime dependency

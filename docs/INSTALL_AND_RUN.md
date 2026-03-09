@@ -5,6 +5,7 @@ OrbitDeck uses one Python codebase across macOS and Raspberry Pi.
 - macOS: supported for local development and windowed use, and tested in that mode
 - Raspberry Pi: intended kiosk deployment target
 - Pi Zero-class hardware: automatically serves lite mode instead of the full kiosk and rotator surfaces
+- Standard UI surfaces in non-lite-only deployments: kiosk (`/`), lite (`/lite`), rotator (`/kiosk-rotator`), and settings (`/settings`)
 
 For the short version, start with the [README](../README.md). This guide goes deeper on installation and deployment.
 
@@ -65,6 +66,7 @@ What has been tested on macOS:
 - FastAPI server startup
 - launcher-driven browser open in windowed mode
 - local use of the kiosk, lite, and rotator routes
+- local use of the settings route
 - API docs and local test workflow
 
 What macOS is not positioned as:
@@ -182,6 +184,10 @@ UI routes:
 - `/settings`
 - `/kiosk-rotator`
 
+Settings UI:
+- exposes ISS display mode, tracked satellite selection, pass filters, location-source inputs, timezone, video source overrides, and kiosk developer override controls
+- includes direct navigation back to the kiosk and rotator screens
+
 Core APIs:
 - `GET /health`
 - `GET /api/v1/system/state`
@@ -228,5 +234,7 @@ node --check app/static/kiosk/rotator.js
 ## 10) Notes
 
 - OrbitDeck is receive-only: no rotor/PTT/CAT/transmit control is included
+- The rotator globe/hemisphere view depends on `app/static/common/hemisphere.js` and `app/static/common/hemisphere-land.js`
+- Kiosk developer overrides are intended for debugging and demo control of rotator scenes
 - The `references/` tree is design and research material, not a runtime dependency
 - When README changes alter run/support guidance, this guide should be updated in the same change
