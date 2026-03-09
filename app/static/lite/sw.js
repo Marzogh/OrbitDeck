@@ -1,5 +1,5 @@
-const SHELL_CACHE = "iss-tracker-lite-shell-v6";
-const API_CACHE = "iss-tracker-lite-api-v1";
+const SHELL_CACHE = "orbitdeck-lite-shell-v6";
+const API_CACHE = "orbitdeck-lite-api-v1";
 
 const SHELL_ASSETS = [
   "/lite",

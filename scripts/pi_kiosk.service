@@ -1,5 +1,5 @@
 [Unit]
-Description=ISS Tracker Kiosk Chromium
+Description=OrbitDeck Kiosk Chromium
 After=graphical.target network-online.target
 
 [Service]

@@ -1,0 +1,14 @@
+[Unit]
+Description=OrbitDeck API
+After=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/orbitdeck
+ExecStart=/opt/orbitdeck/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

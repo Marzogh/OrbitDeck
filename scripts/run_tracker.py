@@ -12,7 +12,7 @@ from pathlib import Path
 
 import uvicorn
 
-# Ensure repo root is importable when launching via `python3 scripts/run_tracker.py`.
+# Ensure the repo root is importable when launching via `python3 scripts/run_tracker.py`.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -50,7 +50,7 @@ def _launch_browser(mode: str, url: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run ISS Tracker API + UI with cross-platform browser launch."
+        description="Run OrbitDeck with cross-platform browser launch."
     )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)

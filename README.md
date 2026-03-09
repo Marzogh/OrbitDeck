@@ -1,10 +1,10 @@
-# ISS Tracker
+# OrbitDeck
 
-Dual-mode receive-only ISS + amateur satellite tracker for Raspberry Pi.
-The same codebase also runs on macOS for windowed local testing.
+Cross-platform receive-only kiosk for amateur satellite tracking and radio operations.
+The same codebase runs on Raspberry Pi and desktop platforms for kiosk or windowed use.
 
 Detailed install/build/run instructions:
-- [INSTALL_AND_RUN.md](/Users/prajwal/Documents/GitHub/ISS Tracker/docs/INSTALL_AND_RUN.md)
+- [docs/INSTALL_AND_RUN.md](docs/INSTALL_AND_RUN.md)
 
 ## Features
 - Full-screen kiosk UI and lightweight mobile web UI
@@ -29,10 +29,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Or use the cross-platform launcher:
 ```bash
-# macOS windowed
+# desktop windowed
 python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --port 8000
 
-# Raspberry Pi kiosk
+# kiosk mode
 python3 scripts/run_tracker.py --mode kiosk --ui kiosk --host 0.0.0.0 --port 8000
 ```
 
@@ -51,6 +51,6 @@ pytest -q
 - Data refresh endpoint: `POST /api/v1/datasets/refresh`
 - Satellite endpoint supports forced source refresh: `GET /api/v1/satellites?refresh_from_sources=true`
 - Pi unit files and fallback helper script are in `scripts/`:
-  - `iss_tracker_api.service`
+  - `orbitdeck_api.service`
   - `pi_kiosk.service`
   - `network_fallback.sh`
