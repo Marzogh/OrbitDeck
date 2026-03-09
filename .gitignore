@@ -4,7 +4,6 @@ __pycache__/
 .venv/
 .pytest_cache/
 data/state.json
-data/ephemeris/*.bsp
 data/snapshots/*.json
 docs/*proposal*.md
 docs/*review-log.md
