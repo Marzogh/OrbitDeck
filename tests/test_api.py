@@ -73,6 +73,31 @@ def test_location_manual_profile(tmp_path):
     assert round(loc["lon"], 4) == 153.0251
 
 
+def test_set_and_get_gps_settings(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.post(
+        "/api/v1/settings/gps",
+        json={
+            "connection_mode": "bluetooth",
+            "bluetooth_address": "AA:BB:CC:DD:EE:FF",
+            "bluetooth_channel": 2,
+            "serial_device": "/dev/ttyUSB9",
+            "baud_rate": 4800,
+        },
+    )
+    assert resp.status_code == 200
+
+    get_resp = client.get("/api/v1/settings/gps")
+    assert get_resp.status_code == 200
+    state = get_resp.json()["state"]
+    assert state["connection_mode"] == "bluetooth"
+    assert state["bluetooth_address"] == "AA:BB:CC:DD:EE:FF"
+    assert state["bluetooth_channel"] == 2
+    assert state["serial_device"] == "/dev/ttyUSB9"
+    assert state["baud_rate"] == 4800
+
+
 def test_satellites_refresh_flag_uses_ingestion(tmp_path):
     client = make_client(tmp_path)
 
@@ -85,8 +110,8 @@ def test_satellites_refresh_flag_uses_ingestion(tmp_path):
                         norad_id=99999,
                         name="FAKE-SAT",
                         has_amateur_radio=True,
-                        transponders=["435.000 MHz TX"],
-                        repeaters=["145.000 MHz RX"],
+                        transponders=["U/V FM repeater"],
+                        repeaters=["Uplink 145.000 MHz / Downlink 435.000 MHz"],
                     )
                 ],
                 {"count": 1},
@@ -101,7 +126,7 @@ def test_satellites_refresh_flag_uses_ingestion(tmp_path):
         assert payload["refreshed"] is True
         assert payload["count"] >= 1
         fake = next(item for item in payload["items"] if item["sat_id"] == "fake-1")
-        assert fake["transponders"][0] == "435.000 MHz TX"
+        assert fake["transponders"][0] == "U/V FM repeater"
     finally:
         main.ingestion_service = old
 

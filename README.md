@@ -16,6 +16,7 @@ Detailed install/build/run instructions:
 - Offline-first dataset snapshots and configurable cache policy
 - Network mode state API (station/AP) for provisioning integrations
 - Remote refresh from CelesTrak + SatNOGS with cached fallback catalog
+- AMSAT operational-status comparison data cached from `amsat.org/status` with a 12-hour minimum refresh interval
 - On kiosk/lite page load, satellite catalog refresh is attempted so Tx/Rx metadata is updated on browser refresh
 
 ## Run

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from html import unescape
 from pathlib import Path
 from typing import Any
 
@@ -20,11 +22,13 @@ from app.models import (
     LocationSourceMode,
     LocationState,
     LocationUpdate,
+    OperationalStatus,
     NetworkMode,
     NetworkState,
     NetworkUpdate,
     PassEvent,
     Satellite,
+    StatusReport,
 )
 
 
@@ -187,8 +191,21 @@ class TrackingService:
     def satellites(self) -> list[Satellite]:
         return [s.model_copy(deep=True) for s in self._satellites]
 
+    def merge_operational_statuses(self, statuses: dict[str, OperationalStatus]) -> None:
+        if not statuses:
+            return
+        changed = False
+        for sat in self._satellites:
+            status = statuses.get(sat.sat_id)
+            if status is None:
+                continue
+            sat.operational_status = status
+            changed = True
+        if changed:
+            self._save_cached_catalog()
+
     def _is_amateur_satellite(self, sat: Satellite) -> bool:
-        if sat.is_iss:
+        if sat.is_iss and sat.norad_id == 25544:
             return True
         if "ISS" in sat.name.upper():
             return False
@@ -524,12 +541,16 @@ class DataIngestionService:
     CELESTRAK_STATIONS_URL = "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle"
     SATNOGS_TRANSMITTERS_URL = "https://db.satnogs.org/api/transmitters/?alive=true&format=json"
     EPHEMERIS_URL = "https://ssd.jpl.nasa.gov/ftp/eph/planets/bsp/de421.bsp"
+    AMSAT_STATUS_INDEX_URL = "https://www.amsat.org/status/index.php"
+    AMSAT_STATUS_API_URL = "https://www.amsat.org/status/api/v1/sat_info.php"
 
     def __init__(self, eph_path: str = "data/ephemeris/de421.bsp") -> None:
         self.eph_path = Path(eph_path)
         self.eph_path.parent.mkdir(parents=True, exist_ok=True)
         self.refresh_meta_path = Path("data/snapshots/catalog_refresh_meta.json")
         self.refresh_meta_path.parent.mkdir(parents=True, exist_ok=True)
+        self.amsat_status_cache_path = Path("data/snapshots/amsat_status.json")
+        self.amsat_refresh_meta_path = Path("data/snapshots/amsat_status_refresh_meta.json")
         self._ephem_loaded = None
         self._ephem_ts = None
 
@@ -543,6 +564,17 @@ class DataIngestionService:
 
     def _save_refresh_meta(self, meta: dict[str, Any]) -> None:
         self.refresh_meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+    def _load_amsat_refresh_meta(self) -> dict[str, Any]:
+        if not self.amsat_refresh_meta_path.exists():
+            return {}
+        try:
+            return json.loads(self.amsat_refresh_meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def _save_amsat_refresh_meta(self, meta: dict[str, Any]) -> None:
+        self.amsat_refresh_meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     def _catalog_refresh_guard(self, min_interval_hours: float) -> tuple[bool, str | None]:
         if min_interval_hours <= 0:
@@ -559,6 +591,25 @@ class DataIngestionService:
                     remaining = min_delta - delta
                     mins = max(1, int(remaining.total_seconds() // 60))
                     return False, f"Catalog refresh cooldown active ({mins} min remaining)"
+            except Exception:
+                pass
+        return True, None
+
+    def _amsat_refresh_guard(self, min_interval_hours: float) -> tuple[bool, str | None]:
+        if min_interval_hours <= 0:
+            return True, None
+        now = datetime.now(UTC)
+        meta = self._load_amsat_refresh_meta()
+        last_success_raw = meta.get("last_success_utc")
+        if last_success_raw:
+            try:
+                last_success = datetime.fromisoformat(last_success_raw.replace("Z", "+00:00")).astimezone(UTC)
+                delta = now - last_success
+                min_delta = timedelta(hours=min_interval_hours)
+                if delta < min_delta:
+                    remaining = min_delta - delta
+                    mins = max(1, int(remaining.total_seconds() // 60))
+                    return False, f"AMSAT status refresh cooldown active ({mins} min remaining)"
             except Exception:
                 pass
         return True, None
@@ -582,6 +633,146 @@ class DataIngestionService:
                 continue
             i += 1
         return out
+
+    def _load_amsat_status_cache(self) -> dict[str, OperationalStatus]:
+        if not self.amsat_status_cache_path.exists():
+            return {}
+        try:
+            raw = json.loads(self.amsat_status_cache_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, OperationalStatus] = {}
+        for sat_id, payload in raw.items():
+            try:
+                out[sat_id] = OperationalStatus.model_validate(payload)
+            except Exception:
+                continue
+        return out
+
+    def _save_amsat_status_cache(self, statuses: dict[str, OperationalStatus]) -> None:
+        payload = {sat_id: status.model_dump(mode="json") for sat_id, status in statuses.items()}
+        self.amsat_status_cache_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def cached_amsat_statuses(self) -> dict[str, OperationalStatus]:
+        return self._load_amsat_status_cache()
+
+    def _parse_amsat_satellite_names(self, html: str) -> list[str]:
+        matches = re.findall(r'<option value="([^"]+_\[[^"]+\])">', html, flags=re.IGNORECASE)
+        seen: set[str] = set()
+        names: list[str] = []
+        for name in matches:
+            value = unescape(name.strip())
+            if value not in seen:
+                seen.add(value)
+                names.append(value)
+        return names
+
+    def _normalize_sat_name(self, name: str) -> str:
+        compact = name.upper().strip()
+        compact = compact.replace("(ZARYA)", "")
+        compact = re.sub(r"\s+", "", compact)
+        compact = compact.replace("_", "")
+        compact = compact.replace("-", "")
+        compact = compact.replace("/", "")
+        compact = compact.replace("[", "")
+        compact = compact.replace("]", "")
+        compact = compact.replace("(", "")
+        compact = compact.replace(")", "")
+        return compact
+
+    def _mode_hints_for_satellite(self, sat: Satellite) -> set[str]:
+        text = " ".join(list(sat.transponders or []) + list(sat.repeaters or [])).lower()
+        hints: set[str] = set()
+        if "fm" in text or "ctcss" in text or "voice repeater" in text:
+            hints.add("FM")
+        if "aprs" in text or "digipeater" in text:
+            hints.update({"APRS", "DIGI"})
+        if "sstv" in text:
+            hints.add("SSTV")
+        if "datv" in text:
+            hints.add("DATV")
+        if "linear" in text or "ssb" in text or "cw" in text:
+            hints.add("LINEAR")
+        return hints
+
+    def _match_amsat_name(self, sat: Satellite, amsat_names: list[str]) -> str | None:
+        sat_key = self._normalize_sat_name(sat.name)
+        sat_base = self._normalize_sat_name(sat.name.split("[", 1)[0])
+        matches: list[str] = []
+        for candidate in amsat_names:
+            base = candidate.split("_[", 1)[0]
+            base_key = self._normalize_sat_name(base)
+            if base_key in {sat_key, sat_base} or sat_key in base_key or base_key in sat_key:
+                matches.append(candidate)
+        if not matches and sat.is_iss:
+            matches = [name for name in amsat_names if name.startswith("ISS_[FM]")]
+        if not matches:
+            return None
+
+        hints = self._mode_hints_for_satellite(sat)
+        for preferred_mode in ("FM", "LINEAR", "APRS", "DIGI", "SSTV", "DATV"):
+            if preferred_mode not in hints:
+                continue
+            for candidate in matches:
+                upper_candidate = candidate.upper()
+                if preferred_mode == "LINEAR":
+                    if any(token in upper_candidate for token in ("[U/", "[V/", "[L/", "[S/")):
+                        return candidate
+                elif f"[{preferred_mode}]" in upper_candidate:
+                    return candidate
+        return matches[0]
+
+    def _summarize_amsat_reports(self, matched_name: str, reports: list[dict[str, Any]]) -> OperationalStatus:
+        normalized: list[StatusReport] = []
+        heard_count = 0
+        telemetry_only_count = 0
+        not_heard_count = 0
+
+        for item in reports:
+            try:
+                report = StatusReport(
+                    reported_time=datetime.fromisoformat(str(item.get("reported_time", "")).replace("Z", "+00:00")),
+                    callsign=item.get("callsign"),
+                    report=str(item.get("report") or "").strip() or "Unknown",
+                    grid_square=item.get("grid_square"),
+                )
+            except Exception:
+                continue
+            normalized.append(report)
+            report_upper = report.report.upper()
+            if "HEARD" in report_upper and "NOT HEARD" not in report_upper:
+                heard_count += 1
+            elif "TELEMETRY" in report_upper or "BEACON" in report_upper:
+                telemetry_only_count += 1
+            elif "NOT HEARD" in report_upper or "NO SIGNAL" in report_upper:
+                not_heard_count += 1
+
+        normalized.sort(key=lambda x: x.reported_time, reverse=True)
+        if heard_count and not_heard_count:
+            summary = "conflicting"
+        elif heard_count:
+            summary = "active"
+        elif telemetry_only_count:
+            summary = "telemetry_only"
+        elif not_heard_count:
+            summary = "inactive"
+        else:
+            summary = "unknown"
+
+        return OperationalStatus(
+            source="amsat",
+            checked_at=datetime.now(UTC),
+            source_url=self.AMSAT_STATUS_INDEX_URL,
+            matched_name=matched_name,
+            summary=summary,
+            latest_report=normalized[0] if normalized else None,
+            reports_last_96h=len(normalized),
+            heard_count=heard_count,
+            telemetry_only_count=telemetry_only_count,
+            not_heard_count=not_heard_count,
+        )
 
     def refresh_catalog(
         self,
@@ -650,6 +841,46 @@ class DataIngestionService:
         refresh_meta["last_success_utc"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         self._save_refresh_meta(refresh_meta)
         return satellites, meta
+
+    def refresh_amsat_statuses(
+        self,
+        satellites: list[Satellite],
+        timeout_seconds: float = 20.0,
+        min_interval_hours: float = 12.0,
+        report_window_hours: int = 96,
+    ) -> dict[str, OperationalStatus]:
+        allowed, reason = self._amsat_refresh_guard(min_interval_hours=min_interval_hours)
+        if not allowed:
+            cached = self._load_amsat_status_cache()
+            if cached:
+                return cached
+            raise RuntimeError(reason or "AMSAT status refresh cooldown active")
+
+        with httpx.Client(timeout=timeout_seconds, follow_redirects=True) as client:
+            index_html = client.get(self.AMSAT_STATUS_INDEX_URL).text
+            amsat_names = self._parse_amsat_satellite_names(index_html)
+            statuses: dict[str, OperationalStatus] = {}
+            for sat in satellites:
+                matched_name = self._match_amsat_name(sat, amsat_names)
+                if not matched_name:
+                    continue
+                response = client.get(
+                    self.AMSAT_STATUS_API_URL,
+                    params={"name": matched_name, "hours": report_window_hours},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, list):
+                    continue
+                statuses[sat.sat_id] = self._summarize_amsat_reports(matched_name, payload)
+
+        if statuses:
+            self._save_amsat_status_cache(statuses)
+            refresh_meta = self._load_amsat_refresh_meta()
+            refresh_meta["last_success_utc"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+            refresh_meta["satellite_count"] = len(statuses)
+            self._save_amsat_refresh_meta(refresh_meta)
+        return statuses
 
     def refresh_ephemeris(self, timeout_seconds: float = 30.0) -> dict[str, Any]:
         with httpx.Client(timeout=timeout_seconds, follow_redirects=True) as client:

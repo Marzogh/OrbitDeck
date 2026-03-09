@@ -13,6 +13,11 @@ class IssDisplayMode(str, Enum):
     telemetry_only = "TelemetryOnly"
 
 
+class PassProfileMode(str, Enum):
+    iss_only = "IssOnly"
+    favorites = "Favorites"
+
+
 class LocationSourceMode(str, Enum):
     manual = "manual"
     browser = "browser"
@@ -23,6 +28,11 @@ class LocationSourceMode(str, Enum):
 class NetworkMode(str, Enum):
     station = "station"
     access_point = "access_point"
+
+
+class GpsConnectionMode(str, Enum):
+    usb = "usb"
+    bluetooth = "bluetooth"
 
 
 class GeoPoint(BaseModel):
@@ -56,6 +66,14 @@ class NetworkState(BaseModel):
     last_checked: datetime | None = None
 
 
+class GpsSettings(BaseModel):
+    connection_mode: GpsConnectionMode = GpsConnectionMode.usb
+    serial_device: str = "/dev/ttyUSB0"
+    baud_rate: int = Field(default=9600, ge=1200, le=115200)
+    bluetooth_address: str = ""
+    bluetooth_channel: int = Field(default=1, ge=1, le=30)
+
+
 class CachePolicy(BaseModel):
     retention_days: int = Field(default=30, ge=1, le=365)
     max_storage_mb: int = Field(default=512, ge=32, le=10240)
@@ -71,6 +89,9 @@ class AppSettings(BaseModel):
         ]
     )
     force_stream_unhealthy: bool = False
+    display_timezone: str = "UTC"
+    pass_profile: PassProfileMode = PassProfileMode.iss_only
+    pass_sat_ids: list[str] = Field(default_factory=lambda: ["iss-zarya"])
 
 
 class Satellite(BaseModel):
@@ -85,6 +106,27 @@ class Satellite(BaseModel):
     tle_line2: str | None = None
     period_minutes: float = 95.0
     phase_offset: float = 0.0
+    operational_status: "OperationalStatus | None" = None
+
+
+class StatusReport(BaseModel):
+    reported_time: datetime
+    callsign: str | None = None
+    report: str
+    grid_square: str | None = None
+
+
+class OperationalStatus(BaseModel):
+    source: Literal["amsat"]
+    checked_at: datetime
+    source_url: str
+    matched_name: str
+    summary: Literal["active", "telemetry_only", "inactive", "conflicting", "unknown"]
+    latest_report: StatusReport | None = None
+    reports_last_96h: int = 0
+    heard_count: int = 0
+    telemetry_only_count: int = 0
+    not_heard_count: int = 0
 
 
 class LiveTrack(BaseModel):
@@ -96,6 +138,8 @@ class LiveTrack(BaseModel):
     range_km: float
     range_rate_km_s: float
     sunlit: bool
+    subpoint_lat: float | None = None
+    subpoint_lon: float | None = None
 
 
 class PassEvent(BaseModel):
@@ -109,6 +153,15 @@ class PassEvent(BaseModel):
 
 class SettingsUpdate(BaseModel):
     mode: IssDisplayMode
+
+
+class PassFilterUpdate(BaseModel):
+    profile: PassProfileMode
+    sat_ids: list[str] | None = None
+
+
+class TimezoneUpdate(BaseModel):
+    timezone: str
 
 
 class IssState(BaseModel):
@@ -135,6 +188,14 @@ class NetworkUpdate(BaseModel):
     internet_available: bool | None = None
 
 
+class GpsSettingsUpdate(BaseModel):
+    connection_mode: GpsConnectionMode | None = None
+    serial_device: str | None = None
+    baud_rate: int | None = Field(default=None, ge=1200, le=115200)
+    bluetooth_address: str | None = None
+    bluetooth_channel: int | None = Field(default=None, ge=1, le=30)
+
+
 class CachePolicyUpdate(BaseModel):
     retention_days: int | None = Field(default=None, ge=1, le=365)
     max_storage_mb: int | None = Field(default=None, ge=32, le=10240)
@@ -152,5 +213,6 @@ class PersistedState(BaseModel):
     settings: AppSettings = Field(default_factory=AppSettings)
     location: LocationState = Field(default_factory=LocationState)
     network: NetworkState = Field(default_factory=NetworkState)
+    gps_settings: GpsSettings = Field(default_factory=GpsSettings)
     cache_policy: CachePolicy = Field(default_factory=CachePolicy)
     snapshots: list[DatasetSnapshot] = Field(default_factory=list)

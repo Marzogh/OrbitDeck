@@ -12,11 +12,12 @@ from pathlib import Path
 
 import uvicorn
 
-
 # Ensure repo root is importable when launching via `python3 scripts/run_tracker.py`.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from app.device import lite_only_ui
 
 
 def _launch_browser(mode: str, url: str) -> None:
@@ -77,7 +78,8 @@ def main() -> None:
     if mode == "auto":
         mode = "kiosk" if platform.system() == "Linux" else "windowed"
 
-    route = "/" if args.ui == "kiosk" else "/lite"
+    ui = "lite" if lite_only_ui() else args.ui
+    route = "/" if ui == "kiosk" else "/lite"
     url = f"http://localhost:{args.port}{route}"
 
     threading.Thread(

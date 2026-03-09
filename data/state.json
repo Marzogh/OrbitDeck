@@ -1,19 +1,28 @@
 {
   "settings": {
-    "iss_display_mode": "SunlitOnlyVideo",
+    "iss_display_mode": "SunlitAndVisibleVideo",
     "iss_stream_urls": [
       "https://www.youtube.com/embed/DDU-rZs-Ic4?autoplay=1&mute=1",
       "https://www.youtube.com/embed/21X5lGlDOfg?autoplay=1&mute=1"
     ],
-    "force_stream_unhealthy": false
+    "force_stream_unhealthy": false,
+    "display_timezone": "Australia/Brisbane",
+    "pass_profile": "Favorites",
+    "pass_sat_ids": [
+      "itamsat-io-26",
+      "radio-rosto-rs15",
+      "jas-2-fo-29",
+      "techsat-1b-go-32",
+      "iss-zarya"
+    ]
   },
   "location": {
     "source_mode": "browser",
     "selected_profile_id": null,
     "profiles": [],
     "browser_location": {
-      "lat": -27.600371,
-      "lon": 153.120332,
+      "lat": -27.600282,
+      "lon": 153.120316,
       "alt_m": 0.0,
       "timestamp": null
     },
@@ -24,8 +33,8 @@
       "timestamp": null
     },
     "last_known_location": {
-      "lat": -27.600371,
-      "lon": 153.120332,
+      "lat": -27.600282,
+      "lon": 153.120316,
       "alt_m": 0.0,
       "timestamp": null
     }
@@ -37,6 +46,13 @@
     "ap_ssid": "ISS-Tracker-Setup",
     "internet_available": false,
     "last_checked": null
+  },
+  "gps_settings": {
+    "connection_mode": "usb",
+    "serial_device": "/dev/ttyUSB0",
+    "baud_rate": 9600,
+    "bluetooth_address": "",
+    "bluetooth_channel": 1
   },
   "cache_policy": {
     "retention_days": 30,

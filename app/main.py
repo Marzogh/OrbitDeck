@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from contextlib import suppress
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -10,9 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.device import lite_only_ui
 from app.models import (
     CachePolicyUpdate,
     DatasetSnapshot,
+    GpsSettingsUpdate,
     IssDisplayMode,
     LocationSourceMode,
     LocationUpdate,
@@ -32,15 +36,6 @@ from app.services import (
 )
 from app.store import StateStore
 
-app = FastAPI(title="ISS Tracker", version="0.1.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 store = StateStore()
 location_service = LocationService()
 tracking_service = TrackingService()
@@ -48,8 +43,6 @@ iss_service = IssService()
 network_service = NetworkService()
 cache_service = CacheService()
 ingestion_service = DataIngestionService()
-
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
 _refresh_task: asyncio.Task | None = None
 
 
@@ -107,29 +100,45 @@ async def _periodic_refresh_loop() -> None:
             tracking_service.replace_catalog(satellites)
             with suppress(Exception):
                 ingestion_service.refresh_ephemeris()
+            with suppress(Exception):
+                statuses = ingestion_service.refresh_amsat_statuses(tracking_service.satellites())
+                tracking_service.merge_operational_statuses(statuses)
         except Exception:
             # Non-fatal background refresh failure.
             pass
 
 
-@app.on_event("startup")
-async def startup_event() -> None:
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     global _refresh_task
+    with suppress(Exception):
+        tracking_service.merge_operational_statuses(ingestion_service.cached_amsat_statuses())
     _refresh_task = asyncio.create_task(_periodic_refresh_loop())
+    try:
+        yield
+    finally:
+        if _refresh_task is not None:
+            _refresh_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await _refresh_task
+            _refresh_task = None
 
 
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    global _refresh_task
-    if _refresh_task is not None:
-        _refresh_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await _refresh_task
-        _refresh_task = None
+app = FastAPI(title="ISS Tracker", version="0.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 @app.get("/")
 def kiosk_index() -> FileResponse:
+    if lite_only_ui():
+        return FileResponse("app/static/lite/index.html")
     return FileResponse("app/static/kiosk/index.html")
 
 
@@ -140,11 +149,15 @@ def lite_index() -> FileResponse:
 
 @app.get("/settings")
 def settings_index() -> FileResponse:
+    if lite_only_ui():
+        return FileResponse("app/static/lite/index.html")
     return FileResponse("app/static/kiosk/settings.html")
 
 
 @app.get("/kiosk-rotator")
 def kiosk_rotator_index() -> FileResponse:
+    if lite_only_ui():
+        return FileResponse("app/static/lite/index.html")
     return FileResponse("app/static/kiosk/rotator.html")
 
 
@@ -165,6 +178,9 @@ def get_satellites(refresh_from_sources: bool = Query(default=False)) -> dict:
             with suppress(Exception):
                 ingestion_service.refresh_ephemeris(timeout_seconds=8.0)
                 ephemeris_refreshed = True
+            with suppress(Exception):
+                statuses = ingestion_service.refresh_amsat_statuses(tracking_service.satellites(), timeout_seconds=8.0)
+                tracking_service.merge_operational_statuses(statuses)
             refreshed = True
         except Exception as exc:
             refresh_error = str(exc)
@@ -324,6 +340,31 @@ def post_network(payload: NetworkUpdate) -> dict:
     return {"state": state.network}
 
 
+@app.get("/api/v1/settings/gps")
+def get_gps_settings() -> dict:
+    state = store.get()
+    return {"state": state.gps_settings}
+
+
+@app.post("/api/v1/settings/gps")
+def post_gps_settings(payload: GpsSettingsUpdate) -> dict:
+    state = store.get()
+    next_settings = state.gps_settings.model_copy(deep=True)
+    if payload.connection_mode is not None:
+        next_settings.connection_mode = payload.connection_mode
+    if payload.serial_device is not None:
+        next_settings.serial_device = payload.serial_device.strip()
+    if payload.baud_rate is not None:
+        next_settings.baud_rate = payload.baud_rate
+    if payload.bluetooth_address is not None:
+        next_settings.bluetooth_address = payload.bluetooth_address.strip()
+    if payload.bluetooth_channel is not None:
+        next_settings.bluetooth_channel = payload.bluetooth_channel
+    state.gps_settings = next_settings
+    store.save(state)
+    return {"state": state.gps_settings}
+
+
 @app.get("/api/v1/cache-policy")
 def get_cache_policy() -> dict:
     state = store.get()
@@ -400,6 +441,9 @@ def refresh_datasets() -> dict:
         ephem = {"ok": False}
         with suppress(Exception):
             ephem = ingestion_service.refresh_ephemeris()
+        with suppress(Exception):
+            statuses = ingestion_service.refresh_amsat_statuses(tracking_service.satellites())
+            tracking_service.merge_operational_statuses(statuses)
         snapshot = DatasetSnapshot(
             id=f"snap-{int(datetime.now(UTC).timestamp())}",
             source="merged",
