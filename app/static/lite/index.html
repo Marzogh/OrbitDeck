@@ -4,57 +4,139 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ISS Tracker Lite</title>
-    <link rel="stylesheet" href="/static/common/styles.css" />
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260309k" />
     <script defer src="/static/common/app.js?v=20260308n"></script>
-    <script defer src="/static/lite/lite.js?v=20260308n"></script>
+    <script defer src="/static/lite/lite.js?v=20260309k"></script>
   </head>
-  <body>
-    <header>
-      <h1>ISS Tracker Lite</h1>
-      <div id="clock" class="label"></div>
+  <body class="lite">
+    <header class="lite-topbar">
+      <div>
+        <div class="scene-title">Remote Ops Lite</div>
+        <h1>ISS + Amateur Satellite Tracker</h1>
+      </div>
+      <div id="clock" class="mono label"></div>
     </header>
-    <main>
-      <section class="card controls">
-        <button id="useGeo">Use Browser Geolocation</button>
-        <input id="lat" type="number" step="0.000001" placeholder="Latitude" />
-        <input id="lon" type="number" step="0.000001" placeholder="Longitude" />
-        <button id="saveManual">Save Manual Location</button>
+    <main class="lite-shell">
+      <section class="card lite-hero">
+        <div class="lite-hero-head">
+          <div>
+            <div id="summary" class="value">Loading...</div>
+            <div id="telemetry" class="label"></div>
+          </div>
+          <button id="refreshNow" type="button">Sync Now</button>
+        </div>
+        <div id="syncMeta" class="mono label"></div>
+        <div id="heroBadges" class="stack"></div>
       </section>
 
-      <section class="card controls">
-        <label for="issMode">ISS Display Mode</label>
-        <select id="issMode">
-          <option value="SunlitOnlyVideo">Video: ISS Sunlit</option>
-          <option value="SunlitAndVisibleVideo">Video: Sunlit + Above Horizon</option>
-          <option value="TelemetryOnly">Telemetry Only</option>
-        </select>
-        <button id="saveMode">Apply</button>
+      <section class="card lite-controls-card">
+        <div class="label">Remote Control</div>
+        <div class="lite-form-grid">
+          <label for="locationMode" class="label">Location Source</label>
+          <select id="locationMode">
+            <option value="current">Current Pi setting</option>
+            <option value="browser">Use this phone's location</option>
+            <option value="manual">Enter coordinates manually</option>
+            <option value="gps">Use Pi GPS receiver</option>
+          </select>
+          <div id="locationModeHelp" class="label">Uses the Raspberry Pi's current saved location source.</div>
+        </div>
+        <div id="manualCoords" class="lite-form-grid hidden">
+          <input id="lat" type="number" step="0.000001" placeholder="Latitude" />
+          <input id="lon" type="number" step="0.000001" placeholder="Longitude" />
+          <div id="manualHelp" class="label">Manual coordinates apply automatically after you finish entering them.</div>
+        </div>
+        <div class="lite-form-grid">
+          <div class="label">Lite mode is telemetry-only. Video controls are available in kiosk views.</div>
+          <div></div>
+          <div></div>
+        </div>
+        <details class="lite-settings-details">
+          <summary>Detailed settings</summary>
+          <div id="gpsSetupLite" class="hidden">
+            <div class="lite-form-grid">
+              <label for="gpsConnectionModeLite" class="label">GPS Connection</label>
+              <select id="gpsConnectionModeLite">
+                <option value="usb">USB GPS</option>
+                <option value="bluetooth">Bluetooth GPS</option>
+              </select>
+              <div class="label">Choose how the Raspberry Pi connects to the GPS receiver.</div>
+            </div>
+            <div id="gpsUsbFieldsLite" class="lite-form-grid">
+              <input id="gpsSerialDeviceLite" type="text" placeholder="/dev/ttyUSB0" />
+              <input id="gpsBaudRateLite" type="number" step="1" min="1200" max="115200" placeholder="9600" />
+              <div class="label">USB serial device and baud rate.</div>
+            </div>
+            <div id="gpsBluetoothFieldsLite" class="lite-form-grid hidden">
+              <input id="gpsBluetoothAddressLite" type="text" placeholder="AA:BB:CC:DD:EE:FF" />
+              <input id="gpsBluetoothChannelLite" type="number" step="1" min="1" max="30" placeholder="1" />
+              <div class="label">Bluetooth device address and RFCOMM channel.</div>
+            </div>
+          </div>
+          <div class="lite-form-grid">
+            <label for="focusSatSelectLite" class="label">Tracking Focus</label>
+            <select id="focusSatSelectLite"></select>
+            <div class="label">Sets the default satellite shown in the focus card when no pass is active.</div>
+          </div>
+          <div class="lite-form-grid">
+            <label for="displayTimezoneLite" class="label">Display Timezone</label>
+            <select id="displayTimezoneLite"></select>
+            <div class="label">Changes how pass times are shown on this lite view.</div>
+          </div>
+        </details>
       </section>
 
-      <section class="card">
-        <div id="summary" class="value">Loading...</div>
-        <div id="telemetry" class="label"></div>
+      <section class="lite-grid">
+        <article class="card lite-focus-card">
+          <div class="scene-title" id="focusModeLabel">Tracking Focus</div>
+          <div id="focusTitle" class="lite-focus-title">Selected satellite</div>
+          <div id="focusReadout" class="mono value">Az -- | Alt -- | Range --</div>
+          <div id="focusSubpoint" class="mono label"></div>
+          <div id="focusPassMeta" class="mono label"></div>
+          <div class="lite-focus-layout">
+            <div class="lite-mini-compass">
+              <svg id="liteSkyplot" viewBox="0 0 240 240" class="skyplot" aria-label="Lite sky plot">
+                <circle cx="120" cy="120" r="108" class="plot-ring"></circle>
+                <circle cx="120" cy="120" r="58" class="plot-ring-inner"></circle>
+                <line x1="120" y1="12" x2="120" y2="228" class="plot-axis"></line>
+                <line x1="12" y1="120" x2="228" y2="120" class="plot-axis"></line>
+                <line id="liteVector" x1="120" y1="120" x2="120" y2="120" class="plot-vector"></line>
+                <circle id="liteDot" cx="120" cy="120" r="7" class="plot-dot"></circle>
+                <circle cx="120" cy="120" r="4" class="plot-center"></circle>
+                <text x="120" y="28" text-anchor="middle" class="plot-dir">N</text>
+                <text x="212" y="124" text-anchor="middle" class="plot-dir">E</text>
+                <text x="120" y="224" text-anchor="middle" class="plot-dir">S</text>
+                <text x="28" y="124" text-anchor="middle" class="plot-dir">W</text>
+              </svg>
+            </div>
+            <div id="focusRfPanel" class="lite-focus-rf"></div>
+          </div>
+          <div id="liteAmsatSummary" class="amsat-summary hidden">
+            <div class="amsat-summary-head">
+              <span class="label">AMSAT Verification</span>
+              <span id="liteAmsatBadge" class="chip"></span>
+            </div>
+            <div id="liteAmsatDetail" class="label"></div>
+            <div id="liteAmsatCounts" class="stack"></div>
+            <div id="liteAmsatMatched" class="mono label"></div>
+          </div>
+        </article>
+
+        <article class="card lite-pass-card">
+          <div class="scene-title">Next Passes</div>
+          <div id="passMeta" class="mono label"></div>
+          <div id="passCards" class="lite-pass-list"></div>
+        </article>
       </section>
 
-      <section class="card">
-        <div class="label">Next Passes</div>
-        <table>
-          <thead>
-            <tr><th>Sat</th><th>AOS</th><th>Max El</th></tr>
-          </thead>
-          <tbody id="rows"></tbody>
-        </table>
-      </section>
-
-      <section class="card">
-        <div class="label">Tx/Rx Frequencies</div>
-        <div id="freqStatus" class="label"></div>
-        <table>
-          <thead>
-            <tr><th>Sat</th><th>Tx</th><th>Rx</th></tr>
-          </thead>
-          <tbody id="freqRows"></tbody>
-        </table>
+      <section class="card lite-radio-card">
+        <div class="lite-radio-head">
+          <div>
+            <div class="scene-title">Radio Console</div>
+            <div id="freqStatus" class="label"></div>
+          </div>
+        </div>
+        <div id="freqRows" class="lite-freq-list"></div>
       </section>
     </main>
   </body>

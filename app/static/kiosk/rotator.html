@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ISS Tracker Rotator</title>
-    <link rel="stylesheet" href="/static/common/styles.css?v=20260309b" />
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260309c" />
     <script defer src="/static/common/app.js?v=20260308al"></script>
-    <script defer src="/static/kiosk/rotator.js?v=20260309g"></script>
+    <script defer src="/static/kiosk/rotator.js?v=20260309o"></script>
   </head>
   <body class="kiosk rotator">
     <header class="rotator-topbar">
@@ -82,12 +82,7 @@
       <section id="sceneRadio" class="scene hidden">
         <div class="scene-title">Screen 9: Radio Ops</div>
         <div id="radioPrimary" class="scene-overlay mono"></div>
-        <div class="table-wrap">
-          <table class="data-table freq-table">
-            <thead><tr><th>Satellite</th><th>Mode</th><th>Uplink</th><th>Downlink</th><th>Bands</th></tr></thead>
-            <tbody id="radioRows"></tbody>
-          </table>
-        </div>
+        <div id="radioBoard" class="radio-board"></div>
       </section>
     </main>
     <footer class="kiosk-attribution">

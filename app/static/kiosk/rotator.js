@@ -74,6 +74,17 @@ function isIssPass(p) {
   return satId === "iss" || satId === "iss-zarya" || name === "ISS (ZARYA)" || name === "ISS";
 }
 
+function isRotatorAllowedSat(pass) {
+  const name = String(pass?.name || "").toUpperCase();
+  return !name.includes("ISS") || isIssPass(pass);
+}
+
+function stablePassKey(pass) {
+  const aosMs = new Date(pass?.aos || 0).getTime();
+  const roundedMinute = Number.isFinite(aosMs) ? Math.round(aosMs / 60000) : 0;
+  return `${pass?.sat_id || "unknown"}|${roundedMinute}`;
+}
+
 function sceneDurationMs(key) {
   if (key.startsWith("telemetry:")) return 15000;
   if (key === "passes") return 15000;
@@ -91,6 +102,14 @@ function azElToXY(azDeg, elDeg, radius = 108, cx = 120, cy = 120) {
 function bodySymbol(name) {
   const map = { Sun: "☉", Moon: "☾", Mercury: "☿", Venus: "♀", Mars: "♂", Jupiter: "♃", Saturn: "♄" };
   return map[name] || "•";
+}
+
+function normalizeFreqToken(text) {
+  return String(text || "").replace(/\b\d{7,11}\b/g, (m) => {
+    const n = Number(m);
+    if (!Number.isFinite(n) || n <= 0) return m;
+    return `${(n / 1_000_000).toFixed(3)} MHz`;
+  });
 }
 
 function renderSkyplot(track, bodies) {
@@ -118,22 +137,89 @@ function renderSkyplot(track, bodies) {
 }
 
 function parsePair(text) {
-  const m = String(text || "").match(/Uplink\s+([^/]+)\s*\/\s*Downlink\s+(.+)$/i);
-  if (!m) return { up: "—", down: "—" };
-  return { up: m[1].trim(), down: m[2].trim() };
+  const s = normalizeFreqToken(text);
+  const m = s.match(/Uplink\s+(.+?)\s*\/\s*Downlink\s+(.+)$/i);
+  if (!m) {
+    const bare = s.match(/(\d+(?:\.\d+)?)\s*MHz/i);
+    return bare ? { up: "—", down: bare[0] } : { up: "—", down: "—" };
+  }
+  const up = m[1].trim();
+  const down = m[2].trim();
+  return {
+    up: /^n\/?a$/i.test(up) ? "—" : up,
+    down: /^n\/?a$/i.test(down) ? "—" : down,
+  };
 }
 
-function buildFreqRows(sat) {
-  const tx = sat?.transponders || [];
-  const rx = sat?.repeaters || [];
+function extractFirstMHz(text) {
+  const m = normalizeFreqToken(text).match(/(\d+(?:\.\d+)?)\s*MHz/i);
+  return m ? Number(m[1]) : null;
+}
+
+function bandFromMHz(v) {
+  if (!Number.isFinite(v)) return "Unknown";
+  if (v >= 144 && v <= 148) return "VHF 2m";
+  if (v >= 430 && v <= 440) return "UHF 70cm";
+  if (v >= 1240 && v <= 1300) return "L 23cm";
+  if (v >= 2200 && v <= 2450) return "S 13cm";
+  if (v >= 10450 && v <= 10500) return "X 3cm";
+  return `${v.toFixed(3)} MHz`;
+}
+
+function modeLongName(modeText) {
+  const mode = String(modeText || "").replace(/^Mode\s*/i, "").trim();
+  const map = { V: "VHF 2m", U: "UHF 70cm", L: "L 23cm", S: "S 13cm", X: "X 3cm" };
+  const slash = mode.match(/\b([VULSX])\/([VULSX])\b/i);
+  if (slash) {
+    const a = slash[1].toUpperCase();
+    const b = slash[2].toUpperCase();
+    return `${mode} (${map[a] || a} up, ${map[b] || b} down)`;
+  }
+  const single = mode.match(/\b([VULSX])\b/i);
+  if (single) {
+    const k = single[1].toUpperCase();
+    return `${mode} (${map[k] || k})`;
+  }
+  return mode || "General";
+}
+
+function scoreHamUsefulness(row) {
+  const text = `${row.mode} ${row.up} ${row.down} ${row.bands}`.toLowerCase();
+  const hasPair = row.up !== "—" || row.down !== "—";
+  if (!hasPair) return -100;
+  if (/(crew|soyuz|spacex|service module|zvezda|telemetry|control)/i.test(text)) return -50;
+  if (/aprs/i.test(text)) return 100;
+  if (/(voice repeater|repeater|ctcss)/i.test(text)) return 90;
+  if (/transponder/i.test(text)) return 80;
+  if (/(ssb|cw|fm|afsk|fsk|gfsk|gmsk|bpsk|packet|sstv|dvb-s2)/i.test(text)) return 60;
+  return 20;
+}
+
+function frequencyEntriesForSatellite(sat) {
+  const tx = (sat?.transponders || []).map(normalizeFreqToken);
+  const rx = (sat?.repeaters || []).map(normalizeFreqToken);
   const rows = [];
   const n = Math.max(tx.length, rx.length, 1);
   for (let i = 0; i < n; i++) {
-    const mode = String(tx[i] || `Channel ${i + 1}`).replace(/^Mode\s*/i, "");
+    const modeText = tx[i] || `Channel ${i + 1}`;
     const pair = parsePair(rx[i] || "");
-    rows.push({ mode, up: pair.up, down: pair.down });
+    const upBand = bandFromMHz(extractFirstMHz(pair.up));
+    const downBand = bandFromMHz(extractFirstMHz(pair.down));
+    rows.push({
+      mode: modeLongName(modeText),
+      up: pair.up,
+      down: pair.down,
+      bands: pair.up !== "—" || pair.down !== "—" ? `${upBand} -> ${downBand}` : "Unknown",
+    });
   }
-  return rows.filter((r) => r.up !== "—" || r.down !== "—").slice(0, 6);
+  return rows
+    .filter((r) => r.up !== "—" || r.down !== "—")
+    .sort((a, b) => scoreHamUsefulness(b) - scoreHamUsefulness(a))
+    .slice(0, 6);
+}
+
+function buildFreqRows(sat) {
+  return frequencyEntriesForSatellite(sat).map((row) => ({ mode: row.mode, up: row.up, down: row.down }));
 }
 
 function passDurationMinutes(pass) {
@@ -151,15 +237,17 @@ function passMeetsRotatorElevation(pass) {
 function filterConsolePasses(passes) {
   const now = Date.now();
   return (passes || [])
+    .filter(isRotatorAllowedSat)
     .filter((p) => new Date(p.aos).getTime() > now)
     .filter(isRotatorEligiblePass)
-    .filter(passMeetsRotatorElevation);
+    .filter((p) => isIssPass(p) || passMeetsRotatorElevation(p));
 }
 
 function pickOngoingPass(system, passes) {
   const nowMs = Date.now();
   const tracks = system?.tracks || [];
   const ongoingPasses = (passes || [])
+    .filter(isRotatorAllowedSat)
     .filter((p) => new Date(p.aos).getTime() <= nowMs && new Date(p.los).getTime() >= nowMs)
     .filter(isRotatorEligiblePass)
     .filter(passMeetsRotatorElevation)
@@ -173,25 +261,26 @@ function pickOngoingPass(system, passes) {
 function buildRotationSequence(system, passes) {
   const nowMs = Date.now();
   const upcoming = (passes || [])
+    .filter(isRotatorAllowedSat)
     .filter((p) => new Date(p.aos).getTime() > nowMs)
     .filter(isRotatorEligiblePass)
     .filter(passMeetsRotatorElevation);
   const issUpcoming = upcoming.find((p) => isIssPass(p) && Number(p.max_el_deg) >= 20);
-  const exclusionKey = issUpcoming ? `${issUpcoming.sat_id}|${issUpcoming.aos}` : "";
+  const exclusionKey = issUpcoming ? stablePassKey(issUpcoming) : "";
   const nonOngoingCandidates = upcoming.filter((p) => Number(p.max_el_deg) >= 40);
   const nextFour = [];
   for (const p of nonOngoingCandidates) {
-    const k = `${p.sat_id}|${p.aos}`;
+    const k = stablePassKey(p);
     if (k === exclusionKey) continue;
-    if (nextFour.some((x) => `${x.sat_id}|${x.aos}` === k)) continue;
+    if (nextFour.some((x) => stablePassKey(x) === k)) continue;
     nextFour.push(p);
     if (nextFour.length >= 4) break;
   }
 
   const seq = [];
-  if (issUpcoming) seq.push({ key: `telemetry:${issUpcoming.sat_id}|${issUpcoming.aos}`, mode: "iss-upcoming", pass: issUpcoming });
+  if (issUpcoming) seq.push({ key: `telemetry:${stablePassKey(issUpcoming)}`, mode: "iss-upcoming", pass: issUpcoming });
   seq.push({ key: "passes", mode: "passes" });
-  nextFour.forEach((p) => seq.push({ key: `telemetry:${p.sat_id}|${p.aos}`, mode: "upcoming", pass: p }));
+  nextFour.forEach((p) => seq.push({ key: `telemetry:${stablePassKey(p)}`, mode: "upcoming", pass: p }));
   seq.push({ key: "radio", mode: "radio" });
   return seq;
 }
@@ -304,8 +393,8 @@ function renderPassesScene(passes) {
   const now = Date.now();
   const items = filterConsolePasses(passes).slice(0, 10);
   trackerById("passesMeta").textContent = items.length
-    ? `Next AOS in ${Math.max(0, Math.floor((new Date(items[0].aos).getTime() - now) / 1000))}s | TZ ${state.timezone} | MinEl ISS>=20°, others>=40°`
-    : `No qualifying passes in 24h | TZ ${state.timezone} | MinEl ISS>=20°, others>=40°`;
+    ? `Next AOS in ${Math.max(0, Math.floor((new Date(items[0].aos).getTime() - now) / 1000))}s | TZ ${state.timezone} | ISS all passes, others>=40°`
+    : `No qualifying passes in 24h | TZ ${state.timezone} | ISS all passes, others>=40°`;
   trackerById("rotatorPassRows").innerHTML = items.length
     ? items.map((p, idx) => `<tr class="${idx === 0 ? "selected-row" : ""}"><td><strong>${p.name}</strong></td><td>${fmtLocal(p.aos)}</td><td>${fmtLocal(p.tca)}</td><td>${fmtLocal(p.los)}</td><td>${p.max_el_deg.toFixed(1)}°</td></tr>`).join("")
     : '<tr><td colspan="5" class="label">No qualifying passes</td></tr>';
@@ -313,20 +402,54 @@ function renderPassesScene(passes) {
 
 function renderRadioScene(passes) {
   setSceneVisible("sceneRadio");
-  const upcoming = filterConsolePasses(passes).slice(0, 5);
-  const rows = [];
-  for (const p of upcoming) {
-    const sat = state.sats.find((s) => s.sat_id === p.sat_id);
-    const fr = buildFreqRows(sat);
-    const primary = fr[0] || { mode: "--", up: "—", down: "—" };
-    rows.push({ sat: p.name, ...primary });
+  const upcoming = [];
+  const seenSatIds = new Set();
+  for (const pass of filterConsolePasses(passes)) {
+    if (seenSatIds.has(pass.sat_id)) continue;
+    seenSatIds.add(pass.sat_id);
+    upcoming.push(pass);
+    if (upcoming.length >= 5) break;
   }
-  trackerById("radioPrimary").textContent = rows.length
-    ? `Primary: ${rows[0].sat} | ${rows[0].mode} | ${rows[0].up} up / ${rows[0].down} down`
+  const cards = upcoming.map((p) => {
+    const sat = state.sats.find((s) => s.sat_id === p.sat_id);
+    const channels = frequencyEntriesForSatellite(sat);
+    return { pass: p, channels };
+  });
+  const primary = cards[0] || null;
+  const primaryChannel = primary?.channels[0] || null;
+  trackerById("radioPrimary").textContent = primary
+    ? `Primary: ${primary.pass.name} | ${primaryChannel?.mode || "No channel detail"} | AOS ${fmtLocal(primary.pass.aos)} | MaxEl ${primary.pass.max_el_deg.toFixed(1)}°`
     : "Primary: --";
-  trackerById("radioRows").innerHTML = rows.length
-    ? rows.map((r) => `<tr><td>${r.sat}</td><td>${r.mode}</td><td class="mono">${r.up}</td><td class="mono">${r.down}</td><td>--</td></tr>`).join("")
-    : '<tr><td colspan="5" class="label">No upcoming radio rows</td></tr>';
+  trackerById("radioBoard").innerHTML = cards.length
+    ? cards.map((card, idx) => {
+      const shell = idx === 0 ? "radio-primary-card" : "radio-sat-card";
+      const label = idx === 0 ? "Primary Window" : `Queue ${idx + 1}`;
+      const channels = card.channels.length
+        ? card.channels.slice(0, idx === 0 ? 3 : 2).map((ch) => `
+            <div class="radio-channel">
+              <div class="radio-channel-mode">${ch.mode}</div>
+              <div class="radio-pair">
+                <div class="radio-pair-label">Uplink</div>
+                <div class="radio-pair-value mono">${ch.up}</div>
+              </div>
+              <div class="radio-pair">
+                <div class="radio-pair-label">Downlink</div>
+                <div class="radio-pair-value mono">${ch.down}</div>
+              </div>
+              <div class="radio-band-line">${ch.bands}</div>
+            </div>
+          `).join("")
+        : '<div class="radio-empty">No parsed radio channels for this pass.</div>';
+      return `
+        <article class="${shell}">
+          <div class="radio-card-label">${label}</div>
+          <div class="radio-sat-name">${card.pass.name}</div>
+          <div class="radio-pass-time mono">AOS ${fmtLocal(card.pass.aos)} | LOS ${fmtLocal(card.pass.los)} | MaxEl ${card.pass.max_el_deg.toFixed(1)}°</div>
+          ${channels}
+        </article>
+      `;
+    }).join("")
+    : '<div class="radio-empty">No upcoming qualified radio passes.</div>';
 }
 
 function showScene(scene, system, passes) {
@@ -411,6 +534,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     setInterval(tickClock, 1000);
     await fetchState();
     chooseScene();
+    setInterval(() => {
+      try {
+        chooseScene();
+      } catch (_) {}
+    }, 1000);
     setInterval(async () => {
       try {
         await fetchState();

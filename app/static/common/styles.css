@@ -191,6 +191,29 @@ iframe {
   font-weight: 700;
 }
 
+.body-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 7px 2px 0;
+  color: #dce9fb;
+  font-size: 0.78rem;
+}
+
+.body-key-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45);
+}
+
+.body-key-sym {
+  color: #f5f8ff;
+  font-weight: 700;
+  min-width: 10px;
+}
+
 .plot-center {
   fill: #d0e2f5;
 }
@@ -247,11 +270,1079 @@ iframe {
   line-height: 1.25;
 }
 
+.chip-ok {
+  color: #dfffe3;
+  background: rgba(46, 112, 67, 0.58);
+  border-color: rgba(125, 226, 125, 0.38);
+}
+
+.chip-warn {
+  color: #fff2d7;
+  background: rgba(124, 86, 15, 0.58);
+  border-color: rgba(255, 193, 101, 0.4);
+}
+
+.chip-danger {
+  color: #ffe0e0;
+  background: rgba(126, 32, 32, 0.58);
+  border-color: rgba(255, 126, 126, 0.4);
+}
+
+.amsat-summary {
+  margin: 8px 0 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(8, 18, 32, 0.38);
+}
+
+.amsat-summary.hidden,
+.hidden {
+  display: none !important;
+}
+
+.amsat-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.freq-focus {
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  padding-top: 10px;
+}
+
+.freq-focus .value {
+  margin: 4px 0 10px;
+}
+
+.freq-table td,
+.freq-table th {
+  font-size: 0.86rem;
+}
+
+.freq-table td:first-child {
+  max-width: 420px;
+}
+
+.freq-details {
+  margin-top: 10px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.22);
+  padding-top: 8px;
+}
+
+.freq-details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
 @media (max-width: 700px) {
   h1 {
     font-size: 1rem;
   }
   main {
     padding: 10px;
+  }
+}
+
+/* Kiosk dashboard theme overrides: denser, lower-card visual language. */
+body.kiosk {
+  --bg: #180f10;
+  --panel: #222327;
+  --panel-2: #17181b;
+  --text: #fff5ea;
+  --muted: #d7c2b0;
+  --accent: #ff7a59;
+  --live: #3fe0c5;
+  --warn: #ffbf47;
+  --critical: #ff4f7d;
+  background:
+    linear-gradient(180deg, rgba(16, 8, 8, 0.5), rgba(21, 10, 11, 0.64)),
+    radial-gradient(1040px 500px at 9% -10%, rgba(255, 122, 89, 0.18), transparent 58%),
+    radial-gradient(760px 420px at 92% 108%, rgba(63, 224, 197, 0.16), transparent 54%),
+    radial-gradient(680px 360px at 52% 16%, rgba(255, 191, 71, 0.1), transparent 60%),
+    url("/static/kiosk/assets/iss-bg-airglow.jpg");
+  background-position: center center, 0 0, 0 0, center 42%;
+  background-size: cover, auto, auto, cover;
+  background-attachment: fixed, fixed, fixed, fixed;
+}
+
+body.kiosk header {
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255, 186, 96, 0.35);
+  background: linear-gradient(90deg, rgba(31, 32, 36, 0.94), rgba(18, 19, 23, 0.82));
+  backdrop-filter: blur(2px);
+}
+
+body.kiosk h1 {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: #ffd46e;
+  font-size: 1.16rem;
+}
+
+body.kiosk main {
+  padding: 10px 12px 12px;
+  gap: 9px;
+}
+
+body.kiosk .card {
+  position: relative;
+  border: none;
+  border-radius: 3px;
+  background:
+    linear-gradient(130deg, rgba(38, 39, 44, 0.82), rgba(24, 25, 29, 0.74)),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 238, 219, 0.02) 0,
+      rgba(255, 238, 219, 0.02) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 228, 0.08),
+    inset 0 -1px 0 rgba(255, 138, 104, 0.05),
+    0 10px 28px rgba(22, 5, 7, 0.24),
+    0 0 0 1px rgba(255, 186, 96, 0.15);
+  backdrop-filter: blur(2px);
+  padding: 10px;
+}
+
+body.kiosk .controls {
+  gap: 6px;
+}
+
+body.kiosk .hidden {
+  display: none !important;
+}
+
+body.kiosk .inline-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+body.kiosk .label {
+  color: #e6cab3;
+  letter-spacing: 0.02em;
+}
+
+body.kiosk .value {
+  color: #fff6ef;
+}
+
+body.kiosk input,
+body.kiosk select,
+body.kiosk button {
+  border-radius: 3px;
+  border: 1px solid rgba(255, 191, 71, 0.34);
+  background: linear-gradient(180deg, rgba(52, 53, 58, 0.9), rgba(28, 29, 34, 0.88));
+  color: #fff5ea;
+  min-height: 34px;
+}
+
+body.kiosk button {
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.8rem;
+}
+
+body.kiosk button:hover {
+  border-color: rgba(255, 122, 89, 0.92);
+  box-shadow: 0 0 0 1px rgba(255, 122, 89, 0.28) inset;
+}
+
+body.kiosk #clock {
+  color: #f4f7fe;
+  font-weight: 600;
+}
+
+body.kiosk .top-controls,
+body.kiosk .location-controls {
+  position: relative;
+  overflow: hidden;
+  align-items: flex-start;
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: start;
+}
+
+body.kiosk .top-controls::before,
+body.kiosk .location-controls::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 1px;
+  width: 100%;
+  background: linear-gradient(90deg, rgba(255, 191, 71, 0.96), rgba(255, 122, 89, 0.82), rgba(63, 224, 197, 0.72));
+}
+
+body.kiosk .card::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(255, 191, 71, 0.26), rgba(255, 122, 89, 0.22), rgba(63, 224, 197, 0.14) 88%);
+  filter: blur(0.8px);
+  pointer-events: none;
+}
+
+body.kiosk .top-controls label,
+body.kiosk .location-controls label {
+  min-width: fit-content;
+}
+
+body.kiosk .top-controls > .label,
+body.kiosk .location-controls > .label {
+  margin-right: 4px;
+}
+
+body.kiosk #passSatSelect {
+  min-width: 220px;
+}
+
+body.kiosk .status-strip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: start;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: start;
+  padding: 6px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+body.kiosk .status-cell {
+  min-height: 44px;
+  min-width: 280px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 3px;
+  background: linear-gradient(130deg, rgba(42, 43, 48, 0.82), rgba(24, 25, 29, 0.78));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 228, 0.06),
+    0 0 0 1px rgba(255, 186, 96, 0.08),
+    0 8px 20px rgba(19, 4, 6, 0.18);
+}
+
+body.kiosk .status-cell .value {
+  font-size: 1rem;
+  margin: 1px 0;
+}
+
+body.kiosk .status-advanced {
+  min-width: 180px;
+}
+
+body.kiosk .status-advanced summary {
+  cursor: pointer;
+  color: #ffb36f;
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+}
+
+body.kiosk .telemetry-strip {
+  width: fit-content;
+  max-width: 100%;
+  justify-self: start;
+}
+
+body.kiosk .telemetry-strip-body {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+body.kiosk .mini-compass {
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
+  height: 120px;
+  max-height: 120px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex: 0 0 120px;
+  box-shadow:
+    inset 0 0 22px rgba(255, 122, 89, 0.18),
+    0 0 0 1px rgba(255, 191, 71, 0.34);
+}
+
+body.kiosk #miniSkyplot {
+  width: 120px;
+  height: 120px;
+  max-width: 120px;
+  max-height: 120px;
+  display: block;
+}
+
+body.kiosk .telemetry-cues {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 360px;
+}
+
+body.kiosk #telemetryCue {
+  display: none;
+}
+
+body.kiosk #miniBadges .chip {
+  background: rgba(45, 46, 52, 0.9);
+}
+
+body.kiosk .telemetry-drawer {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 16, 18, 0.56);
+  backdrop-filter: blur(2px);
+  z-index: 80;
+  display: flex;
+  justify-content: flex-end;
+}
+
+body.kiosk .telemetry-drawer-panel {
+  width: min(760px, 94vw);
+  height: 100vh;
+  padding: 12px;
+  background: linear-gradient(180deg, rgba(34, 35, 39, 0.97), rgba(18, 19, 23, 0.97));
+  border-left: 1px solid rgba(255, 191, 71, 0.18);
+  box-shadow: -10px 0 36px rgba(20, 5, 6, 0.34);
+  overflow: auto;
+}
+
+body.kiosk .telemetry-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+body.kiosk .telemetry-drawer-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 12px;
+}
+
+body.kiosk #drawerReadout,
+body.kiosk #drawerCue {
+  margin-bottom: 6px;
+}
+
+body.kiosk #drawerCue {
+  display: none;
+}
+
+body.kiosk .diag-row {
+  background:
+    linear-gradient(130deg, rgba(39, 40, 45, 0.7), rgba(23, 24, 28, 0.66)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 191, 71, 0.055) 0,
+      rgba(255, 191, 71, 0.055) 1px,
+      transparent 1px,
+      transparent 13px
+    );
+}
+
+body.kiosk .compass {
+  box-shadow:
+    inset 0 0 36px rgba(255, 122, 89, 0.12),
+    0 0 0 1px rgba(255, 191, 71, 0.24);
+}
+
+body.kiosk .plot-ring {
+  fill: rgba(35, 36, 42, 0.82);
+  stroke: rgba(255, 244, 228, 0.95);
+}
+
+body.kiosk .plot-trail {
+  stroke: #ff7a59;
+}
+
+body.kiosk iframe {
+  min-height: 340px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 191, 71, 0.24);
+}
+
+body.kiosk .pass-row .data-table thead th {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.77rem;
+  color: #fff2e2;
+  background: linear-gradient(180deg, rgba(101, 67, 39, 0.92), rgba(71, 43, 26, 0.9));
+  border-bottom: 1px solid rgba(255, 191, 71, 0.22);
+}
+
+body.kiosk .pass-row .data-table tbody tr:hover {
+  background: rgba(255, 122, 89, 0.1);
+}
+
+body.kiosk .pass-row .data-table tbody tr:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.018);
+}
+
+body.kiosk .pass-row .data-table tbody tr:first-child {
+  background:
+    linear-gradient(90deg, rgba(63, 224, 197, 0.16), rgba(255, 191, 71, 0.12));
+}
+
+body.kiosk .pass-row #nextPassCountdown {
+  color: var(--live);
+  font-weight: 700;
+}
+
+body.kiosk .clickable-table tbody tr.selected-row {
+  outline: 1px solid rgba(255, 207, 102, 0.55);
+  background: linear-gradient(90deg, rgba(255, 207, 102, 0.15), rgba(255, 109, 142, 0.08));
+}
+
+body.kiosk .status-ok {
+  color: var(--live);
+}
+
+body.kiosk .status-warn {
+  color: var(--warn);
+}
+
+body.kiosk .status-danger {
+  color: var(--critical);
+}
+
+body.kiosk .freq-focus {
+  border-top: none;
+  padding-top: 10px;
+}
+
+body.kiosk .amsat-summary {
+  background: linear-gradient(145deg, rgba(47, 32, 24, 0.42), rgba(16, 25, 28, 0.36));
+  border-color: rgba(255, 191, 71, 0.16);
+}
+
+body.kiosk #bodyLegend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 8px;
+}
+
+body.kiosk .freq-details summary {
+  color: #ffb36f;
+}
+
+@media (max-width: 1000px) {
+  body.kiosk .top-controls,
+  body.kiosk .location-controls,
+  body.kiosk .status-strip {
+    width: 100%;
+  }
+
+  body.kiosk iframe {
+    min-height: 280px;
+  }
+
+  body.kiosk .telemetry-strip-body {
+    grid-template-columns: 1fr;
+  }
+
+  body.kiosk .telemetry-cues {
+    min-width: 0;
+  }
+
+  body.kiosk .telemetry-drawer-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+body.kiosk .kiosk-attribution {
+  position: fixed;
+  right: 8px;
+  bottom: 6px;
+  z-index: 50;
+  font-size: 10px;
+  letter-spacing: 0.01em;
+  color: rgba(255, 231, 208, 0.66);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+body.kiosk .kiosk-attribution a {
+  color: rgba(255, 205, 137, 0.82);
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(255, 205, 137, 0.4);
+}
+
+body.kiosk .kiosk-attribution a:hover {
+  color: rgba(255, 255, 255, 0.92);
+  border-bottom-color: rgba(255, 255, 255, 0.6);
+}
+
+body.kiosk.rotator {
+  overflow: hidden;
+}
+
+body.kiosk .rotator-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: linear-gradient(90deg, rgba(37, 38, 42, 0.88), rgba(22, 23, 27, 0.62));
+}
+
+body.kiosk .rotator-meta {
+  display: flex;
+  gap: 14px;
+  font-size: 0.82rem;
+}
+
+body.kiosk .rotator-main {
+  height: calc(100vh - 62px);
+  padding: 8px 10px 12px;
+}
+
+body.kiosk .scene {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fade-in 180ms ease-out;
+}
+
+body.kiosk .scene-title {
+  color: #ffb36f;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.84rem;
+}
+
+body.kiosk .scene-overlay {
+  color: #ffe08f;
+  font-size: 0.82rem;
+}
+
+body.kiosk.rotator iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: #000;
+}
+
+body.kiosk .telemetry-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 44%) 1fr;
+  gap: 12px;
+  flex: 1;
+}
+
+body.kiosk .telemetry-readout {
+  color: #fff6ef;
+  margin-bottom: 4px;
+}
+
+body.kiosk .rotator-map {
+  width: 100%;
+  height: min(50vh, 380px);
+  border: none;
+  background: radial-gradient(circle at 28% 18%, rgba(255, 122, 89, 0.18), rgba(30, 31, 36, 0.94));
+}
+
+body.kiosk.rotator .data-table thead th {
+  background: rgba(151, 59, 46, 0.82);
+}
+
+body.kiosk .radio-board {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+body.kiosk .radio-primary-card,
+body.kiosk .radio-sat-card {
+  position: relative;
+  background: linear-gradient(145deg, rgba(38, 39, 44, 0.9), rgba(21, 22, 27, 0.82));
+  border: 1px solid rgba(255, 191, 71, 0.16);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 244, 228, 0.06);
+  overflow: hidden;
+}
+
+body.kiosk .radio-primary-card::before,
+body.kiosk .radio-sat-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, rgba(255, 191, 71, 0.95), rgba(255, 122, 89, 0.82), rgba(63, 224, 197, 0.72));
+}
+
+body.kiosk .radio-primary-card {
+  grid-row: span 2;
+  min-height: 100%;
+}
+
+body.kiosk .radio-card-label {
+  color: #ffb36f;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+body.kiosk .radio-sat-name {
+  color: #fff6ef;
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 6px 0 10px;
+}
+
+body.kiosk .radio-pass-time {
+  color: #e6cab3;
+  font-size: 0.86rem;
+  margin-bottom: 12px;
+}
+
+body.kiosk .radio-channel {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+body.kiosk .radio-channel:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+body.kiosk .radio-channel-mode {
+  color: #fff1db;
+  font-weight: 650;
+}
+
+body.kiosk .radio-pair {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+
+body.kiosk .radio-pair-label {
+  color: #ffb36f;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+body.kiosk .radio-pair-value {
+  color: #fff6ef;
+}
+
+body.kiosk .radio-band-line {
+  color: #3fe0c5;
+  font-size: 0.82rem;
+}
+
+body.kiosk .radio-empty {
+  color: #e6cab3;
+  font-size: 0.92rem;
+  padding-top: 10px;
+}
+
+body.lite {
+  --bg: #fff6e9;
+  --panel: #fffdf8;
+  --panel-2: #fff2dc;
+  --text: #2c1d18;
+  --muted: #7b5b54;
+  --accent: #ff6f47;
+  background:
+    radial-gradient(760px 420px at 8% -8%, rgba(255, 111, 71, 0.26), transparent 56%),
+    radial-gradient(660px 360px at 100% 0%, rgba(48, 214, 189, 0.24), transparent 52%),
+    radial-gradient(540px 280px at 50% 100%, rgba(255, 196, 72, 0.24), transparent 54%),
+    linear-gradient(180deg, #fff8ef, #ffe9cf 54%, #ffe2de);
+  min-height: 100vh;
+}
+
+body.lite .lite-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 12px 14px 10px;
+  align-items: flex-start;
+  background:
+    linear-gradient(90deg, rgba(255, 252, 246, 0.94), rgba(255, 243, 226, 0.88));
+  border-bottom: 1px solid rgba(255, 111, 71, 0.16);
+  backdrop-filter: blur(8px);
+}
+
+body.lite h1 {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.94rem;
+  color: #ff7b39;
+  margin-top: 4px;
+}
+
+body.lite .lite-shell {
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+body.lite .card {
+  border: 1px solid rgba(255, 111, 71, 0.12);
+  border-radius: 18px;
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.92), rgba(255, 242, 220, 0.9));
+  box-shadow:
+    0 10px 26px rgba(207, 92, 56, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+body.lite .lite-hero-head,
+body.lite .lite-radio-head,
+body.lite .lite-pass-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+body.lite .lite-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+body.lite .lite-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  gap: 10px;
+}
+
+body.lite .lite-settings-details {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255, 111, 71, 0.16);
+}
+
+body.lite .lite-settings-details summary {
+  cursor: pointer;
+  color: #ff7b39;
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+
+body.lite .lite-focus-title {
+  color: #2f201b;
+  font-size: 1.02rem;
+  font-weight: 700;
+  margin: 4px 0 8px;
+  line-height: 1.3;
+}
+
+body.lite .lite-focus-layout {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  gap: 10px;
+  align-items: start;
+  margin-top: 8px;
+}
+
+body.lite .lite-mini-compass {
+  width: 116px;
+  height: 116px;
+}
+
+body.lite .lite-focus-rf {
+  display: grid;
+  gap: 6px;
+}
+
+body.lite .lite-pass-list,
+body.lite .lite-freq-list {
+  display: grid;
+  gap: 8px;
+}
+
+body.lite .lite-pass-item,
+body.lite .lite-radio-item {
+  border-radius: 14px;
+  padding: 12px 12px 11px;
+  background:
+    linear-gradient(140deg, rgba(255, 255, 255, 0.92), rgba(255, 238, 214, 0.82));
+  border: 1px solid rgba(255, 111, 71, 0.1);
+  cursor: pointer;
+}
+
+body.lite .lite-pass-title,
+body.lite .lite-radio-title {
+  font-weight: 700;
+  color: #2d201a;
+  line-height: 1.3;
+}
+
+body.lite .lite-pass-item:hover,
+body.lite .lite-radio-item:hover {
+  border-color: rgba(255, 111, 71, 0.22);
+}
+
+body.lite .lite-pass-times {
+  margin-top: 8px;
+  color: #8c7067;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  word-spacing: 0.015em;
+}
+
+body.lite .lite-radio-pair {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 8px;
+  margin-top: 7px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+body.lite .lite-radio-label {
+  color: #ff7b39;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.74rem;
+  padding-top: 1px;
+}
+
+body.lite .lite-radio-item-primary {
+  border-color: rgba(255, 111, 71, 0.24);
+  background:
+    linear-gradient(135deg, rgba(255, 243, 228, 0.98), rgba(234, 255, 249, 0.9));
+  box-shadow:
+    0 8px 20px rgba(255, 111, 71, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+body.lite .lite-radio-queue-label {
+  color: #ff7b39;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+  line-height: 1.35;
+}
+
+body.lite .lite-radio-channel {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid rgba(255, 111, 71, 0.08);
+}
+
+body.lite .lite-radio-channel:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 10px;
+}
+
+body.lite .lite-radio-channel-mode {
+  color: #3a2a24;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+body.lite .lite-radio-band-line {
+  color: #2a9f90;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+body.lite .lite-radio-empty {
+  color: #8b665c;
+  font-size: 0.9rem;
+  padding-top: 8px;
+}
+
+body.lite .lite-controls-card button,
+body.lite .lite-topbar button,
+body.lite .lite-hero button {
+  min-height: 40px;
+}
+
+body.lite .amsat-summary {
+  margin-top: 10px;
+  padding: 9px 10px;
+  background:
+    linear-gradient(135deg, rgba(255, 246, 223, 0.98), rgba(230, 255, 247, 0.88));
+  border-color: rgba(48, 214, 189, 0.2);
+}
+
+body.lite .scene-title {
+  color: #ff7b39;
+  font-size: 0.74rem;
+  letter-spacing: 0.07em;
+  margin-bottom: 6px;
+  line-height: 1.35;
+}
+
+body.lite .value {
+  font-size: 0.98rem;
+  line-height: 1.35;
+}
+
+body.lite .label {
+  color: #8a6c64;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+body.lite .stack {
+  gap: 5px;
+}
+
+body.lite .chip {
+  background: rgba(255, 255, 255, 0.78);
+  border-color: rgba(255, 111, 71, 0.12);
+  color: #724d43;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+body.lite .chip-ok {
+  color: #0d6e63;
+  background: rgba(197, 252, 242, 0.96);
+  border-color: rgba(33, 181, 157, 0.22);
+}
+
+body.lite .chip-warn {
+  color: #8a5200;
+  background: rgba(255, 235, 183, 0.96);
+  border-color: rgba(255, 178, 39, 0.24);
+}
+
+body.lite .chip-danger {
+  color: #9d3148;
+  background: rgba(255, 220, 227, 0.98);
+  border-color: rgba(235, 95, 126, 0.22);
+}
+
+body.lite input,
+body.lite select,
+body.lite button {
+  background: rgba(255, 255, 255, 0.78);
+  color: #2d2019;
+  border: 1px solid rgba(255, 111, 71, 0.16);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+body.lite button {
+  background: linear-gradient(135deg, #ff7b39, #ffb347);
+  color: #fffdf9;
+  font-weight: 700;
+  box-shadow: 0 8px 18px rgba(255, 123, 57, 0.2);
+}
+
+body.lite #refreshNow {
+  min-width: 92px;
+}
+
+body.lite .lite-hero,
+body.lite .lite-controls-card,
+body.lite .lite-focus-card,
+body.lite .lite-pass-card,
+body.lite .lite-radio-card {
+  padding: 11px;
+}
+
+body.lite #summary,
+body.lite #telemetry,
+body.lite #syncMeta,
+body.lite #focusReadout,
+body.lite #focusSubpoint,
+body.lite #focusPassMeta,
+body.lite #freqStatus,
+body.lite #passMeta,
+body.lite #locationModeHelp,
+body.lite #manualHelp,
+body.lite #liteAmsatDetail,
+body.lite #liteAmsatMatched {
+  margin-top: 4px;
+}
+
+@media (max-width: 820px) {
+  body.lite .lite-grid {
+    grid-template-columns: 1fr;
+  }
+
+  body.lite .lite-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  body.lite .lite-hero-head,
+  body.lite .lite-pass-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  body.lite .lite-shell {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  body.lite .card {
+    border-radius: 16px;
+  }
+
+  body.lite .lite-topbar {
+    padding: 10px 12px 9px;
+  }
+
+  body.lite .lite-focus-layout {
+    grid-template-columns: 1fr;
+  }
+
+  body.lite .lite-mini-compass {
+    width: 120px;
+    height: 120px;
+    margin: 0 auto;
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0.3; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 1000px) {
+  body.kiosk .rotator-meta {
+    display: none;
+  }
+  body.kiosk .telemetry-layout {
+    grid-template-columns: 1fr;
+  }
+  body.kiosk .radio-board {
+    grid-template-columns: 1fr;
+  }
+  body.kiosk .radio-primary-card {
+    grid-row: auto;
   }
 }

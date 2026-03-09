@@ -4,105 +4,87 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ISS Tracker Kiosk</title>
-    <link rel="stylesheet" href="/static/common/styles.css" />
-    <script defer src="/static/common/app.js?v=20260308n"></script>
-    <script defer src="/static/kiosk/kiosk.js?v=20260308n"></script>
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260309c" />
+    <script defer src="/static/common/app.js?v=20260308aj"></script>
+    <script defer src="/static/kiosk/kiosk.js?v=20260309c"></script>
   </head>
-  <body>
+  <body class="kiosk">
     <header>
       <h1>ISS + Amateur Satellite Tracker</h1>
       <div id="clock" class="label"></div>
     </header>
     <main>
       <section class="card controls">
-        <label for="issMode">ISS Display Mode</label>
-        <select id="issMode">
-          <option value="SunlitOnlyVideo">Video: ISS Sunlit</option>
-          <option value="SunlitAndVisibleVideo">Video: Sunlit + Above Horizon</option>
-          <option value="TelemetryOnly">Telemetry Only</option>
-        </select>
-        <button id="saveMode">Apply</button>
-        <button id="refreshNow">Refresh</button>
+        <span class="label">Kiosk Ops View</span>
         <label for="trackSatSelect">Tracked Satellite</label>
         <select id="trackSatSelect"></select>
       </section>
 
-      <section class="card controls">
-        <label for="locationMode">Location Source</label>
-        <select id="locationMode">
-          <option value="browser">System Location</option>
-          <option value="gps">GPS</option>
-          <option value="manual">Manual</option>
-          <option value="auto">Auto</option>
-        </select>
-        <button id="useSystemLocation">Use System Location</button>
-        <input id="manualLat" type="number" step="0.000001" placeholder="Manual lat" />
-        <input id="manualLon" type="number" step="0.000001" placeholder="Manual lon" />
-        <button id="applyManual">Apply Manual</button>
-        <input id="gpsLat" type="number" step="0.000001" placeholder="GPS lat" />
-        <input id="gpsLon" type="number" step="0.000001" placeholder="GPS lon" />
-        <button id="applyGps">Apply GPS</button>
-      </section>
-
-      <section class="grid-2">
-        <article class="card">
+      <section class="card status-strip">
+        <div class="status-cell">
           <div class="label">ISS State</div>
           <div id="issSummary" class="value">Loading...</div>
           <div id="issTrack" class="label"></div>
-        </article>
-        <article class="card">
-          <div class="label">Location Source</div>
+        </div>
+        <div class="status-cell">
+          <div class="label">Location</div>
           <div id="locationSummary" class="value">Loading...</div>
           <div id="networkSummary" class="label"></div>
-        </article>
+        </div>
+        <details class="status-cell status-advanced">
+          <summary>Diagnostics</summary>
+          <div id="diagSat" class="mono label">Satellite: --</div>
+          <div id="diagLoc" class="mono label">Observer: --</div>
+          <div id="diagTime" class="mono label">UTC Used: --</div>
+        </details>
       </section>
 
-      <section class="card">
-        <div class="label">Diagnostics</div>
-        <div id="diagSat" class="mono label">Satellite: --</div>
-        <div id="diagLoc" class="mono label">Observer: --</div>
-        <div id="diagTime" class="mono label">UTC Used: --</div>
-      </section>
-
-      <section class="grid-2">
-        <article class="card">
-          <div class="label">Telemetry Compass</div>
-          <div class="compass">
-            <svg id="skyplot" viewBox="0 0 240 240" class="skyplot" aria-label="Telemetry sky plot">
+      <section class="card telemetry-strip">
+        <div class="label">Telemetry Tactical Strip</div>
+        <div class="telemetry-strip-body">
+          <div class="mini-compass">
+            <svg id="miniSkyplot" viewBox="0 0 240 240" width="120" height="120" class="skyplot" aria-label="Telemetry mini sky plot">
               <circle cx="120" cy="120" r="108" class="plot-ring"></circle>
               <circle cx="120" cy="120" r="58" class="plot-ring-inner"></circle>
               <line x1="120" y1="12" x2="120" y2="228" class="plot-axis"></line>
               <line x1="12" y1="120" x2="228" y2="120" class="plot-axis"></line>
-              <polyline id="issTrail" class="plot-trail" points=""></polyline>
-              <line id="issVector" x1="120" y1="120" x2="120" y2="120" class="plot-vector"></line>
-              <circle id="issDot" cx="120" cy="120" r="7" class="plot-dot"></circle>
+              <line id="miniIssVector" x1="120" y1="120" x2="120" y2="120" class="plot-vector"></line>
+              <circle id="miniIssDot" cx="120" cy="120" r="7" class="plot-dot"></circle>
               <circle cx="120" cy="120" r="4" class="plot-center"></circle>
-              <text x="120" y="28" text-anchor="middle" class="plot-dir">N</text>
-              <text x="212" y="124" text-anchor="middle" class="plot-dir">E</text>
-              <text x="120" y="224" text-anchor="middle" class="plot-dir">S</text>
-              <text x="28" y="124" text-anchor="middle" class="plot-dir">W</text>
-              <g id="bodyLayer"></g>
             </svg>
           </div>
-          <div id="compassReadout" class="value mono" style="text-align:center; margin-top:8px">Az --.-° | Alt --.-°</div>
-          <div id="compassText" class="label" style="text-align:center; margin-top:8px"></div>
-          <div id="bodyLegend" class="label" style="text-align:center; margin-top:6px">Bodies: --</div>
-        </article>
+          <div class="telemetry-cues">
+            <div id="compassReadout" class="value mono">Az --.-° | Alt --.-°</div>
+            <div id="telemetryCue" class="mono value">Cue: --</div>
+            <div id="compassText" class="label">--</div>
+            <div id="miniBadges" class="stack"></div>
+          </div>
+          <button id="openTelemetryDrawer">Open Telemetry</button>
+        </div>
+      </section>
+
+      <section class="grid-2 main-row">
         <article class="card" id="videoCard">
-          <div class="label">ISS Live Video</div>
-          <iframe id="issVideo" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+          <div class="label">ISS Live Video (YouTube)</div>
+          <iframe
+            id="issVideo"
+            title="ISS Live Feed"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen
+          ></iframe>
           <div id="videoStatus" class="label" style="margin-top:8px"></div>
         </article>
       </section>
 
-      <section class="card">
+      <section class="card pass-row">
         <div class="controls" style="justify-content:space-between">
-          <div class="label">Upcoming Passes (24h)</div>
-          <div class="controls">
-            <label for="minMaxEl">Min Max El</label>
-            <input id="minMaxEl" type="number" min="0" max="90" step="1" value="0" />
-            <button id="applyMinMaxEl">Apply</button>
+          <div>
+            <div class="label">Upcoming Passes (24h)</div>
+            <div id="passTimeBasis" class="label"></div>
+            <div id="nextPassCountdown" class="label"></div>
           </div>
+          <div class="controls"></div>
         </div>
         <div class="table-wrap">
         <table class="data-table clickable-table">
@@ -120,22 +102,92 @@
         </div>
       </section>
 
-      <section class="card">
-        <div class="label">Satellite Tx/Rx Frequencies</div>
+      <section class="freq-focus card">
+        <div class="label">Selected Satellite Radio Info</div>
         <div id="freqStatus" class="label"></div>
-        <div class="table-wrap tall">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Satellite</th>
-              <th>Transponders / Tx</th>
-              <th>Repeaters / Rx</th>
-            </tr>
-          </thead>
-          <tbody id="freqRows"></tbody>
-        </table>
+        <div id="freqSelectedName" class="value"></div>
+        <div id="amsatSummary" class="amsat-summary hidden">
+          <div class="amsat-summary-head">
+            <span class="label">AMSAT Status Check</span>
+            <span id="amsatBadge" class="chip"></span>
+          </div>
+          <div id="amsatDetail" class="label"></div>
+          <div id="amsatCounts" class="stack"></div>
+          <div id="amsatMatched" class="mono label"></div>
         </div>
+        <div id="freqModeLegend" class="label"></div>
+        <div id="freqPrimaryLine" class="mono value"></div>
+        <div class="table-wrap">
+          <table class="data-table freq-table">
+            <thead>
+              <tr>
+                <th>Mode</th>
+                <th>Uplink</th>
+                <th>Downlink</th>
+                <th>Bands</th>
+              </tr>
+            </thead>
+            <tbody id="freqRowsCompact"></tbody>
+          </table>
+        </div>
+        <details id="freqDetails" class="freq-details">
+          <summary>Show all frequencies for selected satellite</summary>
+          <div class="table-wrap">
+            <table class="data-table freq-table">
+              <thead>
+                <tr>
+                  <th>Mode</th>
+                  <th>Uplink</th>
+                  <th>Downlink</th>
+                  <th>Bands</th>
+                </tr>
+              </thead>
+              <tbody id="freqRowsAll"></tbody>
+            </table>
+          </div>
+        </details>
       </section>
     </main>
+    <aside id="telemetryDrawer" class="telemetry-drawer hidden" aria-hidden="true">
+      <div class="telemetry-drawer-panel">
+        <div class="telemetry-drawer-head">
+          <div class="value">Telemetry Cockpit</div>
+          <button id="closeTelemetryDrawer">Close</button>
+        </div>
+        <div class="telemetry-drawer-grid">
+          <div>
+            <div class="compass">
+              <svg id="skyplot" viewBox="0 0 240 240" class="skyplot" aria-label="Telemetry sky plot">
+                <circle cx="120" cy="120" r="108" class="plot-ring"></circle>
+                <circle cx="120" cy="120" r="58" class="plot-ring-inner"></circle>
+                <line x1="120" y1="12" x2="120" y2="228" class="plot-axis"></line>
+                <line x1="12" y1="120" x2="228" y2="120" class="plot-axis"></line>
+                <polyline id="issTrail" class="plot-trail" points=""></polyline>
+                <line id="issVector" x1="120" y1="120" x2="120" y2="120" class="plot-vector"></line>
+                <circle id="issDot" cx="120" cy="120" r="7" class="plot-dot"></circle>
+                <circle cx="120" cy="120" r="4" class="plot-center"></circle>
+                <text x="120" y="28" text-anchor="middle" class="plot-dir">N</text>
+                <text x="212" y="124" text-anchor="middle" class="plot-dir">E</text>
+                <text x="120" y="224" text-anchor="middle" class="plot-dir">S</text>
+                <text x="28" y="124" text-anchor="middle" class="plot-dir">W</text>
+                <g id="bodyLayer"></g>
+              </svg>
+            </div>
+            <div id="bodyLegend" class="label"></div>
+          </div>
+          <div>
+            <div id="drawerReadout" class="mono value">Az --.-° | Alt --.-°</div>
+            <div id="drawerCue" class="mono value">Cue: --</div>
+            <div id="diagSatDrawer" class="mono label">Satellite: --</div>
+            <div id="diagLocDrawer" class="mono label">Observer: --</div>
+            <div id="diagTimeDrawer" class="mono label">UTC Used: --</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+    <footer class="kiosk-attribution">
+      Background image:
+      <a href="https://www.nasa.gov/image-detail/amf-iss073e0870099/" target="_blank" rel="noopener noreferrer">NASA ISS 073E0870099</a>
+    </footer>
   </body>
 </html>
