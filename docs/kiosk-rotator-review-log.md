@@ -45,6 +45,51 @@ before implementation work starts.
 - Update `app/static/common/styles.css` to support stronger hierarchy, larger plot area, and better content separation from the background.
 - Consider scene-specific background treatment for telemetry pages to improve contrast.
 
+#### Final implemented design notes
+- The upcoming-pass screen now works as a structured operator view rather than a telemetry dump.
+- Final hierarchy:
+  - scene title in the upper left
+  - large skyplot on the left
+  - hero card on the upper right
+  - four compact metric cards below the hero
+  - one highlighted `Tune Next` card
+  - compact `Radio Channels` table at the bottom of the right column
+- The hero card now separates two concepts clearly:
+  - hero kicker communicates schedule context such as `Approaching Pass`, `Next Pass`, or `Next Pass Later`
+  - status pill communicates physical state such as `Below Horizon`
+- Countdown is always shown in the hero at high contrast, for example `AOS in 17h 26m`.
+- Hero subtitle should stay compact and operational. The final version uses:
+  - lighting state
+  - maximum elevation
+  - best available band/channel summary
+- Raw catalog ids and debug-style timestamps should not appear in the main upcoming-pass presentation.
+- Metric cards should stay limited to the minimum useful operator set:
+  - `Pointing`
+  - `Altitude`
+  - `Range`
+  - `Pass Window`
+- `Tune Next` should summarize the primary working channel and promote:
+  - uplink
+  - downlink
+  - band summary
+- When uplink or downlink is missing, labels should read naturally:
+  - `Downlink only -> UHF 70cm`
+  - avoid `Unknown -> ...`
+- The channel table should be trimmed to a short list so the right column does not overpower the screen.
+- The final upcoming layout uses slightly tighter padding and spacing than the generic telemetry layout to keep the right column visually compact.
+
+#### Reusable pattern for other screens
+- Use a strong hero card for the main state of the screen.
+- Keep the hero responsible for status, countdown, and identity.
+- Use small metric cards for second-order facts.
+- Use one highlighted action card for the operator’s next action.
+- Put detailed tables last, and shorten them where possible.
+- Remove raw diagnostic strings from primary kiosk presentations unless the screen is explicitly a debug or maintenance screen.
+- Separate schedule meaning from live physical state:
+  - schedule meaning in title or kicker
+  - physical state in a pill or badge
+- Prefer domain-specific wording over generic telemetry labels when data is incomplete or one-sided.
+
 ### Notes
 - Future screen reviews should be appended here with date-stamped sections.
 - This document is for review history and planning, not implementation tracking.

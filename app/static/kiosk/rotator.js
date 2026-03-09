@@ -68,6 +68,25 @@ function fmtLocal(iso) {
   }
 }
 
+function fmtCountdown(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function isIssPass(p) {
   const satId = String(p.sat_id || "").toLowerCase();
   const name = String(p.name || "").toUpperCase().trim();
@@ -166,6 +185,13 @@ function bandFromMHz(v) {
   return `${v.toFixed(3)} MHz`;
 }
 
+function describeBandPair(up, down) {
+  if (up !== "Unknown" && down !== "Unknown") return `${up} -> ${down}`;
+  if (up === "Unknown" && down !== "Unknown") return `Downlink only -> ${down}`;
+  if (up !== "Unknown" && down === "Unknown") return `${up} uplink only`;
+  return "Band unknown";
+}
+
 function modeLongName(modeText) {
   const mode = String(modeText || "").replace(/^Mode\s*/i, "").trim();
   const map = { V: "VHF 2m", U: "UHF 70cm", L: "L 23cm", S: "S 13cm", X: "X 3cm" };
@@ -209,7 +235,7 @@ function frequencyEntriesForSatellite(sat) {
       mode: modeLongName(modeText),
       up: pair.up,
       down: pair.down,
-      bands: pair.up !== "—" || pair.down !== "—" ? `${upBand} -> ${downBand}` : "Unknown",
+      bands: pair.up !== "—" || pair.down !== "—" ? describeBandPair(upBand, downBand) : "Band unknown",
     });
   }
   return rows
@@ -219,7 +245,156 @@ function frequencyEntriesForSatellite(sat) {
 }
 
 function buildFreqRows(sat) {
-  return frequencyEntriesForSatellite(sat).map((row) => ({ mode: row.mode, up: row.up, down: row.down }));
+  return frequencyEntriesForSatellite(sat).map((row) => ({
+    mode: row.mode,
+    up: row.up,
+    down: row.down,
+    bands: row.bands,
+  }));
+}
+
+function telemetryState(track, pass, mode) {
+  const now = Date.now();
+  const aosMs = new Date(pass?.aos || 0).getTime();
+  const losMs = new Date(pass?.los || 0).getTime();
+  const alt = Number(track?.el_deg ?? 0);
+  if (mode === "ongoing" || (pass && aosMs <= now && losMs >= now && alt > 0)) {
+    return {
+      label: "Live Pass",
+      tone: "live",
+      detail: `LOS in ${fmtCountdown(losMs - now)}`,
+    };
+  }
+  if (alt < 0) {
+    return {
+      label: "Below Horizon",
+      tone: "upcoming",
+      detail: `AOS in ${fmtCountdown(aosMs - now)}`,
+    };
+  }
+  return {
+    label: "Approaching AOS",
+    tone: "upcoming",
+    detail: `AOS in ${fmtCountdown(aosMs - now)}`,
+  };
+}
+
+function metricCardHtml(label, value, meta = "") {
+  return `
+    <article class="telemetry-metric-card">
+      <div class="telemetry-metric-label">${escapeHtml(label)}</div>
+      <div class="telemetry-metric-value mono">${escapeHtml(value)}</div>
+      ${meta ? `<div class="telemetry-metric-meta">${escapeHtml(meta)}</div>` : ""}
+    </article>
+  `;
+}
+
+function renderFreqRowsHtml(rows) {
+  return rows.length
+    ? rows.map((r) => `
+      <tr>
+        <td>
+          <div class="freq-mode-title">${escapeHtml(r.mode)}</div>
+          <div class="freq-mode-band">${escapeHtml(r.bands || "")}</div>
+        </td>
+        <td class="mono">${escapeHtml(r.up)}</td>
+        <td class="mono">${escapeHtml(r.down)}</td>
+      </tr>
+    `).join("")
+    : '<tr><td colspan="3" class="label">No frequency rows</td></tr>';
+}
+
+function renderUpcomingTelemetryPanel({ track, pass, rows, scene }) {
+  const status = telemetryState(track, pass, scene.mode);
+  const satName = track?.name || pass?.name || "--";
+  const primary = rows[0] || null;
+  const sunlit = track?.sunlit ? "Sunlit" : "In Earth shadow";
+  const maxEl = Number(pass?.max_el_deg ?? 0);
+  const aosMs = new Date(pass?.aos || 0).getTime();
+  const now = Date.now();
+  const untilAos = Math.max(0, aosMs - now);
+  const title = scene.mode === "iss-upcoming"
+    ? (untilAos > 6 * 3600 * 1000 ? "ISS Visible Window Later" : untilAos > 60 * 60 * 1000 ? "ISS Next Visible Window" : "ISS Approaching Pass")
+    : (untilAos > 6 * 3600 * 1000 ? "Next Pass Later" : untilAos > 60 * 60 * 1000 ? "Next Pass" : "Approaching Pass");
+  const pointMeta = track ? `${track.az_deg.toFixed(1)}° azimuth` : "Track unavailable";
+  const altMeta = track
+    ? (Number(track.el_deg) >= 0 ? "Currently above horizon" : "Currently below horizon")
+    : "Track unavailable";
+  const heroTags = [sunlit, `MaxEl ${maxEl.toFixed(1)}°`];
+  if (primary?.bands && primary.bands !== "Band unknown") heroTags.push(primary.bands);
+  const upcomingRows = rows.slice(0, 4);
+  return `
+    <section class="telemetry-panel telemetry-panel-upcoming">
+      <div class="telemetry-hero-card telemetry-tone-${status.tone}">
+        <div class="telemetry-hero-kicker">${escapeHtml(title)}</div>
+        <div class="telemetry-hero-main">
+          <div>
+            <h2 class="telemetry-sat-name">${escapeHtml(satName)}</h2>
+            <div class="telemetry-sat-sub">${escapeHtml(heroTags.join(" • "))}</div>
+          </div>
+          <div class="telemetry-status-stack">
+            <span class="telemetry-status-pill telemetry-status-pill-${status.tone}">${escapeHtml(status.label)}</span>
+            <div class="telemetry-countdown mono">${escapeHtml(status.detail)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="telemetry-card-grid">
+        ${metricCardHtml("Pointing", track ? `Az ${track.az_deg.toFixed(1)}°` : "--", pointMeta)}
+        ${metricCardHtml("Altitude", track ? `${track.el_deg.toFixed(1)}°` : "--", altMeta)}
+        ${metricCardHtml("Range", track ? `${track.range_km.toFixed(1)} km` : "--", pass ? `AOS ${fmtLocal(pass.aos)}` : "")}
+        ${metricCardHtml("Pass Window", pass ? `${fmtLocal(pass.aos)} → ${fmtLocal(pass.los)}` : "--", pass ? `Peak ${fmtLocal(pass.tca)}` : "")}
+      </div>
+
+      <section class="telemetry-primary-channel-card">
+        <div class="telemetry-primary-label">Tune Next</div>
+        <div class="telemetry-primary-mode">${escapeHtml(primary?.mode || "No parsed channel available")}</div>
+        <div class="telemetry-primary-pairs">
+          <div><span>Up</span><strong class="mono">${escapeHtml(primary?.up || "—")}</strong></div>
+          <div><span>Down</span><strong class="mono">${escapeHtml(primary?.down || "—")}</strong></div>
+          <div><span>Bands</span><strong>${escapeHtml(primary?.bands || "Unknown")}</strong></div>
+        </div>
+      </section>
+
+      <section class="telemetry-radio-card">
+        <div class="telemetry-section-head">
+          <div class="telemetry-section-title">Radio Channels</div>
+          <div class="telemetry-section-meta">Top ${Math.min(upcomingRows.length, 4)} channels</div>
+        </div>
+        <table class="data-table freq-table telemetry-freq-table">
+          <thead><tr><th>Mode</th><th>Up</th><th>Down</th></tr></thead>
+          <tbody id="telemetryFreqRows">${renderFreqRowsHtml(upcomingRows)}</tbody>
+        </table>
+      </section>
+    </section>
+  `;
+}
+
+function renderOngoingVideoPanel({ readout, passTime, diag, rows, url }) {
+  return `
+    <div id="telemetryReadout" class="mono telemetry-readout">${escapeHtml(readout)}</div>
+    <div id="telemetryPassTime" class="mono telemetry-readout">${escapeHtml(passTime)}</div>
+    <div id="telemetryDiag" class="mono">${escapeHtml(diag)}</div>
+    <iframe id="ongoingVideo" title="ISS Ongoing Video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen src="${escapeHtml(url)}"></iframe>
+    <div class="scene-overlay mono">ISS ongoing pass with eligible video</div>
+    <table class="data-table freq-table"><thead><tr><th>Mode</th><th>Up</th><th>Down</th></tr></thead><tbody id="telemetryFreqRows">${renderFreqRowsHtml(rows)}</tbody></table>
+  `;
+}
+
+function renderOngoingMapPanel({ readout, passTime, diag, rows, lat, lon, pts }) {
+  return `
+    <div id="telemetryReadout" class="mono telemetry-readout">${escapeHtml(readout)}</div>
+    <div id="telemetryPassTime" class="mono telemetry-readout">${escapeHtml(passTime)}</div>
+    <svg viewBox="0 0 100 100" class="rotator-map">
+      <rect x="0" y="0" width="100" height="100" fill="#4a1820"></rect>
+      <path d="M0,50 L100,50 M50,0 L50,100" stroke="rgba(255,240,222,0.18)" stroke-width="0.35"></path>
+      <polyline points="${pts}" fill="none" stroke="#ff7a59" stroke-width="0.8"></polyline>
+      <circle cx="${((lon + 180) / 360 * 100).toFixed(2)}" cy="${((90 - lat) / 180 * 100).toFixed(2)}" r="1.6" fill="#3fe0c5"></circle>
+    </svg>
+    <div class="scene-overlay mono">Live map proxy | lat ${lat.toFixed(2)} lon ${lon.toFixed(2)}</div>
+    <div id="telemetryDiag" class="mono">${escapeHtml(diag)}</div>
+    <table class="data-table freq-table"><thead><tr><th>Mode</th><th>Up</th><th>Down</th></tr></thead><tbody id="telemetryFreqRows">${renderFreqRowsHtml(rows)}</tbody></table>
+  `;
 }
 
 function passDurationMinutes(pass) {
@@ -304,22 +479,6 @@ function renderVideoScene(system) {
 function renderTelemetryScene(system, scene) {
   setSceneVisible("sceneTelemetry");
   const right = trackerById("telemetryRight");
-  if (
-    !trackerById("telemetryReadout")
-    || !trackerById("telemetryPassTime")
-    || !trackerById("telemetryDiag")
-    || !trackerById("telemetryFreqRows")
-  ) {
-    right.innerHTML = `
-      <div id="telemetryReadout" class="mono telemetry-readout">Az -- | Alt -- | Range --</div>
-      <div id="telemetryPassTime" class="mono telemetry-readout">AOS -- | TCA -- | LOS --</div>
-      <div id="telemetryDiag" class="mono"></div>
-      <table class="data-table freq-table">
-        <thead><tr><th>Mode</th><th>Up</th><th>Down</th></tr></thead>
-        <tbody id="telemetryFreqRows"></tbody>
-      </table>
-    `;
-  }
   const tracks = system.tracks || [];
   const targetSatId = scene.pass?.sat_id || scene.track?.sat_id || system.issTrack?.sat_id;
   const track = tracks.find((t) => t.sat_id === targetSatId) || system.issTrack;
@@ -333,37 +492,32 @@ function renderTelemetryScene(system, scene) {
         : `Upcoming Pass - ${track?.name || "--"}`;
 
   if (track) {
-    trackerById("telemetryReadout").textContent =
-      `Az ${track.az_deg.toFixed(1)}° | Alt ${track.el_deg.toFixed(1)}° | Range ${track.range_km.toFixed(1)} km`;
-    trackerById("telemetryDiag").textContent =
-      `Sat ${track.name} (${track.sat_id}) | Sunlit=${track.sunlit ? "yes" : "no"} | UTC ${system.timestamp}`;
-  } else {
-    trackerById("telemetryReadout").textContent = "Track unavailable";
-    trackerById("telemetryDiag").textContent = "--";
-  }
-  if (pass) {
-    trackerById("telemetryPassTime").textContent = `AOS ${fmtLocal(pass.aos)} | TCA ${fmtLocal(pass.tca)} | LOS ${fmtLocal(pass.los)} | MaxEl ${pass.max_el_deg.toFixed(1)}°`;
-  } else {
-    trackerById("telemetryPassTime").textContent = "AOS -- | TCA -- | LOS --";
-  }
+    const telemetryReadout = `Az ${track.az_deg.toFixed(1)}° | Alt ${track.el_deg.toFixed(1)}° | Range ${track.range_km.toFixed(1)} km`;
+    const telemetryDiag = `Sat ${track.name} (${track.sat_id}) | Sunlit=${track.sunlit ? "yes" : "no"} | UTC ${system.timestamp}`;
+    const telemetryPassTime = pass
+      ? `AOS ${fmtLocal(pass.aos)} | TCA ${fmtLocal(pass.tca)} | LOS ${fmtLocal(pass.los)} | MaxEl ${pass.max_el_deg.toFixed(1)}°`
+      : "AOS -- | TCA -- | LOS --";
 
-  renderSkyplot(track, system.bodies || []);
-  const rows = buildFreqRows(sat);
-  trackerById("telemetryFreqRows").innerHTML = rows.length
-    ? rows.map((r) => `<tr><td>${r.mode}</td><td class="mono">${r.up}</td><td class="mono">${r.down}</td></tr>`).join("")
-    : '<tr><td colspan="3" class="label">No frequency rows</td></tr>';
+    renderSkyplot(track, system.bodies || []);
+    const rows = buildFreqRows(sat);
 
-  if (scene.mode === "ongoing" && isIssPass({ sat_id: targetSatId, name: track?.name || "" }) && system.iss?.videoEligible && system.iss?.streamHealthy) {
-    const url = getVideoSources()[Math.min(activeVideoSource, getVideoSources().length - 1)];
-    right.innerHTML = `
-      <div id="telemetryReadout" class="mono telemetry-readout">${trackerById("telemetryReadout").textContent}</div>
-      <div id="telemetryPassTime" class="mono telemetry-readout">${trackerById("telemetryPassTime").textContent}</div>
-      <div id="telemetryDiag" class="mono">${trackerById("telemetryDiag").textContent}</div>
-      <iframe id="ongoingVideo" title="ISS Ongoing Video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen src="${url}"></iframe>
-      <div class="scene-overlay mono">ISS ongoing pass with eligible video</div>
-      <table class="data-table freq-table"><thead><tr><th>Mode</th><th>Up</th><th>Down</th></tr></thead><tbody id="telemetryFreqRows">${rows.length ? rows.map((r) => `<tr><td>${r.mode}</td><td class="mono">${r.up}</td><td class="mono">${r.down}</td></tr>`).join("") : '<tr><td colspan="3" class="label">No frequency rows</td></tr>'}</tbody></table>
-    `;
-  } else if (scene.mode === "ongoing") {
+    if (scene.mode !== "ongoing") {
+      right.innerHTML = renderUpcomingTelemetryPanel({ track, pass, rows, scene });
+      return;
+    }
+
+    if (isIssPass({ sat_id: targetSatId, name: track?.name || "" }) && system.iss?.videoEligible && system.iss?.streamHealthy) {
+      const url = getVideoSources()[Math.min(activeVideoSource, getVideoSources().length - 1)];
+      right.innerHTML = renderOngoingVideoPanel({
+        readout: telemetryReadout,
+        passTime: telemetryPassTime,
+        diag: telemetryDiag,
+        rows,
+        url,
+      });
+      return;
+    }
+
     const lat = Number(track?.subpoint_lat ?? 0);
     const lon = Number(track?.subpoint_lon ?? 0);
     const key = track?.sat_id || "unknown";
@@ -372,18 +526,32 @@ function renderTelemetryScene(system, scene) {
     if (arr.length > 32) arr.shift();
     mapTrailBySat.set(key, arr);
     const pts = arr.map((p) => `${((p.lon + 180) / 360 * 100).toFixed(2)},${((90 - p.lat) / 180 * 100).toFixed(2)}`).join(" ");
+    right.innerHTML = renderOngoingMapPanel({
+      readout: telemetryReadout,
+      passTime: telemetryPassTime,
+      diag: telemetryDiag,
+      rows,
+      lat,
+      lon,
+      pts,
+    });
+  } else {
     right.innerHTML = `
-      <div id="telemetryReadout" class="mono telemetry-readout">${trackerById("telemetryReadout").textContent}</div>
-      <div id="telemetryPassTime" class="mono telemetry-readout">${trackerById("telemetryPassTime").textContent}</div>
-      <svg viewBox="0 0 100 100" class="rotator-map">
-        <rect x="0" y="0" width="100" height="100" fill="#4a1820"></rect>
-        <path d="M0,50 L100,50 M50,0 L50,100" stroke="rgba(255,240,222,0.18)" stroke-width="0.35"></path>
-        <polyline points="${pts}" fill="none" stroke="#ff7a59" stroke-width="0.8"></polyline>
-        <circle cx="${((lon + 180) / 360 * 100).toFixed(2)}" cy="${((90 - lat) / 180 * 100).toFixed(2)}" r="1.6" fill="#3fe0c5"></circle>
-      </svg>
-      <div class="scene-overlay mono">Live map proxy | lat ${lat.toFixed(2)} lon ${lon.toFixed(2)}</div>
-      <div id="telemetryDiag" class="mono">${trackerById("telemetryDiag").textContent}</div>
-      <table class="data-table freq-table"><thead><tr><th>Mode</th><th>Up</th><th>Down</th></tr></thead><tbody id="telemetryFreqRows">${rows.length ? rows.map((r) => `<tr><td>${r.mode}</td><td class="mono">${r.up}</td><td class="mono">${r.down}</td></tr>`).join("") : '<tr><td colspan="3" class="label">No frequency rows</td></tr>'}</tbody></table>
+      <section class="telemetry-panel telemetry-panel-upcoming">
+        <div class="telemetry-hero-card telemetry-tone-upcoming">
+          <div class="telemetry-hero-kicker">Tracking Unavailable</div>
+          <div class="telemetry-hero-main">
+            <div>
+              <h2 class="telemetry-sat-name">${escapeHtml(pass?.name || "--")}</h2>
+              <div class="telemetry-sat-sub">Waiting for live track recovery</div>
+            </div>
+            <div class="telemetry-status-stack">
+              <span class="telemetry-status-pill telemetry-status-pill-upcoming">No Live Data</span>
+              <div class="telemetry-countdown mono">${pass ? `AOS ${escapeHtml(fmtLocal(pass.aos))}` : "--"}</div>
+            </div>
+          </div>
+        </div>
+      </section>
     `;
   }
 }
