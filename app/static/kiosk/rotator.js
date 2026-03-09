@@ -18,7 +18,6 @@ const BODY_COLORS = {
   Saturn: "#ff9b2e",
 };
 const MAX_ROTATOR_PASS_DURATION_MIN = 10;
-
 let state = {
   system: null,
   passes: [],
@@ -31,7 +30,6 @@ let nextSwitchAt = 0;
 let lastOverride = "";
 let activeVideoSource = 0;
 const trailPoints = [];
-const mapTrailBySat = new Map();
 const pathCache = new Map();
 
 function getDeveloperOverrides() {
@@ -460,6 +458,10 @@ function buildFreqRows(sat) {
   }));
 }
 
+function isUsefulAlternateRow(row) {
+  return scoreHamUsefulness(row) >= 60;
+}
+
 function telemetryState(track, pass, mode) {
   const now = Date.now();
   const aosMs = new Date(pass?.aos || 0).getTime();
@@ -578,7 +580,7 @@ function renderUpcomingTelemetryPanel({ track, pass, rows, scene }) {
 }
 
 function renderAlternatesHtml(rows) {
-  const items = (rows || []).slice(1, 3);
+  const items = (rows || []).slice(1).filter(isUsefulAlternateRow).slice(0, 2);
   return items.length
     ? items.map((row) => `
       <div class="telemetry-alt-item">
@@ -590,21 +592,37 @@ function renderAlternatesHtml(rows) {
     : '<div class="telemetry-alt-empty">No alternate channels parsed for this pass.</div>';
 }
 
-function renderOngoingInlineTuneNow(primary) {
+function renderOngoingRadioOps(primary, rows, variant = "inline") {
+  const rootClass = variant === "card"
+    ? "telemetry-radio-card telemetry-ops-card"
+    : "telemetry-inline-radio";
+  const alternateCount = (rows || []).slice(1).filter(isUsefulAlternateRow).length;
   return `
-    <section class="telemetry-inline-primary">
-      <div class="telemetry-inline-primary-label">Tune Now</div>
-      <div class="telemetry-inline-primary-mode">${escapeHtml(primary?.mode || "No parsed channel available")}</div>
-      <div class="telemetry-inline-primary-pairs">
-        <div><span>Up</span><strong class="mono">${escapeHtml(primary?.up || "—")}</strong></div>
-        <div><span>Down</span><strong class="mono">${escapeHtml(primary?.down || "—")}</strong></div>
-        <div><span>Bands</span><strong>${escapeHtml(primary?.bands || "Band unknown")}</strong></div>
+    <section class="${rootClass}">
+      <div class="telemetry-inline-radio-head">
+        <div class="telemetry-inline-radio-title">Radio Ops</div>
+        <div class="telemetry-inline-radio-meta">${escapeHtml(alternateCount ? "Live channels" : "Primary channel")}</div>
+      </div>
+      <div class="telemetry-inline-primary">
+        <div class="telemetry-inline-primary-label">Tune Now</div>
+        <div class="telemetry-inline-primary-mode">${escapeHtml(primary?.mode || "No parsed channel available")}</div>
+        <div class="telemetry-inline-primary-pairs">
+          <div><span>Up</span><strong class="mono">${escapeHtml(primary?.up || "—")}</strong></div>
+          <div><span>Down</span><strong class="mono">${escapeHtml(primary?.down || "—")}</strong></div>
+          <div><span>Bands</span><strong>${escapeHtml(primary?.bands || "Band unknown")}</strong></div>
+        </div>
+      </div>
+      <div class="telemetry-inline-alternates">
+        <div class="telemetry-inline-primary-label">Alternates</div>
+        <div class="telemetry-alt-list">
+          ${renderAlternatesHtml(rows)}
+        </div>
       </div>
     </section>
   `;
 }
 
-function renderOngoingVisualCard({ isIss, hasVideo, url, lat, lon, pts, sunlitText }) {
+function renderOngoingVisualCard({ isIss, hasVideo, url, lat, lon, pathItems, pass, track, observerLocation, sunlitText }) {
   if (isIss && hasVideo) {
     return `
       <section class="telemetry-visual-card telemetry-visual-card-live">
@@ -622,24 +640,25 @@ function renderOngoingVisualCard({ isIss, hasVideo, url, lat, lon, pts, sunlitTe
       </section>
     `;
   }
+  const globe = window.issTrackerHemisphere.render({
+    pass,
+    pathItems,
+    track,
+    observerLocation,
+    ariaLabel: "Observer-centered hemisphere ground track",
+  });
   return `
     <section class="telemetry-visual-card">
       <div class="telemetry-section-head">
         <div class="telemetry-section-title">Ground Track</div>
         <div class="telemetry-section-meta">Lat ${lat.toFixed(2)} | Lon ${lon.toFixed(2)}</div>
       </div>
-      <svg viewBox="0 0 100 100" class="rotator-map">
-        <rect x="0" y="0" width="100" height="100" fill="#4a1820"></rect>
-        <path d="M0,50 L100,50 M50,0 L50,100" stroke="rgba(255,240,222,0.18)" stroke-width="0.35"></path>
-        <polyline points="${pts}" fill="none" stroke="#ff7a59" stroke-width="0.8"></polyline>
-        <circle cx="${((lon + 180) / 360 * 100).toFixed(2)}" cy="${((90 - lat) / 180 * 100).toFixed(2)}" r="1.6" fill="#3fe0c5"></circle>
-      </svg>
-      <div class="telemetry-visual-caption">${isIss ? "ISS map fallback" : "Live subpoint proxy"}</div>
+      ${globe}
     </section>
   `;
 }
 
-function renderOngoingTelemetryPanel({ track, pass, rows, isIss, hasVideo, url, lat, lon, pts }) {
+function renderOngoingTelemetryPanel({ track, pass, rows, isIss, hasVideo, url, lat, lon, pathItems, observerLocation }) {
   const status = telemetryState(track, pass, "ongoing");
   const satName = track?.name || pass?.name || "--";
   const primary = rows[0] || null;
@@ -673,17 +692,8 @@ function renderOngoingTelemetryPanel({ track, pass, rows, isIss, hasVideo, url, 
         ${metricCardHtml("LOS", pass ? fmtLocal(pass.los) : "--", pass ? `AOS ${fmtLocal(pass.aos)}` : "")}
       </div>
 
-      ${renderOngoingVisualCard({ isIss, hasVideo, url, lat, lon, pts, sunlitText })}
+      ${renderOngoingRadioOps(primary, rows, "card")}
 
-      <section class="telemetry-radio-card telemetry-alternates-card">
-        <div class="telemetry-section-head">
-          <div class="telemetry-section-title">Alternates</div>
-          <div class="telemetry-section-meta">${escapeHtml(isIss ? "ISS ops" : "Live ops")}</div>
-        </div>
-        <div class="telemetry-alt-list">
-          ${renderAlternatesHtml(rows)}
-        </div>
-      </section>
     </section>
   `;
 }
@@ -932,16 +942,21 @@ async function renderTelemetryScene(system, scene) {
 
     const lat = Number(track?.subpoint_lat ?? 0);
     const lon = Number(track?.subpoint_lon ?? 0);
-    const key = track?.sat_id || "unknown";
-    const arr = mapTrailBySat.get(key) || [];
-    arr.push({ lat, lon });
-    if (arr.length > 32) arr.shift();
-    mapTrailBySat.set(key, arr);
-    const pts = arr.map((p) => `${((p.lon + 180) / 360 * 100).toFixed(2)},${((90 - p.lat) / 180 * 100).toFixed(2)}`).join(" ");
     const isIss = isIssPass({ sat_id: targetSatId, name: track?.name || "" });
     const hasVideo = isIss && system.iss?.videoEligible && system.iss?.streamHealthy;
     const url = hasVideo ? getVideoSources()[Math.min(activeVideoSource, getVideoSources().length - 1)] : "";
-    leftAux.innerHTML = renderOngoingInlineTuneNow(rows[0] || null);
+    leftAux.innerHTML = renderOngoingVisualCard({
+      isIss,
+      hasVideo,
+      url,
+      lat,
+      lon,
+      pathItems,
+      pass,
+      track,
+      observerLocation: system.location,
+      sunlitText: track?.sunlit ? "Sunlit" : "In Earth shadow",
+    });
     right.innerHTML = renderOngoingTelemetryPanel({
       track,
       pass,
@@ -951,7 +966,8 @@ async function renderTelemetryScene(system, scene) {
       url,
       lat,
       lon,
-      pts,
+      pathItems,
+      observerLocation: system.location,
     });
   } else {
     leftAux.innerHTML = "";

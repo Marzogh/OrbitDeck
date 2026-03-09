@@ -1012,6 +1012,7 @@ body.kiosk .rotator-main {
 
 body.kiosk .scene {
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1041,21 +1042,24 @@ body.kiosk.rotator iframe {
 
 body.kiosk .telemetry-layout {
   display: grid;
-  grid-template-columns: minmax(320px, 40%) 1fr;
-  gap: 18px;
+  grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
+  gap: 14px;
   flex: 1;
   align-items: start;
+  min-height: 0;
+  overflow: hidden;
 }
 
 body.kiosk .telemetry-layout > :first-child {
   display: grid;
   justify-items: center;
-  gap: 12px;
+  gap: 8px;
+  min-height: 0;
 }
 
 body.kiosk .telemetry-layout .compass {
-  width: min(34vw, 360px);
-  height: min(34vw, 360px);
+  width: min(33vw, 36vh, 430px);
+  height: min(33vw, 36vh, 430px);
   box-shadow:
     inset 0 0 42px rgba(255, 191, 71, 0.07),
     0 18px 36px rgba(9, 3, 4, 0.18);
@@ -1064,6 +1068,14 @@ body.kiosk .telemetry-layout .compass {
 body.kiosk #bodyLegend {
   max-width: 360px;
   text-align: center;
+}
+
+body.kiosk #telemetryLeftAux {
+  width: min(46vw, 100%);
+}
+
+body.kiosk #telemetryLeftAux:empty {
+  display: none;
 }
 
 body.kiosk .telemetry-readout {
@@ -1086,6 +1098,7 @@ body.kiosk.rotator .data-table thead th {
 body.kiosk .telemetry-panel {
   display: grid;
   gap: 14px;
+  min-height: 0;
 }
 
 body.kiosk .telemetry-panel-upcoming {
@@ -1093,7 +1106,7 @@ body.kiosk .telemetry-panel-upcoming {
 }
 
 body.kiosk .telemetry-panel-ongoing {
-  gap: 13px;
+  gap: 10px;
 }
 
 body.kiosk .telemetry-hero-card,
@@ -1110,7 +1123,7 @@ body.kiosk .telemetry-metric-card {
 }
 
 body.kiosk .telemetry-hero-card {
-  padding: 18px 20px;
+  padding: 14px 16px;
   border-radius: 16px;
 }
 
@@ -1130,8 +1143,8 @@ body.kiosk .telemetry-hero-kicker {
   color: #ffb36f;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-size: 0.74rem;
-  margin-bottom: 12px;
+  font-size: clamp(0.67rem, 1.2vh, 0.74rem);
+  margin-bottom: 8px;
 }
 
 body.kiosk .telemetry-hero-main {
@@ -1143,31 +1156,31 @@ body.kiosk .telemetry-hero-main {
 
 body.kiosk .telemetry-sat-name {
   margin: 0;
-  font-size: 1.75rem;
+  font-size: clamp(1.4rem, 3.2vh, 1.75rem);
   line-height: 1.05;
   color: #fff6ef;
 }
 
 body.kiosk .telemetry-sat-sub {
-  margin-top: 8px;
+  margin-top: 6px;
   color: #e6cab3;
-  font-size: 0.9rem;
-  line-height: 1.45;
+  font-size: clamp(0.82rem, 1.6vh, 0.9rem);
+  line-height: 1.32;
 }
 
 body.kiosk .telemetry-status-stack {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   justify-items: end;
-  min-width: 170px;
+  min-width: 150px;
 }
 
 body.kiosk .telemetry-status-pill {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 0.8rem;
+  padding: 5px 11px;
+  font-size: clamp(0.72rem, 1.35vh, 0.8rem);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1186,7 +1199,7 @@ body.kiosk .telemetry-status-pill-live {
 }
 
 body.kiosk .telemetry-countdown {
-  font-size: 1.2rem;
+  font-size: clamp(1rem, 2.3vh, 1.2rem);
   color: #fff6ef;
   text-align: right;
 }
@@ -1194,33 +1207,33 @@ body.kiosk .telemetry-countdown {
 body.kiosk .telemetry-card-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 body.kiosk .telemetry-metric-card {
   border-radius: 14px;
-  padding: 14px 16px;
+  padding: 12px 14px;
 }
 
 body.kiosk .telemetry-metric-label {
   color: #ffb36f;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-size: 0.74rem;
-  margin-bottom: 8px;
+  font-size: clamp(0.67rem, 1.2vh, 0.74rem);
+  margin-bottom: 6px;
 }
 
 body.kiosk .telemetry-metric-value {
   color: #fff8f1;
-  font-size: 1rem;
-  line-height: 1.35;
+  font-size: clamp(0.92rem, 2vh, 1rem);
+  line-height: 1.25;
 }
 
 body.kiosk .telemetry-metric-meta {
   color: #d4beaf;
-  font-size: 0.82rem;
-  margin-top: 8px;
-  line-height: 1.4;
+  font-size: clamp(0.74rem, 1.45vh, 0.82rem);
+  margin-top: 6px;
+  line-height: 1.25;
 }
 
 body.kiosk .telemetry-primary-channel-card,
@@ -1261,7 +1274,7 @@ body.kiosk .telemetry-panel-upcoming .freq-mode-band {
 }
 
 body.kiosk .telemetry-panel-ongoing .telemetry-hero-card {
-  padding: 16px 18px;
+  padding: 14px 16px;
   border-color: rgba(63, 224, 197, 0.3);
   box-shadow:
     inset 0 1px 0 rgba(225, 255, 250, 0.06),
@@ -1280,7 +1293,7 @@ body.kiosk .telemetry-panel-ongoing .telemetry-primary-channel-card::before {
 }
 
 body.kiosk .telemetry-card-grid-live .telemetry-metric-card {
-  padding: 13px 15px;
+  padding: 11px 13px;
   border-color: rgba(63, 224, 197, 0.14);
 }
 
@@ -1291,7 +1304,7 @@ body.kiosk .telemetry-primary-channel-card-live .telemetry-primary-mode {
 
 body.kiosk .telemetry-visual-card {
   border-radius: 16px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   background:
     linear-gradient(155deg, rgba(31, 32, 38, 0.88), rgba(18, 18, 22, 0.78));
   border: 1px solid rgba(63, 224, 197, 0.22);
@@ -1312,9 +1325,116 @@ body.kiosk .telemetry-visual-card iframe {
 }
 
 body.kiosk .telemetry-visual-card .rotator-map {
-  height: min(21vh, 168px);
+  height: min(22vh, 200px);
   border-radius: 12px;
   margin-top: 6px;
+}
+
+.hemisphere-map {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+body.kiosk .telemetry-visual-card .hemisphere-map {
+  width: 100%;
+  height: min(34vh, 340px);
+  display: block;
+  margin-top: 6px;
+}
+
+.hemisphere-atmosphere {
+  fill: rgba(63, 224, 197, 0.08);
+  filter: blur(8px);
+}
+
+.hemisphere-disc {
+  stroke: rgba(231, 244, 255, 0.08);
+  stroke-width: 1.2;
+}
+
+.hemisphere-rim {
+  fill: none;
+  stroke: rgba(233, 244, 255, 0.52);
+  stroke-width: 1.35;
+}
+
+.hemisphere-grid {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.hemisphere-grid-lat {
+  stroke: rgba(238, 248, 255, 0.14);
+  stroke-width: 0.9;
+}
+
+.hemisphere-grid-lon {
+  stroke: rgba(238, 248, 255, 0.11);
+  stroke-width: 0.8;
+}
+
+.hemisphere-land {
+  fill: none;
+  stroke: rgba(255, 223, 196, 0.28);
+  stroke-width: 1.05;
+}
+
+.hemisphere-track {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.hemisphere-track-past {
+  stroke: rgba(255, 158, 130, 0.38);
+  stroke-width: 2.4;
+}
+
+.hemisphere-track-future {
+  stroke: rgba(255, 191, 71, 0.96);
+  stroke-width: 2.8;
+  stroke-dasharray: 8 6;
+}
+
+.hemisphere-live-halo {
+  fill: rgba(63, 224, 197, 0.14);
+  stroke: rgba(123, 246, 226, 0.34);
+  stroke-width: 1.1;
+}
+
+.hemisphere-live-dot {
+  fill: #3fe0c5;
+  stroke: rgba(246, 255, 255, 0.88);
+  stroke-width: 2;
+}
+
+.hemisphere-observer {
+  fill: #ffe9c8;
+  stroke: rgba(255, 122, 89, 0.9);
+  stroke-width: 1.8;
+}
+
+.hemisphere-empty,
+.hemisphere-event text {
+  fill: rgba(255, 237, 210, 0.84);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hemisphere-event circle {
+  fill: rgba(18, 20, 26, 0.92);
+  stroke: rgba(255, 191, 71, 0.9);
+  stroke-width: 1.6;
+}
+
+.hemisphere-arrow path {
+  fill: none;
+  stroke: rgba(255, 191, 71, 0.96);
+  stroke-width: 2.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 body.kiosk .telemetry-visual-caption {
@@ -1387,6 +1507,162 @@ body.kiosk .telemetry-section-title {
   text-transform: uppercase;
   letter-spacing: 0.07em;
   font-size: 0.76rem;
+}
+
+body.kiosk .telemetry-inline-radio {
+  width: 100%;
+  margin-top: 2px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background:
+    linear-gradient(155deg, rgba(31, 32, 38, 0.78), rgba(18, 18, 22, 0.64));
+  border: 1px solid rgba(63, 224, 197, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(225, 255, 250, 0.04),
+    0 10px 24px rgba(2, 18, 18, 0.14);
+  backdrop-filter: blur(7px);
+}
+
+body.kiosk .telemetry-ops-card {
+  padding: 12px 14px;
+  border-color: rgba(63, 224, 197, 0.2);
+}
+
+body.kiosk .telemetry-panel-ongoing .telemetry-ops-card .telemetry-inline-primary-mode {
+  font-size: clamp(0.96rem, 1.95vh, 1.08rem);
+}
+
+body.kiosk .telemetry-panel-ongoing .telemetry-ops-card .telemetry-inline-alternates .telemetry-alt-list {
+  gap: 5px;
+}
+
+body.kiosk .telemetry-inline-radio-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+}
+
+body.kiosk .telemetry-inline-radio-title {
+  color: #ffb36f;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: clamp(0.67rem, 1.2vh, 0.76rem);
+}
+
+body.kiosk .telemetry-inline-radio-meta {
+  color: #ccb29f;
+  font-size: clamp(0.7rem, 1.25vh, 0.78rem);
+}
+
+body.kiosk .telemetry-inline-primary {
+  width: 100%;
+  padding-top: 6px;
+  color: #fff6ef;
+}
+
+body.kiosk .telemetry-inline-primary-label {
+  color: #3fe0c5;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: clamp(0.67rem, 1.15vh, 0.74rem);
+}
+
+body.kiosk .telemetry-inline-primary-mode {
+  margin-top: 4px;
+  color: #fff6ef;
+  font-size: clamp(0.92rem, 1.9vh, 1.05rem);
+  font-weight: 700;
+  line-height: 1.22;
+}
+
+body.kiosk .telemetry-inline-primary-pairs {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+
+body.kiosk .telemetry-inline-primary-pairs span {
+  display: block;
+  color: #d6bca9;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: clamp(0.62rem, 1.05vh, 0.68rem);
+  margin-bottom: 3px;
+}
+
+body.kiosk .telemetry-inline-primary-pairs strong {
+  color: #fff6ef;
+  font-size: clamp(0.8rem, 1.6vh, 0.92rem);
+  line-height: 1.2;
+}
+
+body.kiosk .telemetry-inline-alternates {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+body.kiosk .telemetry-inline-alternates .telemetry-alt-list {
+  margin-top: 6px;
+  gap: 6px;
+}
+
+body.kiosk .telemetry-inline-alternates .telemetry-alt-item {
+  padding-top: 6px;
+}
+
+body.kiosk .telemetry-inline-alternates .telemetry-alt-mode {
+  font-size: clamp(0.82rem, 1.6vh, 0.95rem);
+  line-height: 1.18;
+}
+
+body.kiosk .telemetry-inline-alternates .telemetry-alt-pair {
+  font-size: clamp(0.72rem, 1.35vh, 0.82rem);
+}
+
+body.kiosk .telemetry-inline-alternates .telemetry-alt-band {
+  font-size: clamp(0.68rem, 1.2vh, 0.78rem);
+}
+
+@media (max-height: 980px) {
+  body.kiosk .rotator-main {
+    padding-bottom: 10px;
+  }
+
+  body.kiosk .scene-title {
+    font-size: 0.78rem;
+  }
+
+  body.kiosk .telemetry-layout {
+    gap: 12px;
+  }
+
+  body.kiosk .telemetry-layout .compass,
+  body.kiosk #telemetryLeftAux {
+    width: min(28vw, 29vh, 316px);
+  }
+
+  body.kiosk .telemetry-layout .compass {
+    height: min(28vw, 29vh, 316px);
+  }
+
+  body.kiosk .telemetry-visual-card .hemisphere-map {
+    height: min(24vh, 220px);
+  }
+
+  body.kiosk .telemetry-panel-ongoing {
+    gap: 8px;
+  }
+
+  body.kiosk .telemetry-inline-radio {
+    padding: 8px 10px;
+  }
+
+  body.kiosk .telemetry-visual-card .rotator-map {
+    height: min(19vh, 170px);
+  }
 }
 
 body.kiosk .telemetry-primary-mode {
