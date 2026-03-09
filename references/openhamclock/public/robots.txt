@@ -1,0 +1,9 @@
+# OpenHamClock - https://openhamclock.com
+# The original free amateur radio dashboard by K0CJH
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /assets/
+
+Sitemap: https://openhamclock.com/sitemap.xml
