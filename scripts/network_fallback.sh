@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Minimal network fallback helper for Raspberry Pi:
 # 1) Try known Wi-Fi profiles in station mode
-# 2) If none connected, start AP profile `ISS-Tracker-Setup`
+# 2) If none connected, start AP profile `OrbitDeck-AP`
 
 KNOWN_PROFILES=$(nmcli -t -f NAME connection show | grep -v "^OrbitDeck-AP$" || true)
 ACTIVE_WIFI=$(nmcli -t -f ACTIVE,TYPE,NAME connection show --active | awk -F: '$1=="yes" && $2=="802-11-wireless" {print $3}')
