@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ISS Tracker Rotator</title>
-    <link rel="stylesheet" href="/static/common/styles.css?v=20260309e" />
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260309i" />
     <script defer src="/static/common/app.js?v=20260308al"></script>
-    <script defer src="/static/kiosk/rotator.js?v=20260309q"></script>
+    <script defer src="/static/kiosk/rotator.js?v=20260309v"></script>
   </head>
   <body class="kiosk rotator">
     <header class="rotator-topbar">
@@ -16,6 +16,7 @@
         <span id="rotatorLocation" class="mono">Loc: --</span>
         <span id="clockUtc" class="mono">UTC: --</span>
         <span id="clockLocal" class="mono">Local: --</span>
+        <a id="devSettingsLink" class="mono hidden" href="/settings">Settings</a>
       </div>
     </header>
     <main class="rotator-main">
@@ -36,23 +37,38 @@
         <div class="telemetry-layout">
           <div>
             <div class="compass">
-              <svg id="skyplot" viewBox="0 0 240 240" class="skyplot" aria-label="Telemetry sky plot">
-                <circle cx="120" cy="120" r="108" class="plot-ring"></circle>
-                <circle cx="120" cy="120" r="58" class="plot-ring-inner"></circle>
-                <line x1="120" y1="12" x2="120" y2="228" class="plot-axis"></line>
-                <line x1="12" y1="120" x2="228" y2="120" class="plot-axis"></line>
+              <svg id="skyplot" viewBox="0 0 300 300" class="skyplot" aria-label="Telemetry sky plot">
+                <g class="plot-grid">
+                  <circle cx="150" cy="150" r="90" class="plot-band plot-band-minor"></circle>
+                  <circle cx="150" cy="150" r="72" class="plot-band plot-band-major"></circle>
+                  <circle cx="150" cy="150" r="54" class="plot-band plot-band-minor"></circle>
+                  <circle cx="150" cy="150" r="36" class="plot-band plot-band-major"></circle>
+                  <circle cx="150" cy="150" r="18" class="plot-band plot-band-minor"></circle>
+                  <g id="plotTicks" class="plot-ticks"></g>
+                  <g id="plotDegrees" class="plot-degree-labels"></g>
+                </g>
+                <circle cx="150" cy="150" r="108" class="plot-ring"></circle>
+                <line x1="150" y1="42" x2="150" y2="258" class="plot-axis"></line>
+                <line x1="42" y1="150" x2="258" y2="150" class="plot-axis"></line>
+                <path id="issPathFaded" class="plot-pass-path plot-pass-path-faded" d=""></path>
+                <path id="issPathPast" class="plot-pass-path plot-pass-path-past" d=""></path>
+                <path id="issPathFuture" class="plot-pass-path plot-pass-path-future" d=""></path>
+                <g id="issEventMarkers" class="plot-event-markers"></g>
                 <polyline id="issTrail" class="plot-trail" points=""></polyline>
-                <line id="issVector" x1="120" y1="120" x2="120" y2="120" class="plot-vector"></line>
-                <circle id="issDot" cx="120" cy="120" r="7" class="plot-dot"></circle>
-                <circle cx="120" cy="120" r="4" class="plot-center"></circle>
-                <text x="120" y="28" text-anchor="middle" class="plot-dir">N</text>
-                <text x="212" y="124" text-anchor="middle" class="plot-dir">E</text>
-                <text x="120" y="224" text-anchor="middle" class="plot-dir">S</text>
-                <text x="28" y="124" text-anchor="middle" class="plot-dir">W</text>
+                <line id="issVector" x1="150" y1="150" x2="150" y2="150" class="plot-vector"></line>
+                <circle id="issDotHalo" cx="150" cy="150" r="11" class="plot-dot-halo"></circle>
+                <circle id="issDot" cx="150" cy="150" r="7" class="plot-dot"></circle>
+                <circle cx="150" cy="150" r="4" class="plot-center"></circle>
+                <text x="150" y="16" text-anchor="middle" class="plot-dir">N</text>
+                <text x="284" y="154" text-anchor="middle" class="plot-dir">E</text>
+                <text x="150" y="292" text-anchor="middle" class="plot-dir">S</text>
+                <text x="16" y="154" text-anchor="middle" class="plot-dir">W</text>
                 <g id="bodyLayer"></g>
               </svg>
             </div>
+            <div id="telemetryLeftAux"></div>
             <div id="bodyLegend" class="label"></div>
+            <div id="pathLegend" class="plot-term-legend label">AOS = rise · TCA = peak · LOS = set</div>
           </div>
           <div id="telemetryRight">
             <div id="telemetryReadout" class="mono telemetry-readout">Az -- | Alt -- | Range --</div>

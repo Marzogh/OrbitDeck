@@ -73,6 +73,21 @@ def test_location_manual_profile(tmp_path):
     assert round(loc["lon"], 4) == 153.0251
 
 
+def test_track_path_endpoint_returns_samples(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.get("/api/v1/track/path?sat_id=iss-zarya&minutes=5&step_seconds=60")
+    assert resp.status_code == 200
+    payload = resp.json()
+
+    assert payload["sat_id"] == "iss-zarya"
+    assert payload["minutes"] == 5
+    assert payload["step_seconds"] == 60
+    assert payload["count"] >= 2
+    assert len(payload["items"]) == payload["count"]
+    assert {"sat_id", "timestamp", "az_deg", "el_deg", "range_km", "sunlit"} <= set(payload["items"][0].keys())
+
+
 def test_set_and_get_gps_settings(tmp_path):
     client = make_client(tmp_path)
 
@@ -96,6 +111,40 @@ def test_set_and_get_gps_settings(tmp_path):
     assert state["bluetooth_channel"] == 2
     assert state["serial_device"] == "/dev/ttyUSB9"
     assert state["baud_rate"] == 4800
+
+
+def test_set_and_get_developer_overrides(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.post(
+        "/api/v1/settings/developer-overrides",
+        json={
+            "enabled": True,
+            "force_scene": "ongoing",
+            "force_sat_id": "iss-zarya",
+            "simulate_pass_phase": "mid-pass",
+            "force_iss_video_eligible": True,
+            "force_iss_stream_healthy": True,
+            "show_debug_badge": True,
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()["state"]
+    assert payload["enabled"] is True
+    assert payload["force_scene"] == "ongoing"
+    assert payload["simulate_pass_phase"] == "mid-pass"
+
+    get_resp = client.get("/api/v1/settings/developer-overrides")
+    assert get_resp.status_code == 200
+    state = get_resp.json()["state"]
+    assert state["force_sat_id"] == "iss-zarya"
+    assert state["force_iss_video_eligible"] is True
+
+    system_resp = client.get("/api/v1/system/state")
+    assert system_resp.status_code == 200
+    system_settings = system_resp.json()["settings"]
+    assert "developer_overrides" in system_settings
+    assert system_settings["developer_overrides"]["force_scene"] == "ongoing"
 
 
 def test_satellites_refresh_flag_uses_ingestion(tmp_path):

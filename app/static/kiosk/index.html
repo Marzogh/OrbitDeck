@@ -158,12 +158,25 @@
           <div>
             <div class="compass">
               <svg id="skyplot" viewBox="0 0 240 240" class="skyplot" aria-label="Telemetry sky plot">
+                <g class="plot-grid">
+                  <circle cx="120" cy="120" r="90" class="plot-band plot-band-minor"></circle>
+                  <circle cx="120" cy="120" r="72" class="plot-band plot-band-major"></circle>
+                  <circle cx="120" cy="120" r="54" class="plot-band plot-band-minor"></circle>
+                  <circle cx="120" cy="120" r="36" class="plot-band plot-band-major"></circle>
+                  <circle cx="120" cy="120" r="18" class="plot-band plot-band-minor"></circle>
+                  <g id="plotTicks" class="plot-ticks"></g>
+                  <g id="plotDegrees" class="plot-degree-labels"></g>
+                </g>
                 <circle cx="120" cy="120" r="108" class="plot-ring"></circle>
-                <circle cx="120" cy="120" r="58" class="plot-ring-inner"></circle>
                 <line x1="120" y1="12" x2="120" y2="228" class="plot-axis"></line>
                 <line x1="12" y1="120" x2="228" y2="120" class="plot-axis"></line>
+                <path id="issPathFaded" class="plot-pass-path plot-pass-path-faded" d=""></path>
+                <path id="issPathPast" class="plot-pass-path plot-pass-path-past" d=""></path>
+                <path id="issPathFuture" class="plot-pass-path plot-pass-path-future" d=""></path>
+                <g id="issEventMarkers" class="plot-event-markers"></g>
                 <polyline id="issTrail" class="plot-trail" points=""></polyline>
                 <line id="issVector" x1="120" y1="120" x2="120" y2="120" class="plot-vector"></line>
+                <circle id="issDotHalo" cx="120" cy="120" r="11" class="plot-dot-halo"></circle>
                 <circle id="issDot" cx="120" cy="120" r="7" class="plot-dot"></circle>
                 <circle cx="120" cy="120" r="4" class="plot-center"></circle>
                 <text x="120" y="28" text-anchor="middle" class="plot-dir">N</text>
@@ -174,6 +187,7 @@
               </svg>
             </div>
             <div id="bodyLegend" class="label"></div>
+            <div id="pathLegend" class="plot-term-legend label">AOS = rise · TCA = peak · LOS = set</div>
           </div>
           <div>
             <div id="drawerReadout" class="mono value">Az --.-° | Alt --.-°</div>

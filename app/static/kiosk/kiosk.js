@@ -11,6 +11,12 @@ let telemetryDrawerOpen = false;
 let previousTrack = null;
 const trailPoints = [];
 const MAX_TRAIL = 25;
+let latestPassItems = [];
+let forecastTrackItems = [];
+let forecastSatId = null;
+let lastForecastRefreshAt = 0;
+let forecastPassKey = "";
+let dialPassState = null;
 const TIMEZONE_CHOICES = [
   "BrowserLocal",
   "UTC",
@@ -304,6 +310,10 @@ function bodySymbol(name) {
   return map[name] || "•";
 }
 
+function bodyLegendChip(body) {
+  return `<span class="body-key"><span class="body-key-token" style="--body-color:${body.color}"><span class="body-key-sym">${bodySymbol(body.name)}</span></span><span class="body-key-name">${body.name}</span></span>`;
+}
+
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
@@ -315,6 +325,175 @@ function azElToXY(azDeg, elDeg, radius = 108, cx = 120, cy = 120) {
   const x = cx + r * Math.sin(az);
   const y = cy - r * Math.cos(az);
   return { x, y };
+}
+
+function ensurePlotDialScaffold(tickId = "plotTicks", degreeId = "plotDegrees") {
+  const degreeLayer = trackerById(degreeId);
+  if (degreeLayer && !degreeLayer.childNodes.length) {
+    const ns = "http://www.w3.org/2000/svg";
+    for (let deg = 0; deg < 360; deg += 30) {
+      if (deg % 90 === 0) continue;
+      const a = (deg * Math.PI) / 180;
+      const r = 118;
+      const text = document.createElementNS(ns, "text");
+      text.setAttribute("x", (120 + r * Math.sin(a)).toFixed(2));
+      text.setAttribute("y", (120 - r * Math.cos(a) + 3).toFixed(2));
+      text.setAttribute("text-anchor", "middle");
+      text.setAttribute("class", "plot-degree-label");
+      text.textContent = String(deg);
+      degreeLayer.appendChild(text);
+    }
+  }
+
+  const tickLayer = trackerById(tickId);
+  if (!tickLayer || tickLayer.childNodes.length) return;
+  const ns = "http://www.w3.org/2000/svg";
+  for (let deg = 0; deg < 360; deg += 10) {
+    const major = deg % 30 === 0;
+    const inner = major ? 91 : 98;
+    const outer = 108;
+    const a = (deg * Math.PI) / 180;
+    const line = document.createElementNS(ns, "line");
+    line.setAttribute("x1", (120 + inner * Math.sin(a)).toFixed(2));
+    line.setAttribute("y1", (120 - inner * Math.cos(a)).toFixed(2));
+    line.setAttribute("x2", (120 + outer * Math.sin(a)).toFixed(2));
+    line.setAttribute("y2", (120 - outer * Math.cos(a)).toFixed(2));
+    line.setAttribute("class", `plot-tick ${major ? "plot-tick-major" : "plot-tick-minor"}`);
+    tickLayer.appendChild(line);
+  }
+}
+
+function passKey(pass) {
+  if (!pass) return "";
+  return `${pass.sat_id}|${pass.aos}|${pass.los}`;
+}
+
+function passPhase(pass, nowMs = Date.now()) {
+  if (!pass) return "none";
+  const aos = new Date(pass.aos).getTime();
+  const los = new Date(pass.los).getTime();
+  if (nowMs < aos) return "upcoming";
+  if (nowMs <= los) return "ongoing";
+  return "after";
+}
+
+function clearDialLayers() {
+  const faded = trackerById("issPathFaded");
+  const past = trackerById("issPathPast");
+  const future = trackerById("issPathFuture");
+  const markers = trackerById("issEventMarkers");
+  if (faded) faded.setAttribute("d", "");
+  if (past) past.setAttribute("d", "");
+  if (future) future.setAttribute("d", "");
+  if (markers) markers.innerHTML = "";
+}
+
+function nearestForecastPoint(targetIso) {
+  if (!targetIso || !forecastTrackItems.length) return null;
+  const target = new Date(targetIso).getTime();
+  let best = null;
+  for (const item of forecastTrackItems) {
+    const ts = new Date(item.timestamp).getTime();
+    const delta = Math.abs(ts - target);
+    if (!best || delta < best.delta) best = { item, delta };
+  }
+  return best && best.delta <= 120000 ? best.item : null;
+}
+
+function chooseDialPass(track) {
+  const nowMs = Date.now();
+  const satId = selectedSatId || track?.sat_id || "";
+  if (
+    dialPassState
+    && dialPassState.sat_id === satId
+    && nowMs <= dialPassState.fade_until_ms
+    && passPhase(dialPassState.pass, nowMs) === "after"
+  ) {
+    return dialPassState.pass;
+  }
+
+  const relevant = latestPassItems
+    .filter((item) => !satId || item.sat_id === satId)
+    .sort((a, b) => new Date(a.aos).getTime() - new Date(b.aos).getTime());
+
+  const ongoing = relevant.find((item) => passPhase(item, nowMs) === "ongoing");
+  const upcoming = relevant.find((item) => passPhase(item, nowMs) === "upcoming");
+  const chosen = ongoing || upcoming || null;
+  if (chosen) {
+    dialPassState = {
+      pass: chosen,
+      sat_id: chosen.sat_id,
+      fade_until_ms: new Date(chosen.los).getTime() + (8 * 60 * 1000),
+    };
+  }
+  return chosen;
+}
+
+function pathForItems(items) {
+  if (!items.length) return "";
+  return items
+    .map((item, idx) => {
+      const point = azElToXY(item.az_deg, item.el_deg);
+      return `${idx === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+function renderPassLayers(pass, track) {
+  const faded = trackerById("issPathFaded");
+  const past = trackerById("issPathPast");
+  const future = trackerById("issPathFuture");
+  const markers = trackerById("issEventMarkers");
+  if (!faded || !past || !future || !markers) return;
+  if (!forecastTrackItems.length) {
+    clearDialLayers();
+    return;
+  }
+  const plotted = forecastTrackItems;
+  if (plotted.length < 2) {
+    clearDialLayers();
+    return;
+  }
+
+  const nowMs = Date.now();
+  const phase = passPhase(pass, nowMs);
+  let splitIdx = plotted.findIndex((item) => new Date(item.timestamp).getTime() >= nowMs);
+  if (track) {
+    const trackTime = new Date(track.timestamp || Date.now()).getTime();
+    const idxFromTrack = plotted.findIndex((item) => new Date(item.timestamp).getTime() >= trackTime);
+    if (idxFromTrack >= 0) splitIdx = idxFromTrack;
+  }
+  if (splitIdx < 0) splitIdx = plotted.length - 1;
+
+  const pastItems = plotted.slice(0, Math.max(1, splitIdx + 1));
+  const futureItems = plotted.slice(Math.max(0, splitIdx));
+
+  faded.setAttribute("d", "");
+  past.setAttribute("d", "");
+  future.setAttribute("d", "");
+
+  if (phase === "after") {
+    faded.setAttribute("d", pathForItems(plotted));
+  } else if (phase === "ongoing") {
+    past.setAttribute("d", pathForItems(pastItems));
+    future.setAttribute("d", pathForItems(futureItems));
+  } else {
+    future.setAttribute("d", pathForItems(plotted));
+  }
+
+  const labels = [
+    { key: "AOS", iso: pass?.aos, dx: 8, dy: -8 },
+    { key: "TCA", iso: pass?.tca, dx: 8, dy: -10 },
+    { key: "LOS", iso: pass?.los, dx: 8, dy: -8 },
+  ];
+  markers.innerHTML = labels
+    .map(({ key, iso, dx, dy }) => {
+      const item = nearestForecastPoint(iso);
+      if (!item) return "";
+      const point = azElToXY(item.az_deg, item.el_deg);
+      return `<g><circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="3.6" class="plot-event-dot"></circle><text x="${(point.x + dx).toFixed(2)}" y="${(point.y + dy).toFixed(2)}" class="plot-event-label">${key}</text></g>`;
+    })
+    .join("");
 }
 
 function trackCue(track, previous) {
@@ -329,7 +508,7 @@ function trackCue(track, previous) {
 
 function renderBodyLegend(elId, visibleBodies) {
   trackerById(elId).innerHTML = visibleBodies.length
-    ? visibleBodies.map((b) => `<span class="body-key"><span class="body-key-dot" style="background:${b.color}"></span><span class="body-key-sym">${bodySymbol(b.name)}</span>${b.name}</span>`).join("")
+    ? visibleBodies.map((b) => bodyLegendChip(b)).join("")
     : '<span class="label">Bodies: none above horizon</span>';
 }
 
@@ -367,21 +546,48 @@ function approxBodiesFromLocation(location) {
 }
 
 function renderSkyplot(track, bodies, location) {
+  ensurePlotDialScaffold();
+  const pass = chooseDialPass(track);
+  const phase = passPhase(pass);
   const { x, y } = azElToXY(track.az_deg, track.el_deg);
-  trailPoints.push({ x, y });
-  if (trailPoints.length > MAX_TRAIL) trailPoints.shift();
 
   const dot = trackerById("issDot");
-  const vector = trackerById("issVector");
+  const halo = trackerById("issDotHalo");
   const trail = trackerById("issTrail");
-  dot.setAttribute("cx", x.toFixed(2));
-  dot.setAttribute("cy", y.toFixed(2));
-  vector.setAttribute("x2", x.toFixed(2));
-  vector.setAttribute("y2", y.toFixed(2));
-  trail.setAttribute(
-    "points",
-    trailPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")
-  );
+  if (phase === "ongoing" || phase === "none") {
+    trailPoints.push({ x, y });
+    if (trailPoints.length > MAX_TRAIL) trailPoints.shift();
+    dot.setAttribute("cx", x.toFixed(2));
+    dot.setAttribute("cy", y.toFixed(2));
+    dot.style.opacity = "1";
+    if (halo) {
+      halo.setAttribute("cx", x.toFixed(2));
+      halo.setAttribute("cy", y.toFixed(2));
+      halo.style.opacity = "1";
+    }
+    const tail = trailPoints.slice(-6);
+    trail.setAttribute(
+      "points",
+      tail.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")
+    );
+  } else if (phase === "upcoming") {
+    dot.setAttribute("cx", x.toFixed(2));
+    dot.setAttribute("cy", y.toFixed(2));
+    dot.style.opacity = "0.56";
+    if (halo) {
+      halo.setAttribute("cx", x.toFixed(2));
+      halo.setAttribute("cy", y.toFixed(2));
+      halo.style.opacity = "0.28";
+    }
+    trail.setAttribute("points", "");
+    trailPoints.length = 0;
+  } else {
+    dot.style.opacity = "0";
+    if (halo) halo.style.opacity = "0";
+    trail.setAttribute("points", "");
+    trailPoints.length = 0;
+  }
+  renderPassLayers(pass, track);
 
   const bodyLayer = trackerById("bodyLayer");
   bodyLayer.innerHTML = "";
@@ -399,15 +605,46 @@ function renderSkyplot(track, bodies, location) {
   renderBodyLegend("bodyLegend", visibleBodies);
 }
 
+async function refreshForecastPath(pass) {
+  if (!selectedSatId || !pass) {
+    forecastSatId = null;
+    forecastTrackItems = [];
+    lastForecastRefreshAt = 0;
+    forecastPassKey = "";
+    clearDialLayers();
+    return;
+  }
+  const nextKey = passKey(pass);
+  if (
+    forecastSatId === selectedSatId
+    && forecastPassKey === nextKey
+    && (Date.now() - lastForecastRefreshAt) < 60000
+  ) {
+    return;
+  }
+  const start = new Date(pass.aos);
+  const end = new Date(pass.los);
+  const minutes = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 60000) + 1);
+  const locationQuery = selectedLocationSource ? `&location_source=${encodeURIComponent(selectedLocationSource)}` : "";
+  const resp = await trackerApi.get(
+    `/api/v1/track/path?sat_id=${encodeURIComponent(selectedSatId)}&minutes=${minutes}&step_seconds=30&start_time=${encodeURIComponent(start.toISOString())}${locationQuery}`
+  );
+  forecastSatId = selectedSatId;
+  forecastPassKey = nextKey;
+  forecastTrackItems = Array.isArray(resp.items) ? resp.items : [];
+  lastForecastRefreshAt = Date.now();
+}
+
 function renderPasses(items) {
+  const upcoming = (items || []).filter((p) => new Date(p.aos).getTime() >= Date.now());
   trackerById("passTimeBasis").textContent = `Times shown in ${effectiveDisplayTimezone()}`;
   trackerById("nextPassCountdown").textContent = "";
 
-  if (!items.length) {
+  if (!upcoming.length) {
     trackerById("passRows").innerHTML = '<tr><td colspan="5" class="label">No passes in range for selected pass profile</td></tr>';
     return;
   }
-  const nextAos = new Date(items[0].aos).getTime();
+  const nextAos = new Date(upcoming[0].aos).getTime();
   const deltaSec = Math.floor((nextAos - Date.now()) / 1000);
   if (Number.isFinite(deltaSec) && deltaSec > 0) {
     const h = Math.floor(deltaSec / 3600);
@@ -416,7 +653,7 @@ function renderPasses(items) {
     const text = h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
     trackerById("nextPassCountdown").textContent = `Next AOS in ${text}`;
   }
-  const rows = items.slice(0, 10).map((p) => `
+  const rows = upcoming.slice(0, 10).map((p) => `
     <tr data-sat-id="${p.sat_id}" class="${selectedSatId === p.sat_id ? "selected-row" : ""}">
       <td><strong>${p.name}</strong></td>
       <td title="${fmtDisplayTime(p.aos)}">${fmtPassCellTime(p.aos)}</td>
@@ -542,6 +779,16 @@ function setTelemetryDrawer(open) {
   drawer.setAttribute("aria-hidden", telemetryDrawerOpen ? "false" : "true");
 }
 
+function resetDialState() {
+  trailPoints.length = 0;
+  forecastTrackItems = [];
+  forecastPassKey = "";
+  forecastSatId = null;
+  lastForecastRefreshAt = 0;
+  dialPassState = null;
+  clearDialLayers();
+}
+
 function loadVideoSourcesFromStorage() {
   try {
     const raw = localStorage.getItem(VIDEO_SOURCES_KEY);
@@ -578,7 +825,7 @@ function buildSystemQuery() {
 }
 
 function buildPassesQuery() {
-  const passParams = new URLSearchParams({ hours: "24" });
+  const passParams = new URLSearchParams({ hours: "24", include_ongoing: "true" });
   if (selectedLocationSource) passParams.set("location_source", selectedLocationSource);
   return `?${passParams.toString()}`;
 }
@@ -669,9 +916,12 @@ async function loadState() {
   if (locationMode) locationMode.value = locationState.state.source_mode;
   selectedLocationSource = locationState.state.source_mode;
   syncLocationModeUi();
+  latestPassItems = passes.items || [];
+  if (!selectedSatId && sys.activeTrack?.sat_id) selectedSatId = sys.activeTrack.sat_id;
+  await refreshForecastPath(chooseDialPass(sys.activeTrack || sys.issTrack));
   applySystemSnapshot(sys, mode);
 
-  renderPasses(passes.items);
+  renderPasses(latestPassItems);
   renderFrequencies(sats.items);
   ensureTrackSelector(sats.items);
   ensurePassSatSelector(sats.items);
@@ -685,12 +935,14 @@ async function refreshLiveOnly() {
     trackerApi.get(`/api/v1/system/state${buildSystemQuery()}`),
     trackerApi.get("/api/v1/settings/iss-display-mode"),
   ]);
+  await refreshForecastPath(chooseDialPass(sys.activeTrack || sys.issTrack));
   applySystemSnapshot(sys, mode);
 }
 
 async function refreshPassesOnly() {
   const passes = await trackerApi.get(`/api/v1/passes${buildPassesQuery()}`);
-  renderPasses(passes.items);
+  latestPassItems = passes.items || [];
+  renderPasses(latestPassItems);
 }
 
 async function refreshCatalogOnly() {
@@ -747,7 +999,7 @@ async function applyLocationMode() {
     await trackerSetBrowserLocation();
   }
   await trackerApi.post("/api/v1/location", { source_mode });
-  trailPoints.length = 0;
+  resetDialState();
   await loadState();
 }
 
@@ -761,7 +1013,7 @@ async function applyManualLocation() {
     selected_profile_id: "manual-kiosk",
   });
   selectedLocationSource = "manual";
-  trailPoints.length = 0;
+  resetDialState();
   await loadState();
 }
 
@@ -774,7 +1026,7 @@ async function applyGpsLocation() {
     gps_location: { lat, lon, alt_m: 0 },
   });
   selectedLocationSource = "gps";
-  trailPoints.length = 0;
+  resetDialState();
   await loadState();
 }
 
@@ -824,7 +1076,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   if (trackSatSelect) trackSatSelect.addEventListener("change", async (ev) => {
     selectedSatId = ev.target.value || null;
     if (selectedSatId) localStorage.setItem(TRACKED_SAT_KEY, selectedSatId);
-    trailPoints.length = 0;
+    resetDialState();
     setTelemetryDrawer(true);
     try {
       await loadState();
@@ -867,7 +1119,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!row) return;
     selectedSatId = row.dataset.satId || null;
     if (selectedSatId) localStorage.setItem(TRACKED_SAT_KEY, selectedSatId);
-    trailPoints.length = 0;
+    resetDialState();
     setTelemetryDrawer(true);
     try {
       await loadState();

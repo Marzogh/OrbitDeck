@@ -2,6 +2,8 @@ let trackerApi;
 let trackerById;
 
 const VIDEO_SOURCES_KEY = "kioskVideoSources";
+const DEV_MODE_KEY = "kioskDevModeEnabled";
+const DEV_FORCE_SCENE_KEY = "kioskDevForceScene";
 const DEFAULT_VIDEO_SOURCES = [
   "https://www.youtube.com/embed/fO9e9jnhYK8?autoplay=1&mute=1&rel=0&modestbranding=1",
   "https://www.youtube.com/embed/sWasdbDVNvc?autoplay=1&mute=1&rel=0&modestbranding=1",
@@ -30,6 +32,19 @@ let lastOverride = "";
 let activeVideoSource = 0;
 const trailPoints = [];
 const mapTrailBySat = new Map();
+const pathCache = new Map();
+
+function getDeveloperOverrides() {
+  return {
+    enabled: localStorage.getItem(DEV_MODE_KEY) === "1",
+    force_scene: localStorage.getItem(DEV_FORCE_SCENE_KEY) || "auto",
+    show_debug_badge: localStorage.getItem(DEV_MODE_KEY) === "1",
+  };
+}
+
+function developerOverridesEnabled() {
+  return !!getDeveloperOverrides().enabled;
+}
 
 function getVideoSources() {
   try {
@@ -104,6 +119,11 @@ function stablePassKey(pass) {
   return `${pass?.sat_id || "unknown"}|${roundedMinute}`;
 }
 
+function clone(obj) {
+  if (obj == null) return obj;
+  return JSON.parse(JSON.stringify(obj));
+}
+
 function sceneDurationMs(key) {
   if (key.startsWith("telemetry:")) return 15000;
   if (key === "passes") return 15000;
@@ -111,7 +131,7 @@ function sceneDurationMs(key) {
   return 15000;
 }
 
-function azElToXY(azDeg, elDeg, radius = 108, cx = 120, cy = 120) {
+function azElToXY(azDeg, elDeg, radius = 108, cx = 150, cy = 150) {
   const az = (azDeg * Math.PI) / 180;
   const el = Math.max(0, Math.min(90, elDeg));
   const r = ((90 - el) / 90) * radius;
@@ -123,6 +143,80 @@ function bodySymbol(name) {
   return map[name] || "•";
 }
 
+function bodyLegendChip(body) {
+  return `<span class="body-key"><span class="body-key-token" style="--body-color:${body.color}"><span class="body-key-sym">${bodySymbol(body.name)}</span></span><span class="body-key-name">${body.name}</span></span>`;
+}
+
+function passKey(pass) {
+  if (!pass) return "";
+  return `${pass.sat_id}|${pass.aos}|${pass.los}`;
+}
+
+function passPhase(pass, nowMs = Date.now()) {
+  if (!pass) return "none";
+  const aos = new Date(pass.aos).getTime();
+  const los = new Date(pass.los).getTime();
+  if (nowMs < aos) return "upcoming";
+  if (nowMs <= los) return "ongoing";
+  return "after";
+}
+
+function pathForItems(items) {
+  if (!items.length) return "";
+  return items.map((item, idx) => {
+    const p = azElToXY(item.az_deg, item.el_deg);
+    return `${idx === 0 ? "M" : "L"} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`;
+  }).join(" ");
+}
+
+function nearestPathPoint(items, iso) {
+  if (!iso || !items?.length) return null;
+  const target = new Date(iso).getTime();
+  let best = null;
+  for (const item of items) {
+    const ts = new Date(item.timestamp).getTime();
+    const delta = Math.abs(ts - target);
+    if (!best || delta < best.delta) best = { item, delta };
+  }
+  return best && best.delta <= 120000 ? best.item : null;
+}
+
+function ensurePlotTicks(elId = "plotTicks", degreeId = "plotDegrees") {
+  const degreeLayer = trackerById(degreeId);
+  if (degreeLayer && !degreeLayer.childNodes.length) {
+    const ns = "http://www.w3.org/2000/svg";
+    for (let deg = 0; deg < 360; deg += 30) {
+      if (deg % 90 === 0) continue;
+      const a = (deg * Math.PI) / 180;
+      const r = 122;
+      const text = document.createElementNS(ns, "text");
+      text.setAttribute("x", (150 + r * Math.sin(a)).toFixed(2));
+      text.setAttribute("y", (150 - r * Math.cos(a) + 3).toFixed(2));
+      text.setAttribute("text-anchor", "middle");
+      text.setAttribute("class", "plot-degree-label");
+      text.textContent = String(deg);
+      degreeLayer.appendChild(text);
+    }
+  }
+
+  const tickLayer = trackerById(elId);
+  if (!tickLayer || tickLayer.childNodes.length) return;
+  const ns = "http://www.w3.org/2000/svg";
+  for (let deg = 0; deg < 360; deg += 10) {
+    const major = deg % 30 === 0;
+    const inner = major ? 91 : 98;
+    const outer = 108;
+    const a = (deg * Math.PI) / 180;
+    const line = document.createElementNS(ns, "line");
+    line.setAttribute("x1", (150 + inner * Math.sin(a)).toFixed(2));
+    line.setAttribute("y1", (150 - inner * Math.cos(a)).toFixed(2));
+    line.setAttribute("x2", (150 + outer * Math.sin(a)).toFixed(2));
+    line.setAttribute("y2", (150 - outer * Math.cos(a)).toFixed(2));
+    line.setAttribute("class", `plot-tick ${major ? "plot-tick-major" : "plot-tick-minor"}`);
+    tickLayer.appendChild(line);
+  }
+}
+
 function normalizeFreqToken(text) {
   return String(text || "").replace(/\b\d{7,11}\b/g, (m) => {
     const n = Number(m);
@@ -131,20 +225,77 @@ function normalizeFreqToken(text) {
   });
 }
 
-function renderSkyplot(track, bodies) {
+function renderSkyplot(track, bodies, pass = null, pathItems = []) {
   if (!track) return;
+  ensurePlotTicks();
   const dot = trackerById("issDot");
-  const vec = trackerById("issVector");
+  const halo = trackerById("issDotHalo");
   const trail = trackerById("issTrail");
   const bodyLayer = trackerById("bodyLayer");
+  const fadedPath = trackerById("issPathFaded");
+  const pastPath = trackerById("issPathPast");
+  const futurePath = trackerById("issPathFuture");
+  const eventMarkers = trackerById("issEventMarkers");
   const p = azElToXY(track.az_deg, track.el_deg);
-  trailPoints.push(p);
-  if (trailPoints.length > 40) trailPoints.shift();
-  dot.setAttribute("cx", p.x.toFixed(2));
-  dot.setAttribute("cy", p.y.toFixed(2));
-  vec.setAttribute("x2", p.x.toFixed(2));
-  vec.setAttribute("y2", p.y.toFixed(2));
-  trail.setAttribute("points", trailPoints.map((x) => `${x.x.toFixed(1)},${x.y.toFixed(1)}`).join(" "));
+  const phase = passPhase(pass);
+  if (phase === "ongoing" || phase === "none") {
+    trailPoints.push(p);
+    if (trailPoints.length > 6) trailPoints.shift();
+    dot.setAttribute("cx", p.x.toFixed(2));
+    dot.setAttribute("cy", p.y.toFixed(2));
+    dot.style.opacity = "1";
+    if (halo) {
+      halo.setAttribute("cx", p.x.toFixed(2));
+      halo.setAttribute("cy", p.y.toFixed(2));
+      halo.style.opacity = "1";
+    }
+    trail.setAttribute("points", trailPoints.map((x) => `${x.x.toFixed(1)},${x.y.toFixed(1)}`).join(" "));
+  } else if (phase === "upcoming") {
+    dot.setAttribute("cx", p.x.toFixed(2));
+    dot.setAttribute("cy", p.y.toFixed(2));
+    dot.style.opacity = "0.56";
+    if (halo) {
+      halo.setAttribute("cx", p.x.toFixed(2));
+      halo.setAttribute("cy", p.y.toFixed(2));
+      halo.style.opacity = "0.28";
+    }
+    trail.setAttribute("points", "");
+  } else {
+    dot.style.opacity = "0";
+    if (halo) halo.style.opacity = "0";
+    trail.setAttribute("points", "");
+  }
+
+  if (fadedPath) fadedPath.setAttribute("d", "");
+  if (pastPath) pastPath.setAttribute("d", "");
+  if (futurePath) futurePath.setAttribute("d", "");
+  if (eventMarkers) eventMarkers.innerHTML = "";
+
+  const plottedPath = (pathItems || []);
+  if (plottedPath.length >= 2 && fadedPath && pastPath && futurePath && eventMarkers) {
+    if (phase === "after") {
+      fadedPath.setAttribute("d", pathForItems(plottedPath));
+    } else if (phase === "ongoing") {
+      let splitIdx = plottedPath.findIndex((item) => new Date(item.timestamp).getTime() >= Date.now());
+      if (splitIdx < 0) splitIdx = plottedPath.length - 1;
+      pastPath.setAttribute("d", pathForItems(plottedPath.slice(0, Math.max(1, splitIdx + 1))));
+      futurePath.setAttribute("d", pathForItems(plottedPath.slice(Math.max(0, splitIdx))));
+    } else {
+      futurePath.setAttribute("d", pathForItems(plottedPath));
+    }
+
+    const labels = [
+      { key: "AOS", iso: pass?.aos, dx: 8, dy: -8 },
+      { key: "TCA", iso: pass?.tca, dx: 8, dy: -10 },
+      { key: "LOS", iso: pass?.los, dx: 8, dy: -8 },
+    ];
+    eventMarkers.innerHTML = labels.map(({ key, iso, dx, dy }) => {
+      const item = nearestPathPoint(plottedPath, iso);
+      if (!item) return "";
+      const q = azElToXY(item.az_deg, item.el_deg);
+      return `<g><circle cx="${q.x.toFixed(2)}" cy="${q.y.toFixed(2)}" r="3.6" class="plot-event-dot"></circle><text x="${(q.x + dx).toFixed(2)}" y="${(q.y + dy).toFixed(2)}" class="plot-event-label">${key}</text></g>`;
+    }).join("");
+  }
 
   const visible = (bodies || []).filter((b) => b.visible && b.el_deg > 0).map((b) => ({ ...b, color: BODY_COLORS[b.name] || b.color || "#ddd" }));
   bodyLayer.innerHTML = "";
@@ -152,7 +303,63 @@ function renderSkyplot(track, bodies) {
     const q = azElToXY(b.az_deg, b.el_deg);
     bodyLayer.insertAdjacentHTML("beforeend", `<g><circle cx="${q.x.toFixed(2)}" cy="${q.y.toFixed(2)}" r="6.2" fill="${b.color}" class="plot-body"></circle><text x="${q.x.toFixed(2)}" y="${(q.y + 2.8).toFixed(2)}" text-anchor="middle" class="plot-body-icon">${bodySymbol(b.name)}</text></g>`);
   });
-  trackerById("bodyLegend").innerHTML = visible.map((b) => `<span class="body-key"><span class="body-key-dot" style="background:${b.color}"></span><span class="body-key-sym">${bodySymbol(b.name)}</span>${b.name}</span>`).join("");
+  trackerById("bodyLegend").innerHTML = visible.length
+    ? visible.map((b) => bodyLegendChip(b)).join("")
+    : '<span class="label">Bodies: none above horizon</span>';
+}
+
+async function populatePathCache(system, passes) {
+  const locationSource = system?.location?.source;
+  const queryLocation = locationSource && locationSource !== "default" && locationSource !== "last_known"
+    ? `&location_source=${encodeURIComponent(locationSource)}`
+    : "";
+  const candidates = [];
+  const seen = new Set();
+  for (const pass of passes || []) {
+    const key = passKey(pass);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (!isRotatorAllowedSat(pass) || !isRotatorEligiblePass(pass)) continue;
+    candidates.push(pass);
+    if (candidates.length >= 6) break;
+  }
+  await Promise.all(candidates.map(async (pass) => {
+    const key = passKey(pass);
+    if (pathCache.has(key)) return;
+    try {
+      pathCache.set(key, await fetchPathForPass(pass, queryLocation));
+    } catch (_) {
+      pathCache.set(key, []);
+    }
+  }));
+}
+
+async function fetchPathForPass(pass, queryLocation = "") {
+  const start = new Date(pass.aos);
+  const end = new Date(pass.los);
+  const minutes = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 60000) + 1);
+  const resp = await trackerApi.get(
+    `/api/v1/track/path?sat_id=${encodeURIComponent(pass.sat_id)}&minutes=${minutes}&step_seconds=30&start_time=${encodeURIComponent(start.toISOString())}${queryLocation}`
+  );
+  return Array.isArray(resp.items) ? resp.items : [];
+}
+
+async function ensurePathForDisplayedPass(system, pass) {
+  if (!pass) return [];
+  const key = passKey(pass);
+  if (pathCache.has(key)) return pathCache.get(key) || [];
+  const locationSource = system?.location?.source;
+  const queryLocation = locationSource && locationSource !== "default" && locationSource !== "last_known"
+    ? `&location_source=${encodeURIComponent(locationSource)}`
+    : "";
+  try {
+    const items = await fetchPathForPass(pass, queryLocation);
+    pathCache.set(key, items);
+    return items;
+  } catch (_) {
+    pathCache.set(key, []);
+    return [];
+  }
 }
 
 function parsePair(text) {
@@ -370,6 +577,117 @@ function renderUpcomingTelemetryPanel({ track, pass, rows, scene }) {
   `;
 }
 
+function renderAlternatesHtml(rows) {
+  const items = (rows || []).slice(1, 3);
+  return items.length
+    ? items.map((row) => `
+      <div class="telemetry-alt-item">
+        <div class="telemetry-alt-mode">${escapeHtml(row.mode)}</div>
+        <div class="telemetry-alt-pair mono">${escapeHtml(row.up)} | ${escapeHtml(row.down)}</div>
+        <div class="telemetry-alt-band">${escapeHtml(row.bands || "Band unknown")}</div>
+      </div>
+    `).join("")
+    : '<div class="telemetry-alt-empty">No alternate channels parsed for this pass.</div>';
+}
+
+function renderOngoingInlineTuneNow(primary) {
+  return `
+    <section class="telemetry-inline-primary">
+      <div class="telemetry-inline-primary-label">Tune Now</div>
+      <div class="telemetry-inline-primary-mode">${escapeHtml(primary?.mode || "No parsed channel available")}</div>
+      <div class="telemetry-inline-primary-pairs">
+        <div><span>Up</span><strong class="mono">${escapeHtml(primary?.up || "—")}</strong></div>
+        <div><span>Down</span><strong class="mono">${escapeHtml(primary?.down || "—")}</strong></div>
+        <div><span>Bands</span><strong>${escapeHtml(primary?.bands || "Band unknown")}</strong></div>
+      </div>
+    </section>
+  `;
+}
+
+function renderOngoingVisualCard({ isIss, hasVideo, url, lat, lon, pts, sunlitText }) {
+  if (isIss && hasVideo) {
+    return `
+      <section class="telemetry-visual-card telemetry-visual-card-live">
+        <div class="telemetry-section-head">
+          <div class="telemetry-section-title">ISS Live Video</div>
+          <div class="telemetry-section-meta">${escapeHtml(sunlitText)}</div>
+        </div>
+        <iframe
+          id="ongoingVideo"
+          title="ISS Ongoing Video"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen
+          src="${escapeHtml(url)}"
+        ></iframe>
+      </section>
+    `;
+  }
+  return `
+    <section class="telemetry-visual-card">
+      <div class="telemetry-section-head">
+        <div class="telemetry-section-title">Ground Track</div>
+        <div class="telemetry-section-meta">Lat ${lat.toFixed(2)} | Lon ${lon.toFixed(2)}</div>
+      </div>
+      <svg viewBox="0 0 100 100" class="rotator-map">
+        <rect x="0" y="0" width="100" height="100" fill="#4a1820"></rect>
+        <path d="M0,50 L100,50 M50,0 L50,100" stroke="rgba(255,240,222,0.18)" stroke-width="0.35"></path>
+        <polyline points="${pts}" fill="none" stroke="#ff7a59" stroke-width="0.8"></polyline>
+        <circle cx="${((lon + 180) / 360 * 100).toFixed(2)}" cy="${((90 - lat) / 180 * 100).toFixed(2)}" r="1.6" fill="#3fe0c5"></circle>
+      </svg>
+      <div class="telemetry-visual-caption">${isIss ? "ISS map fallback" : "Live subpoint proxy"}</div>
+    </section>
+  `;
+}
+
+function renderOngoingTelemetryPanel({ track, pass, rows, isIss, hasVideo, url, lat, lon, pts }) {
+  const status = telemetryState(track, pass, "ongoing");
+  const satName = track?.name || pass?.name || "--";
+  const primary = rows[0] || null;
+  const sunlitText = track?.sunlit ? "Sunlit" : "In Earth shadow";
+  const maxEl = Number(pass?.max_el_deg ?? 0);
+  const losMs = new Date(pass?.los || 0).getTime();
+  const heroKicker = isIss ? "Live ISS Pass" : "Live Pass";
+  const heroTags = [track?.sunlit ? "Sunlit now" : "Shadowed now", `Peak ${maxEl.toFixed(1)}°`];
+  if (isIss) heroTags.push(hasVideo ? "Video feed active" : "Map fallback");
+  const losDetail = losMs ? `LOS in ${fmtCountdown(losMs - Date.now())}` : status.detail;
+  return `
+    <section class="telemetry-panel telemetry-panel-ongoing">
+      <div class="telemetry-hero-card telemetry-tone-live">
+        <div class="telemetry-hero-kicker">${escapeHtml(heroKicker)}</div>
+        <div class="telemetry-hero-main">
+          <div>
+            <h2 class="telemetry-sat-name">${escapeHtml(satName)}</h2>
+            <div class="telemetry-sat-sub">${escapeHtml(heroTags.join(" • "))}</div>
+          </div>
+          <div class="telemetry-status-stack">
+            <span class="telemetry-status-pill telemetry-status-pill-live">${escapeHtml("In View")}</span>
+            <div class="telemetry-countdown mono">${escapeHtml(losDetail)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="telemetry-card-grid telemetry-card-grid-live">
+        ${metricCardHtml("Azimuth", track ? `${track.az_deg.toFixed(1)}°` : "--", "Current pointing")}
+        ${metricCardHtml("Altitude", track ? `${track.el_deg.toFixed(1)}°` : "--", "Live elevation")}
+        ${metricCardHtml("Range", track ? `${track.range_km.toFixed(1)} km` : "--", pass ? `Peak ${fmtLocal(pass.tca)}` : "")}
+        ${metricCardHtml("LOS", pass ? fmtLocal(pass.los) : "--", pass ? `AOS ${fmtLocal(pass.aos)}` : "")}
+      </div>
+
+      ${renderOngoingVisualCard({ isIss, hasVideo, url, lat, lon, pts, sunlitText })}
+
+      <section class="telemetry-radio-card telemetry-alternates-card">
+        <div class="telemetry-section-head">
+          <div class="telemetry-section-title">Alternates</div>
+          <div class="telemetry-section-meta">${escapeHtml(isIss ? "ISS ops" : "Live ops")}</div>
+        </div>
+        <div class="telemetry-alt-list">
+          ${renderAlternatesHtml(rows)}
+        </div>
+      </section>
+    </section>
+  `;
+}
+
 function renderOngoingVideoPanel({ readout, passTime, diag, rows, url }) {
   return `
     <div id="telemetryReadout" class="mono telemetry-readout">${escapeHtml(readout)}</div>
@@ -399,6 +717,106 @@ function renderOngoingMapPanel({ readout, passTime, diag, rows, lat, lon, pts })
 
 function passDurationMinutes(pass) {
   return (new Date(pass.los).getTime() - new Date(pass.aos).getTime()) / 60000;
+}
+
+function setIso(date) {
+  return new Date(date).toISOString();
+}
+
+function synthesizePassForPhase(pass, phase) {
+  if (!pass || !phase || phase === "real-time") return pass;
+  const next = { ...pass };
+  const now = Date.now();
+  if (phase === "before-aos") {
+    next.aos = setIso(now + 7 * 60 * 1000);
+    next.tca = setIso(now + 12 * 60 * 1000);
+    next.los = setIso(now + 17 * 60 * 1000);
+  } else if (phase === "at-aos") {
+    next.aos = setIso(now - 15 * 1000);
+    next.tca = setIso(now + 5 * 60 * 1000);
+    next.los = setIso(now + 10 * 60 * 1000);
+  } else if (phase === "mid-pass") {
+    next.aos = setIso(now - 5 * 60 * 1000);
+    next.tca = setIso(now);
+    next.los = setIso(now + 5 * 60 * 1000);
+  } else if (phase === "near-los") {
+    next.aos = setIso(now - 9 * 60 * 1000);
+    next.tca = setIso(now - 4 * 60 * 1000);
+    next.los = setIso(now + 90 * 1000);
+  }
+  return next;
+}
+
+function synthesizeTrackForPhase(track, pass, phase) {
+  if (!track) return track;
+  if (!phase || phase === "real-time") return { ...track };
+  const next = { ...track, timestamp: setIso(Date.now()) };
+  if (phase === "before-aos") {
+    next.el_deg = -6;
+  } else if (phase === "at-aos") {
+    next.el_deg = 1.8;
+  } else if (phase === "mid-pass") {
+    next.el_deg = Math.max(22, Number(pass?.max_el_deg || 30) * 0.72);
+  } else if (phase === "near-los") {
+    next.el_deg = 5.5;
+  }
+  next.range_km = Math.max(350, Number(next.range_km || 1200));
+  return next;
+}
+
+function applyDeveloperSystemOverrides(system) {
+  const overrides = getDeveloperOverrides();
+  if (!overrides.enabled) return system;
+  const next = clone(system);
+  if (overrides.force_iss_video_eligible && next?.iss) next.iss.videoEligible = true;
+  if (overrides.force_iss_stream_healthy && next?.iss) next.iss.streamHealthy = true;
+  return next;
+}
+
+function selectOverridePass(passes, sceneMode, satId) {
+  const all = passes || [];
+  const satFiltered = satId ? all.filter((p) => p.sat_id === satId) : all;
+  if (sceneMode === "iss-upcoming") {
+    return satFiltered.find((p) => isIssPass(p) && isRotatorEligiblePass(p) && passMeetsRotatorElevation(p))
+      || all.find((p) => isIssPass(p) && isRotatorEligiblePass(p) && passMeetsRotatorElevation(p))
+      || null;
+  }
+  const qualified = satFiltered.filter(isRotatorAllowedSat).filter(isRotatorEligiblePass);
+  const ongoing = qualified.find((p) => new Date(p.aos).getTime() <= Date.now() && new Date(p.los).getTime() >= Date.now());
+  if (sceneMode === "ongoing" && ongoing) return ongoing;
+  const upcoming = qualified
+    .filter((p) => passMeetsRotatorElevation(p))
+    .sort((a, b) => new Date(a.aos).getTime() - new Date(b.aos).getTime());
+  return upcoming[0] || qualified[0] || null;
+}
+
+function appendDebugBadge(text) {
+  const overrides = getDeveloperOverrides();
+  if (!overrides.enabled || !overrides.show_debug_badge) return text;
+  return `${text} [DEV]`;
+}
+
+function resolveDeveloperScene(system, passes) {
+  const overrides = getDeveloperOverrides();
+  if (!overrides.enabled || !overrides.force_scene || overrides.force_scene === "auto") return null;
+  const forceScene = overrides.force_scene;
+  if (forceScene === "passes" || forceScene === "radio" || forceScene === "video") {
+    return { key: `debug:${forceScene}`, mode: forceScene, debug: true };
+  }
+  const pass = selectOverridePass(passes, forceScene, "");
+  const phase = forceScene === "ongoing" ? "mid-pass" : "real-time";
+  const adjustedPass = synthesizePassForPhase(pass, phase);
+  const sourceTrack = (system.tracks || []).find((t) => t.sat_id === adjustedPass?.sat_id)
+    || system.activeTrack
+    || system.issTrack;
+  const track = synthesizeTrackForPhase(sourceTrack, adjustedPass, phase);
+  return {
+    key: `debug:${forceScene}:${adjustedPass?.sat_id || "none"}`,
+    mode: forceScene,
+    pass: adjustedPass,
+    track,
+    debug: true,
+  };
 }
 
 function isRotatorEligiblePass(pass) {
@@ -474,22 +892,27 @@ function renderVideoScene(system) {
   const iss = system.iss || {};
   trackerById("videoOverlay").textContent =
     `Sunlit=${iss.sunlit ? "yes" : "no"} | AboveHorizon=${iss.aboveHorizon ? "yes" : "no"} | Source=${activeVideoSource === 0 ? "primary" : "secondary"}`;
+  if (developerOverridesEnabled() && getDeveloperOverrides().show_debug_badge) {
+    trackerById("videoOverlay").textContent += " | DEV override";
+  }
 }
 
-function renderTelemetryScene(system, scene) {
+async function renderTelemetryScene(system, scene) {
   setSceneVisible("sceneTelemetry");
   const right = trackerById("telemetryRight");
+  const leftAux = trackerById("telemetryLeftAux");
   const tracks = system.tracks || [];
   const targetSatId = scene.pass?.sat_id || scene.track?.sat_id || system.issTrack?.sat_id;
-  const track = tracks.find((t) => t.sat_id === targetSatId) || system.issTrack;
+  const track = scene.track || tracks.find((t) => t.sat_id === targetSatId) || system.issTrack;
   const sat = (state.sats || []).find((s) => s.sat_id === targetSatId);
   const pass = scene.pass;
+  const pathItems = pass ? await ensurePathForDisplayedPass(system, pass) : [];
   trackerById("telemetryTitle").textContent =
-    scene.mode === "ongoing"
+    appendDebugBadge(scene.mode === "ongoing"
       ? `Screen 2: Ongoing Pass - ${track?.name || "--"}`
       : scene.mode === "iss-upcoming"
         ? "Screen 3: ISS Upcoming Visible Pass"
-        : `Upcoming Pass - ${track?.name || "--"}`;
+        : `Upcoming Pass - ${track?.name || "--"}`);
 
   if (track) {
     const telemetryReadout = `Az ${track.az_deg.toFixed(1)}° | Alt ${track.el_deg.toFixed(1)}° | Range ${track.range_km.toFixed(1)} km`;
@@ -498,23 +921,12 @@ function renderTelemetryScene(system, scene) {
       ? `AOS ${fmtLocal(pass.aos)} | TCA ${fmtLocal(pass.tca)} | LOS ${fmtLocal(pass.los)} | MaxEl ${pass.max_el_deg.toFixed(1)}°`
       : "AOS -- | TCA -- | LOS --";
 
-    renderSkyplot(track, system.bodies || []);
+    renderSkyplot(track, system.bodies || [], pass, pathItems);
     const rows = buildFreqRows(sat);
 
     if (scene.mode !== "ongoing") {
+      leftAux.innerHTML = "";
       right.innerHTML = renderUpcomingTelemetryPanel({ track, pass, rows, scene });
-      return;
-    }
-
-    if (isIssPass({ sat_id: targetSatId, name: track?.name || "" }) && system.iss?.videoEligible && system.iss?.streamHealthy) {
-      const url = getVideoSources()[Math.min(activeVideoSource, getVideoSources().length - 1)];
-      right.innerHTML = renderOngoingVideoPanel({
-        readout: telemetryReadout,
-        passTime: telemetryPassTime,
-        diag: telemetryDiag,
-        rows,
-        url,
-      });
       return;
     }
 
@@ -526,16 +938,23 @@ function renderTelemetryScene(system, scene) {
     if (arr.length > 32) arr.shift();
     mapTrailBySat.set(key, arr);
     const pts = arr.map((p) => `${((p.lon + 180) / 360 * 100).toFixed(2)},${((90 - p.lat) / 180 * 100).toFixed(2)}`).join(" ");
-    right.innerHTML = renderOngoingMapPanel({
-      readout: telemetryReadout,
-      passTime: telemetryPassTime,
-      diag: telemetryDiag,
+    const isIss = isIssPass({ sat_id: targetSatId, name: track?.name || "" });
+    const hasVideo = isIss && system.iss?.videoEligible && system.iss?.streamHealthy;
+    const url = hasVideo ? getVideoSources()[Math.min(activeVideoSource, getVideoSources().length - 1)] : "";
+    leftAux.innerHTML = renderOngoingInlineTuneNow(rows[0] || null);
+    right.innerHTML = renderOngoingTelemetryPanel({
+      track,
+      pass,
       rows,
+      isIss,
+      hasVideo,
+      url,
       lat,
       lon,
       pts,
     });
   } else {
+    leftAux.innerHTML = "";
     right.innerHTML = `
       <section class="telemetry-panel telemetry-panel-upcoming">
         <div class="telemetry-hero-card telemetry-tone-upcoming">
@@ -563,6 +982,9 @@ function renderPassesScene(passes) {
   trackerById("passesMeta").textContent = items.length
     ? `Next AOS in ${Math.max(0, Math.floor((new Date(items[0].aos).getTime() - now) / 1000))}s | TZ ${state.timezone} | ISS all passes, others>=40°`
     : `No qualifying passes in 24h | TZ ${state.timezone} | ISS all passes, others>=40°`;
+  if (developerOverridesEnabled() && getDeveloperOverrides().show_debug_badge) {
+    trackerById("passesMeta").textContent = `DEV override | ${trackerById("passesMeta").textContent}`;
+  }
   trackerById("rotatorPassRows").innerHTML = items.length
     ? items.map((p, idx) => `<tr class="${idx === 0 ? "selected-row" : ""}"><td><strong>${p.name}</strong></td><td>${fmtLocal(p.aos)}</td><td>${fmtLocal(p.tca)}</td><td>${fmtLocal(p.los)}</td><td>${p.max_el_deg.toFixed(1)}°</td></tr>`).join("")
     : '<tr><td colspan="5" class="label">No qualifying passes</td></tr>';
@@ -588,6 +1010,9 @@ function renderRadioScene(passes) {
   trackerById("radioPrimary").textContent = primary
     ? `Primary: ${primary.pass.name} | ${primaryChannel?.mode || "No channel detail"} | AOS ${fmtLocal(primary.pass.aos)} | MaxEl ${primary.pass.max_el_deg.toFixed(1)}°`
     : "Primary: --";
+  if (developerOverridesEnabled() && getDeveloperOverrides().show_debug_badge) {
+    trackerById("radioPrimary").textContent = `DEV override | ${trackerById("radioPrimary").textContent}`;
+  }
   trackerById("radioBoard").innerHTML = cards.length
     ? cards.map((card, idx) => {
       const shell = idx === 0 ? "radio-primary-card" : "radio-sat-card";
@@ -620,7 +1045,7 @@ function renderRadioScene(passes) {
     : '<div class="radio-empty">No upcoming qualified radio passes.</div>';
 }
 
-function showScene(scene, system, passes) {
+async function showScene(scene, system, passes) {
   if (scene.mode === "video") return renderVideoScene(system);
   if (scene.mode === "passes") return renderPassesScene(passes);
   if (scene.mode === "radio") return renderRadioScene(passes);
@@ -635,12 +1060,19 @@ async function fetchState() {
     trackerApi.get("/api/v1/settings/timezone"),
   ]);
   state = { system, passes: passesResp.items || [], sats: sats.items || [], timezone: tz.timezone || "UTC" };
+  await populatePathCache(system, state.passes);
 }
 
 function tickClock() {
   const parts = fmtClockPair(Date.now());
   trackerById("clockUtc").textContent = `UTC: ${parts.utc.replace(" UTC", "")}`;
   trackerById("clockLocal").textContent = `Local: ${parts.local}`;
+}
+
+function syncDevSettingsLink() {
+  const link = trackerById("devSettingsLink");
+  if (!link) return;
+  link.classList.toggle("hidden", !developerOverridesEnabled());
 }
 
 function updateTopMeta(system) {
@@ -650,9 +1082,19 @@ function updateTopMeta(system) {
 }
 
 function chooseScene() {
-  const sys = state.system;
+  const sys = applyDeveloperSystemOverrides(state.system);
   const passes = state.passes;
   if (!sys) return;
+
+  const forced = resolveDeveloperScene(sys, passes);
+  if (forced) {
+    if (forced.track) sys.activeTrack = forced.track;
+    updateTopMeta(sys);
+    lastOverride = "developer";
+    void showScene(forced, sys, passes);
+    return;
+  }
+
   updateTopMeta(sys);
 
   const ongoing = pickOngoingPass(sys, passes);
@@ -663,18 +1105,18 @@ function chooseScene() {
 
   if (overrideOngoing) {
     lastOverride = "ongoing";
-    showScene(overrideOngoing, sys, passes);
+    void showScene(overrideOngoing, sys, passes);
     return;
   }
   if (overrideVideo) {
     lastOverride = "video";
-    showScene(overrideVideo, sys, passes);
+    void showScene(overrideVideo, sys, passes);
     return;
   }
 
   const seq = buildRotationSequence(sys, passes);
   if (!seq.length) {
-    showScene({ key: "passes", mode: "passes" }, sys, passes);
+    void showScene({ key: "passes", mode: "passes" }, sys, passes);
     return;
   }
   if (lastOverride) {
@@ -692,12 +1134,13 @@ function chooseScene() {
     if (nextSwitchAt) sceneIdx = (sceneIdx + 1) % sceneOrder.length;
     nextSwitchAt = now + sceneDurationMs(sceneOrder[sceneIdx].key);
   }
-  showScene(sceneOrder[sceneIdx], sys, passes);
+  void showScene(sceneOrder[sceneIdx], sys, passes);
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
   try {
     ({ api: trackerApi, byId: trackerById } = window.issTracker);
+    syncDevSettingsLink();
     tickClock();
     setInterval(tickClock, 1000);
     await fetchState();

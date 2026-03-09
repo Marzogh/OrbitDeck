@@ -373,32 +373,57 @@ class TrackingService:
     def live_tracks(self, now: datetime, location: ResolvedLocation) -> list[LiveTrack]:
         tracks: list[LiveTrack] = []
         for sat in self._satellites:
-            tle_track = self._live_track_from_tle(sat, now, location)
-            if tle_track is not None:
-                tracks.append(tle_track)
-                continue
-            phase = self._phase(sat, now)
-            sin_term = math.sin(2 * math.pi * phase)
-            cos_term = math.cos(2 * math.pi * phase)
-            el = max(-15.0, 90.0 * sin_term)
-            az = (phase * 360.0 + sat.norad_id % 180 + location.lon * 0.2) % 360.0
-            range_km = 2200.0 - max(0.0, sin_term) * 1600.0
-            range_rate = -7.5 * cos_term
-            tracks.append(
-                LiveTrack(
-                    sat_id=sat.sat_id,
-                    name=sat.name,
-                    timestamp=now,
-                    az_deg=round(az, 2),
-                    el_deg=round(el, 2),
-                    range_km=round(range_km, 1),
-                    range_rate_km_s=round(range_rate, 3),
-                    sunlit=self._sunlit(sat, now, location),
-                    subpoint_lat=round(-50.0 + 100.0 * sin_term, 4),
-                    subpoint_lon=round(((phase * 360.0) % 360.0) - 180.0, 4),
-                )
-            )
+            track = self._track_at(sat, now, location)
+            if track is not None:
+                tracks.append(track)
         return tracks
+
+    def _track_at(self, sat: Satellite, when: datetime, location: ResolvedLocation) -> LiveTrack | None:
+        tle_track = self._live_track_from_tle(sat, when, location)
+        if tle_track is not None:
+            return tle_track
+        phase = self._phase(sat, when)
+        sin_term = math.sin(2 * math.pi * phase)
+        cos_term = math.cos(2 * math.pi * phase)
+        el = max(-15.0, 90.0 * sin_term)
+        az = (phase * 360.0 + sat.norad_id % 180 + location.lon * 0.2) % 360.0
+        range_km = 2200.0 - max(0.0, sin_term) * 1600.0
+        range_rate = -7.5 * cos_term
+        return LiveTrack(
+            sat_id=sat.sat_id,
+            name=sat.name,
+            timestamp=when,
+            az_deg=round(az, 2),
+            el_deg=round(el, 2),
+            range_km=round(range_km, 1),
+            range_rate_km_s=round(range_rate, 3),
+            sunlit=self._sunlit(sat, when, location),
+            subpoint_lat=round(-50.0 + 100.0 * sin_term, 4),
+            subpoint_lon=round(((phase * 360.0) % 360.0) - 180.0, 4),
+        )
+
+    def track_path(
+        self,
+        now: datetime,
+        minutes: int,
+        location: ResolvedLocation,
+        sat_id: str,
+        step_seconds: int = 45,
+        start_time: datetime | None = None,
+    ) -> list[LiveTrack]:
+        sat = next((item for item in self._satellites if item.sat_id == sat_id), None)
+        if sat is None:
+            return []
+        horizon_seconds = max(60, int(minutes * 60))
+        step = max(10, int(step_seconds))
+        base_time = start_time or now
+        items: list[LiveTrack] = []
+        for offset in range(0, horizon_seconds + 1, step):
+            sample_time = base_time + timedelta(seconds=offset)
+            track = self._track_at(sat, sample_time, location)
+            if track is not None:
+                items.append(track)
+        return items
 
     def pass_predictions(
         self,

@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from app.device import lite_only_ui
 from app.models import (
     CachePolicyUpdate,
+    DeveloperOverridesUpdate,
     DatasetSnapshot,
     GpsSettingsUpdate,
     IssDisplayMode,
@@ -207,6 +208,36 @@ def get_live(location_source: LocationSourceMode | None = Query(default=None)) -
     }
 
 
+@app.get("/api/v1/track/path")
+def get_track_path(
+    sat_id: str = Query(min_length=1),
+    minutes: int = Query(default=18, ge=1, le=240),
+    step_seconds: int = Query(default=45, ge=10, le=300),
+    start_time: datetime | None = Query(default=None),
+    location_source: LocationSourceMode | None = Query(default=None),
+) -> dict:
+    _, location = _resolve_location(location_source)
+    now = datetime.now(UTC)
+    items = tracking_service.track_path(
+        now,
+        minutes,
+        location,
+        sat_id=sat_id,
+        step_seconds=step_seconds,
+        start_time=start_time,
+    )
+    return {
+        "timestamp": now,
+        "location": location.__dict__,
+        "sat_id": sat_id,
+        "minutes": minutes,
+        "step_seconds": step_seconds,
+        "start_time": start_time or now,
+        "count": len(items),
+        "items": items,
+    }
+
+
 @app.get("/api/v1/passes")
 def get_passes(
     hours: int = Query(default=24, ge=1, le=168),
@@ -266,6 +297,20 @@ def set_timezone(payload: TimezoneUpdate) -> dict:
     state.settings.display_timezone = tz
     store.save(state)
     return {"timezone": state.settings.display_timezone}
+
+
+@app.get("/api/v1/settings/developer-overrides")
+def get_developer_overrides() -> dict:
+    state = store.get()
+    return {"state": state.settings.developer_overrides}
+
+
+@app.post("/api/v1/settings/developer-overrides")
+def set_developer_overrides(payload: DeveloperOverridesUpdate) -> dict:
+    state = store.get()
+    state.settings.developer_overrides = payload
+    store.save(state)
+    return {"state": state.settings.developer_overrides}
 
 
 @app.get("/api/v1/settings/pass-filter")

@@ -130,12 +130,14 @@ iframe {
   position: relative;
   border-radius: 50%;
   box-shadow: inset 0 0 32px rgba(69, 208, 255, 0.1);
+  overflow: visible;
 }
 
 .skyplot {
   width: 100%;
   height: 100%;
   display: block;
+  overflow: visible;
 }
 
 .plot-ring {
@@ -144,34 +146,113 @@ iframe {
   stroke-width: 2.5;
 }
 
+.plot-band {
+  fill: none;
+  stroke: rgba(241, 246, 255, 0.18);
+  stroke-width: 1.2;
+  stroke-dasharray: 2 6;
+}
+
+.plot-band-major {
+  stroke: rgba(241, 246, 255, 0.3);
+  stroke-width: 1.45;
+}
+
+.plot-band-minor {
+  stroke: rgba(241, 246, 255, 0.17);
+}
+
 .plot-ring-inner {
   fill: none;
-  stroke: rgba(241, 246, 255, 0.55);
-  stroke-width: 1.8;
+  stroke: rgba(241, 246, 255, 0.36);
+  stroke-width: 1.35;
 }
 
 .plot-axis {
-  stroke: rgba(241, 246, 255, 0.45);
-  stroke-width: 1.5;
+  stroke: rgba(241, 246, 255, 0.24);
+  stroke-width: 1.15;
+}
+
+.plot-tick {
+  stroke: rgba(241, 246, 255, 0.24);
+  stroke-linecap: round;
+}
+
+.plot-tick-major {
+  stroke-width: 1.2;
+}
+
+.plot-tick-minor {
+  stroke-width: 0.9;
+}
+
+.plot-degree-label {
+  fill: rgba(230, 240, 255, 0.62);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.plot-pass-path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.plot-pass-path-future {
+  stroke: rgba(255, 212, 127, 0.86);
+  stroke-width: 2.6;
+  stroke-dasharray: 6 5;
+}
+
+.plot-pass-path-past {
+  stroke: rgba(255, 146, 112, 0.42);
+  stroke-width: 2.1;
+}
+
+.plot-pass-path-faded {
+  stroke: rgba(255, 204, 122, 0.22);
+  stroke-width: 1.6;
+  stroke-dasharray: 3 7;
 }
 
 .plot-trail {
   fill: none;
-  stroke: #46a7ff;
-  stroke-width: 3;
+  stroke: rgba(160, 215, 255, 0.34);
+  stroke-width: 1.35;
+  opacity: 0.55;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .plot-vector {
-  stroke: rgba(241, 246, 255, 0.75);
-  stroke-width: 2;
+  display: none;
+}
+
+.plot-dot-halo {
+  fill: rgba(255, 124, 91, 0.12);
+  stroke: rgba(255, 190, 124, 0.42);
+  stroke-width: 1.1;
 }
 
 .plot-dot {
-  fill: #2b88d8;
-  stroke: rgba(255, 255, 255, 0.45);
-  stroke-width: 5;
+  fill: #ffe8c7;
+  stroke: #ff7a59;
+  stroke-width: 2.8;
+}
+
+.plot-event-dot {
+  fill: #0e1620;
+  stroke: rgba(255, 214, 143, 0.8);
+  stroke-width: 1.5;
+}
+
+.plot-event-label {
+  fill: rgba(255, 231, 196, 0.86);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .plot-body {
@@ -194,24 +275,42 @@ iframe {
 .body-key {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   margin: 2px 7px 2px 0;
   color: #dce9fb;
   font-size: 0.78rem;
 }
 
-.body-key-dot {
-  width: 10px;
-  height: 10px;
+.body-key-token {
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  display: inline-block;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  background: var(--body-color, #dce9fb);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
 .body-key-sym {
-  color: #f5f8ff;
+  color: #0f243a;
   font-weight: 700;
-  min-width: 10px;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.body-key-name {
+  color: #f2f5fb;
+}
+
+.plot-term-legend {
+  text-align: center;
+  color: rgba(255, 236, 207, 0.78);
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
 }
 
 .plot-center {
@@ -666,12 +765,94 @@ body.kiosk .compass {
 }
 
 body.kiosk .plot-ring {
-  fill: rgba(35, 36, 42, 0.82);
+  fill: rgba(43, 47, 60, 0.9);
   stroke: rgba(255, 244, 228, 0.95);
 }
 
+body.kiosk .plot-band {
+  stroke: rgba(255, 240, 222, 0.2);
+}
+
+body.kiosk .plot-band-major {
+  stroke: rgba(255, 239, 214, 0.34);
+}
+
+body.kiosk .plot-band-minor {
+  stroke: rgba(255, 239, 214, 0.18);
+}
+
+body.kiosk .plot-axis,
+body.kiosk .plot-tick {
+  stroke: rgba(255, 239, 214, 0.22);
+}
+
+body.kiosk .plot-degree-label {
+  fill: rgba(255, 234, 198, 0.66);
+}
+
+body.kiosk .plot-dir {
+  fill: rgba(255, 245, 224, 0.96);
+}
+
+body.kiosk.rotator .plot-ring {
+  fill: rgba(52, 58, 74, 0.92);
+}
+
+body.kiosk.rotator .plot-band-major {
+  stroke: rgba(255, 241, 219, 0.42);
+}
+
+body.kiosk.rotator .plot-band-minor {
+  stroke: rgba(255, 241, 219, 0.24);
+}
+
+body.kiosk.rotator .plot-axis,
+body.kiosk.rotator .plot-tick {
+  stroke: rgba(255, 242, 220, 0.28);
+}
+
+body.kiosk.rotator .plot-degree-label {
+  fill: rgba(255, 239, 208, 0.78);
+}
+
+body.kiosk .plot-pass-path-future {
+  stroke: rgba(255, 206, 107, 0.88);
+}
+
+body.kiosk .plot-pass-path-past {
+  stroke: rgba(255, 122, 89, 0.4);
+}
+
+body.kiosk .plot-pass-path-faded {
+  stroke: rgba(255, 206, 107, 0.18);
+}
+
 body.kiosk .plot-trail {
+  stroke: rgba(186, 229, 255, 0.34);
+  opacity: 0.5;
+}
+
+body.kiosk .plot-dot-halo {
+  fill: rgba(255, 122, 89, 0.14);
+  stroke: rgba(255, 191, 71, 0.46);
+}
+
+body.kiosk .plot-dot {
+  fill: #fff1dc;
   stroke: #ff7a59;
+}
+
+body.kiosk .plot-event-dot {
+  fill: rgba(20, 17, 15, 0.94);
+  stroke: rgba(255, 206, 107, 0.82);
+}
+
+body.kiosk .plot-event-label {
+  fill: rgba(255, 236, 207, 0.84);
+}
+
+body.kiosk.rotator .plot-vector {
+  display: none;
 }
 
 body.kiosk iframe {
@@ -741,6 +922,10 @@ body.kiosk #bodyLegend {
   gap: 4px 8px;
 }
 
+body.kiosk #pathLegend {
+  margin-top: 2px;
+}
+
 body.kiosk .freq-details summary {
   color: #ffb36f;
 }
@@ -807,6 +992,17 @@ body.kiosk .rotator-meta {
   display: flex;
   gap: 14px;
   font-size: 0.82rem;
+}
+
+body.kiosk #devSettingsLink {
+  color: #ffe08f;
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(255, 224, 143, 0.45);
+}
+
+body.kiosk #devSettingsLink:hover {
+  color: #fff7d1;
+  border-bottom-color: rgba(255, 247, 209, 0.72);
 }
 
 body.kiosk .rotator-main {
@@ -894,6 +1090,10 @@ body.kiosk .telemetry-panel {
 
 body.kiosk .telemetry-panel-upcoming {
   gap: 12px;
+}
+
+body.kiosk .telemetry-panel-ongoing {
+  gap: 13px;
 }
 
 body.kiosk .telemetry-hero-card,
@@ -1060,6 +1260,112 @@ body.kiosk .telemetry-panel-upcoming .freq-mode-band {
   margin-top: 2px;
 }
 
+body.kiosk .telemetry-panel-ongoing .telemetry-hero-card {
+  padding: 16px 18px;
+  border-color: rgba(63, 224, 197, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(225, 255, 250, 0.06),
+    0 16px 34px rgba(2, 18, 18, 0.22);
+}
+
+body.kiosk .telemetry-panel-ongoing .telemetry-primary-channel-card {
+  border-color: rgba(63, 224, 197, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(225, 255, 250, 0.06),
+    0 14px 30px rgba(2, 18, 18, 0.2);
+}
+
+body.kiosk .telemetry-panel-ongoing .telemetry-primary-channel-card::before {
+  background: linear-gradient(90deg, rgba(63, 224, 197, 0.98), rgba(110, 232, 215, 0.88), rgba(255, 191, 71, 0.52));
+}
+
+body.kiosk .telemetry-card-grid-live .telemetry-metric-card {
+  padding: 13px 15px;
+  border-color: rgba(63, 224, 197, 0.14);
+}
+
+body.kiosk .telemetry-primary-channel-card-live .telemetry-primary-mode {
+  font-size: 1.18rem;
+  max-width: 62%;
+}
+
+body.kiosk .telemetry-visual-card {
+  border-radius: 16px;
+  padding: 14px 16px;
+  background:
+    linear-gradient(155deg, rgba(31, 32, 38, 0.88), rgba(18, 18, 22, 0.78));
+  border: 1px solid rgba(63, 224, 197, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(225, 255, 250, 0.05),
+    0 14px 32px rgba(2, 18, 18, 0.18);
+  backdrop-filter: blur(8px);
+}
+
+body.kiosk .telemetry-visual-card-live {
+  border-color: rgba(63, 224, 197, 0.3);
+}
+
+body.kiosk .telemetry-visual-card iframe {
+  min-height: 260px;
+  border-radius: 12px;
+  margin-top: 8px;
+}
+
+body.kiosk .telemetry-visual-card .rotator-map {
+  height: min(21vh, 168px);
+  border-radius: 12px;
+  margin-top: 6px;
+}
+
+body.kiosk .telemetry-visual-caption {
+  color: #d2b8a4;
+  font-size: 0.82rem;
+  margin-top: 6px;
+}
+
+body.kiosk .telemetry-alternates-card {
+  padding: 14px 16px;
+  border-color: rgba(63, 224, 197, 0.16);
+}
+
+body.kiosk .telemetry-alt-list {
+  display: grid;
+  gap: 10px;
+}
+
+body.kiosk .telemetry-alt-item {
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+body.kiosk .telemetry-alt-item:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+body.kiosk .telemetry-alt-mode {
+  color: #fff4ea;
+  line-height: 1.35;
+  font-weight: 650;
+}
+
+body.kiosk .telemetry-alt-pair {
+  color: #e6cab3;
+  font-size: 0.86rem;
+  margin-top: 4px;
+}
+
+body.kiosk .telemetry-alt-band {
+  color: #3fe0c5;
+  font-size: 0.8rem;
+  margin-top: 4px;
+}
+
+body.kiosk .telemetry-alt-empty {
+  color: #d2b8a4;
+  font-size: 0.9rem;
+}
+
 body.kiosk .telemetry-primary-channel-card {
   position: relative;
   overflow: hidden;
@@ -1095,6 +1401,35 @@ body.kiosk .telemetry-primary-pairs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+}
+
+body.kiosk .telemetry-panel-ongoing .telemetry-primary-channel-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 14px 18px;
+  align-items: start;
+}
+
+body.kiosk .telemetry-panel-ongoing .telemetry-primary-label {
+  grid-column: 1 / -1;
+}
+
+body.kiosk .telemetry-panel-ongoing .telemetry-primary-mode {
+  margin: 2px 0 0;
+  align-self: center;
+}
+
+body.kiosk .telemetry-panel-ongoing .telemetry-primary-pairs {
+  gap: 10px 16px;
+  align-self: center;
+}
+
+body.kiosk .telemetry-panel-ongoing .telemetry-visual-card {
+  padding: 12px 16px;
+}
+
+body.kiosk .telemetry-panel-ongoing .telemetry-section-head {
+  margin-bottom: 6px;
 }
 
 body.kiosk .telemetry-primary-pairs span {
