@@ -1055,23 +1055,24 @@ body.kiosk .telemetry-layout > :first-child {
   justify-items: center;
   gap: 8px;
   min-height: 0;
+  align-content: start;
 }
 
 body.kiosk .telemetry-layout .compass {
-  width: min(33vw, 36vh, 430px);
-  height: min(33vw, 36vh, 430px);
+  width: min(42vw, 41vh, 520px);
+  height: min(42vw, 41vh, 520px);
   box-shadow:
     inset 0 0 42px rgba(255, 191, 71, 0.07),
     0 18px 36px rgba(9, 3, 4, 0.18);
 }
 
 body.kiosk #bodyLegend {
-  max-width: 360px;
+  max-width: min(42vw, 520px);
   text-align: center;
 }
 
 body.kiosk #telemetryLeftAux {
-  width: min(46vw, 100%);
+  width: min(42vw, 520px);
 }
 
 body.kiosk #telemetryLeftAux:empty {
@@ -1302,32 +1303,19 @@ body.kiosk .telemetry-primary-channel-card-live .telemetry-primary-mode {
   max-width: 62%;
 }
 
-body.kiosk .telemetry-visual-card {
-  border-radius: 16px;
-  padding: 12px 14px;
-  background:
-    linear-gradient(155deg, rgba(31, 32, 38, 0.88), rgba(18, 18, 22, 0.78));
-  border: 1px solid rgba(63, 224, 197, 0.22);
-  box-shadow:
-    inset 0 1px 0 rgba(225, 255, 250, 0.05),
-    0 14px 32px rgba(2, 18, 18, 0.18);
-  backdrop-filter: blur(8px);
+body.kiosk .telemetry-visual-aux {
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
 }
 
-body.kiosk .telemetry-visual-card-live {
-  border-color: rgba(63, 224, 197, 0.3);
-}
-
-body.kiosk .telemetry-visual-card iframe {
-  min-height: 260px;
-  border-radius: 12px;
-  margin-top: 8px;
-}
-
-body.kiosk .telemetry-visual-card .rotator-map {
-  height: min(22vh, 200px);
-  border-radius: 12px;
-  margin-top: 6px;
+body.kiosk .telemetry-visual-aux iframe {
+  width: 100%;
+  min-height: min(34vh, 360px);
+  border-radius: 14px;
+  border: 1px solid rgba(63, 224, 197, 0.24);
+  background: #000;
 }
 
 .hemisphere-map {
@@ -1336,11 +1324,10 @@ body.kiosk .telemetry-visual-card .rotator-map {
   display: block;
 }
 
-body.kiosk .telemetry-visual-card .hemisphere-map {
+body.kiosk .telemetry-visual-aux .hemisphere-map {
   width: 100%;
-  height: min(34vh, 340px);
+  height: min(38vh, 420px);
   display: block;
-  margin-top: 6px;
 }
 
 .hemisphere-atmosphere {
@@ -1437,10 +1424,10 @@ body.kiosk .telemetry-visual-card .hemisphere-map {
   stroke-linejoin: round;
 }
 
-body.kiosk .telemetry-visual-caption {
+body.kiosk .telemetry-visual-meta {
   color: #d2b8a4;
-  font-size: 0.82rem;
-  margin-top: 6px;
+  font-size: clamp(0.74rem, 1.35vh, 0.82rem);
+  text-align: center;
 }
 
 body.kiosk .telemetry-alternates-card {
@@ -1641,15 +1628,15 @@ body.kiosk .telemetry-inline-alternates .telemetry-alt-band {
 
   body.kiosk .telemetry-layout .compass,
   body.kiosk #telemetryLeftAux {
-    width: min(28vw, 29vh, 316px);
+    width: min(36vw, 33vh, 420px);
   }
 
   body.kiosk .telemetry-layout .compass {
-    height: min(28vw, 29vh, 316px);
+    height: min(36vw, 33vh, 420px);
   }
 
-  body.kiosk .telemetry-visual-card .hemisphere-map {
-    height: min(24vh, 220px);
+  body.kiosk .telemetry-visual-aux .hemisphere-map {
+    height: min(28vh, 300px);
   }
 
   body.kiosk .telemetry-panel-ongoing {
@@ -1660,9 +1647,6 @@ body.kiosk .telemetry-inline-alternates .telemetry-alt-band {
     padding: 8px 10px;
   }
 
-  body.kiosk .telemetry-visual-card .rotator-map {
-    height: min(19vh, 170px);
-  }
 }
 
 body.kiosk .telemetry-primary-mode {

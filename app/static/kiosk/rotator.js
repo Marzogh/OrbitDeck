@@ -622,14 +622,10 @@ function renderOngoingRadioOps(primary, rows, variant = "inline") {
   `;
 }
 
-function renderOngoingVisualCard({ isIss, hasVideo, url, lat, lon, pathItems, pass, track, observerLocation, sunlitText }) {
+function renderOngoingVisualAux({ isIss, hasVideo, url, lat, lon, pathItems, pass, track, observerLocation, sunlitText }) {
   if (isIss && hasVideo) {
     return `
-      <section class="telemetry-visual-card telemetry-visual-card-live">
-        <div class="telemetry-section-head">
-          <div class="telemetry-section-title">ISS Live Video</div>
-          <div class="telemetry-section-meta">${escapeHtml(sunlitText)}</div>
-        </div>
+      <section class="telemetry-visual-aux telemetry-visual-aux-live">
         <iframe
           id="ongoingVideo"
           title="ISS Ongoing Video"
@@ -637,6 +633,7 @@ function renderOngoingVisualCard({ isIss, hasVideo, url, lat, lon, pathItems, pa
           allowfullscreen
           src="${escapeHtml(url)}"
         ></iframe>
+        <div class="telemetry-visual-meta mono">${escapeHtml(sunlitText)}</div>
       </section>
     `;
   }
@@ -648,12 +645,9 @@ function renderOngoingVisualCard({ isIss, hasVideo, url, lat, lon, pathItems, pa
     ariaLabel: "Observer-centered hemisphere ground track",
   });
   return `
-    <section class="telemetry-visual-card">
-      <div class="telemetry-section-head">
-        <div class="telemetry-section-title">Ground Track</div>
-        <div class="telemetry-section-meta">Lat ${lat.toFixed(2)} | Lon ${lon.toFixed(2)}</div>
-      </div>
+    <section class="telemetry-visual-aux">
       ${globe}
+      <div class="telemetry-visual-meta mono">Lat ${lat.toFixed(2)} | Lon ${lon.toFixed(2)}</div>
     </section>
   `;
 }
@@ -945,7 +939,7 @@ async function renderTelemetryScene(system, scene) {
     const isIss = isIssPass({ sat_id: targetSatId, name: track?.name || "" });
     const hasVideo = isIss && system.iss?.videoEligible && system.iss?.streamHealthy;
     const url = hasVideo ? getVideoSources()[Math.min(activeVideoSource, getVideoSources().length - 1)] : "";
-    leftAux.innerHTML = renderOngoingVisualCard({
+    leftAux.innerHTML = renderOngoingVisualAux({
       isIss,
       hasVideo,
       url,

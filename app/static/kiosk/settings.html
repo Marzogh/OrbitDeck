@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ISS Tracker Settings</title>
-    <link rel="stylesheet" href="/static/common/styles.css?v=20260309b" />
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260309e" />
     <script defer src="/static/common/app.js?v=20260308aj"></script>
-    <script defer src="/static/kiosk/settings.js?v=20260308aj"></script>
+    <script defer src="/static/kiosk/settings.js?v=20260309d"></script>
   </head>
   <body class="kiosk">
     <header>
@@ -68,8 +68,28 @@
       </section>
 
       <section class="card controls">
+        <label for="devOverridesEnabled">Developer Overrides</label>
+        <input id="devOverridesEnabled" type="checkbox" />
+        <div id="devOverridesPanel" class="inline-editor hidden">
+          <label for="devForceScene">Force Scene</label>
+          <select id="devForceScene">
+            <option value="auto">Auto</option>
+            <option value="ongoing">Ongoing pass</option>
+            <option value="upcoming">Upcoming pass</option>
+            <option value="iss-upcoming">ISS upcoming</option>
+            <option value="passes">Passes console</option>
+            <option value="radio">Radio ops</option>
+            <option value="video">Video</option>
+          </select>
+
+          <button id="saveDevOverrides">Save Overrides</button>
+        </div>
+      </section>
+
+      <section class="card controls">
         <button id="refreshNow">Refresh Now</button>
         <button id="returnKiosk">Apply + Return To Kiosk</button>
+        <button id="returnRotator">Return To Kiosk Rotator</button>
       </section>
     </main>
   </body>

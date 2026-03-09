@@ -35,6 +35,24 @@ class GpsConnectionMode(str, Enum):
     bluetooth = "bluetooth"
 
 
+class DeveloperSceneMode(str, Enum):
+    auto = "auto"
+    ongoing = "ongoing"
+    upcoming = "upcoming"
+    iss_upcoming = "iss-upcoming"
+    passes = "passes"
+    radio = "radio"
+    video = "video"
+
+
+class DeveloperPassPhase(str, Enum):
+    real_time = "real-time"
+    before_aos = "before-aos"
+    at_aos = "at-aos"
+    mid_pass = "mid-pass"
+    near_los = "near-los"
+
+
 class GeoPoint(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
@@ -80,6 +98,16 @@ class CachePolicy(BaseModel):
     stale_after_hours: int = Field(default=24, ge=1, le=720)
 
 
+class DeveloperOverridesSettings(BaseModel):
+    enabled: bool = False
+    force_scene: DeveloperSceneMode = DeveloperSceneMode.auto
+    force_sat_id: str | None = None
+    simulate_pass_phase: DeveloperPassPhase = DeveloperPassPhase.real_time
+    force_iss_video_eligible: bool = False
+    force_iss_stream_healthy: bool = False
+    show_debug_badge: bool = True
+
+
 class AppSettings(BaseModel):
     iss_display_mode: IssDisplayMode = IssDisplayMode.sunlit_and_visible_video
     iss_stream_urls: list[str] = Field(
@@ -92,6 +120,7 @@ class AppSettings(BaseModel):
     display_timezone: str = "UTC"
     pass_profile: PassProfileMode = PassProfileMode.iss_only
     pass_sat_ids: list[str] = Field(default_factory=lambda: ["iss-zarya"])
+    developer_overrides: DeveloperOverridesSettings = Field(default_factory=DeveloperOverridesSettings)
 
 
 class Satellite(BaseModel):
@@ -162,6 +191,16 @@ class PassFilterUpdate(BaseModel):
 
 class TimezoneUpdate(BaseModel):
     timezone: str
+
+
+class DeveloperOverridesUpdate(BaseModel):
+    enabled: bool = False
+    force_scene: DeveloperSceneMode = DeveloperSceneMode.auto
+    force_sat_id: str | None = None
+    simulate_pass_phase: DeveloperPassPhase = DeveloperPassPhase.real_time
+    force_iss_video_eligible: bool = False
+    force_iss_stream_healthy: bool = False
+    show_debug_badge: bool = True
 
 
 class IssState(BaseModel):

@@ -7,6 +7,8 @@ let selectedDisplayTimezone = "UTC";
 let passProfileEditorOpen = false;
 const TRACKED_SAT_KEY = "kioskTrackedSatId";
 const VIDEO_SOURCES_KEY = "kioskVideoSources";
+const DEV_MODE_KEY = "kioskDevModeEnabled";
+const DEV_FORCE_SCENE_KEY = "kioskDevForceScene";
 const TIMEZONE_CHOICES = [
   "BrowserLocal",
   "UTC",
@@ -63,6 +65,13 @@ function ensureTrackSelector(items) {
   else if (hamItems.length) select.value = hamItems[0].sat_id;
 }
 
+function getDevSettings() {
+  return {
+    enabled: localStorage.getItem(DEV_MODE_KEY) === "1",
+    forceScene: localStorage.getItem(DEV_FORCE_SCENE_KEY) || "auto",
+  };
+}
+
 function ensureTimezoneSelector() {
   const select = trackerById("displayTimezone");
   const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -79,6 +88,23 @@ function syncLocationModeUi() {
   const mode = trackerById("locationMode").value;
   trackerById("manualLocationGroup").classList.toggle("hidden", mode !== "manual");
   trackerById("gpsLocationGroup").classList.toggle("hidden", mode !== "gps");
+}
+
+function syncDeveloperOverridesUi() {
+  const dev = getDevSettings();
+  trackerById("devOverridesEnabled").checked = dev.enabled;
+  trackerById("devOverridesPanel").classList.toggle("hidden", !dev.enabled);
+  trackerById("devForceScene").value = dev.forceScene;
+}
+
+function syncDeveloperOverridesDraftUi() {
+  const enabled = trackerById("devOverridesEnabled").checked;
+  trackerById("devOverridesPanel").classList.toggle("hidden", !enabled);
+}
+
+function saveDevSettings() {
+  localStorage.setItem(DEV_MODE_KEY, trackerById("devOverridesEnabled").checked ? "1" : "0");
+  localStorage.setItem(DEV_FORCE_SCENE_KEY, trackerById("devForceScene").value || "auto");
 }
 
 function loadVideoSources() {
@@ -135,6 +161,7 @@ async function loadState() {
   ensureTimezoneSelector();
   syncPassProfileUi();
   syncLocationModeUi();
+  syncDeveloperOverridesUi();
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
@@ -205,9 +232,21 @@ window.addEventListener("DOMContentLoaded", async () => {
     saveVideoSources();
   });
 
+  trackerById("devOverridesEnabled").addEventListener("change", () => {
+    syncDeveloperOverridesDraftUi();
+  });
+
+  trackerById("saveDevOverrides").addEventListener("click", () => {
+    saveDevSettings();
+    syncDeveloperOverridesUi();
+  });
+
   trackerById("refreshNow").addEventListener("click", loadState);
   trackerById("returnKiosk").addEventListener("click", () => {
     window.location.href = "/";
+  });
+  trackerById("returnRotator").addEventListener("click", () => {
+    window.location.href = "/kiosk-rotator";
   });
 
   updateClock();
