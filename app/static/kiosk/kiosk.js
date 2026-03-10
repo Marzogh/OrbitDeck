@@ -297,6 +297,34 @@ function renderFrequencyRows(rows, limit = null) {
   `).join("");
 }
 
+function fmtGuideMHz(value) {
+  return Number.isFinite(Number(value)) ? `${Number(value).toFixed(3)} MHz` : "—";
+}
+
+function correctionSideLabel(side) {
+  if (side === "full_duplex") return "Full duplex correction";
+  if (side === "downlink_only") return "Downlink Doppler only";
+  if (side === "uhf_only") return "UHF-side Doppler only";
+  return "";
+}
+
+function rowsFromRecommendation(recommendation, matrix) {
+  if (!recommendation) return [];
+  const primaryRow = {
+    mode: `${recommendation.label}${recommendation.phase ? ` | ${String(recommendation.phase).toUpperCase()}` : ""}`,
+    uplink: `${fmtGuideMHz(recommendation.uplink_mhz)}${recommendation.uplink_mode ? ` ${recommendation.uplink_mode}` : ""}`,
+    downlink: `${fmtGuideMHz(recommendation.downlink_mhz)}${recommendation.downlink_mode ? ` ${recommendation.downlink_mode}` : ""}`,
+    bands: `${recommendation.uplink_label || "Uplink"} -> ${recommendation.downlink_label || "Downlink"}`,
+  };
+  const matrixRows = (matrix?.rows || []).map((row) => ({
+    mode: `Phase ${String(row.phase).toUpperCase()}`,
+    uplink: fmtGuideMHz(row.uplink_mhz),
+    downlink: fmtGuideMHz(row.downlink_mhz),
+    bands: row.phase === matrix.active_phase ? "Active phase" : "Reference",
+  }));
+  return [primaryRow, ...matrixRows];
+}
+
 function bodySymbol(name) {
   const map = {
     Sun: "☉",
@@ -366,6 +394,24 @@ function ensurePlotDialScaffold(tickId = "plotTicks", degreeId = "plotDegrees") 
 function passKey(pass) {
   if (!pass) return "";
   return `${pass.sat_id}|${pass.aos}|${pass.los}`;
+}
+
+function selectedFrequencyPass() {
+  const satId = selectedSatId || "";
+  if (!satId) return null;
+  if (
+    dialPassState
+    && dialPassState.sat_id === satId
+    && passPhase(dialPassState.pass) !== "after"
+  ) {
+    return dialPassState.pass;
+  }
+  const relevant = latestPassItems
+    .filter((item) => item.sat_id === satId)
+    .sort((a, b) => new Date(a.aos).getTime() - new Date(b.aos).getTime());
+  const ongoing = relevant.find((item) => passPhase(item) === "ongoing");
+  if (ongoing) return ongoing;
+  return relevant.find((item) => passPhase(item) === "upcoming") || relevant[0] || null;
 }
 
 function passPhase(pass, nowMs = Date.now()) {
@@ -637,6 +683,8 @@ async function refreshForecastPath(pass) {
 
 function renderPasses(items) {
   const upcoming = (items || []).filter((p) => new Date(p.aos).getTime() >= Date.now());
+  const selectedPass = selectedFrequencyPass();
+  const selectedPassId = passKey(selectedPass);
   trackerById("passTimeBasis").textContent = `Times shown in ${effectiveDisplayTimezone()}`;
   trackerById("nextPassCountdown").textContent = "";
 
@@ -654,7 +702,7 @@ function renderPasses(items) {
     trackerById("nextPassCountdown").textContent = `Next AOS in ${text}`;
   }
   const rows = upcoming.slice(0, 10).map((p) => `
-    <tr data-sat-id="${p.sat_id}" class="${selectedSatId === p.sat_id ? "selected-row" : ""}">
+    <tr data-sat-id="${p.sat_id}" data-pass-key="${passKey(p)}" class="${selectedPassId === passKey(p) ? "selected-row" : ""}">
       <td><strong>${p.name}</strong></td>
       <td title="${fmtDisplayTime(p.aos)}">${fmtPassCellTime(p.aos)}</td>
       <td title="${fmtDisplayTime(p.tca)}">${fmtPassCellTime(p.tca)}</td>
@@ -682,17 +730,36 @@ function renderFrequencies(items) {
     || hamItems[0];
   selectedSatId = sat.sat_id;
 
+  const activePass = selectedFrequencyPass();
+  const recommendation = activePass?.frequencyRecommendation || null;
+  const matrix = activePass?.frequencyMatrix || null;
+  const guideRows = rowsFromRecommendation(recommendation, matrix);
   const rows = frequencyEntriesForSatellite(sat);
   const compactRows = compactHamRows(rows, 3);
   const allRows = sortedRowsForAll(rows);
-  const primary = compactRows[0] || rows[0] || { mode: "General", uplink: "—", downlink: "—", bands: "Unknown -> Unknown" };
+  const primary = recommendation
+    ? {
+        mode: recommendation.label || "Pass Frequencies",
+        uplink: fmtGuideMHz(recommendation.uplink_mhz),
+        downlink: fmtGuideMHz(recommendation.downlink_mhz),
+        bands: `${recommendation.uplink_label || "Uplink"} -> ${recommendation.downlink_label || "Downlink"}`,
+      }
+    : compactRows[0] || rows[0] || { mode: "General", uplink: "—", downlink: "—", bands: "Unknown -> Unknown" };
 
   trackerById("freqSelectedName").textContent = `${sat.name} (${sat.norad_id})`;
   renderAmsatSummary(sat.operational_status || null);
   trackerById("freqModeLegend").textContent = "Beginner legend: V = VHF 2m, U = UHF 70cm, L = 23cm";
   trackerById("freqPrimaryLine").textContent =
-    `Primary: ${primary.mode} | ${primary.uplink} up / ${primary.downlink} down`;
-  trackerById("freqRowsCompact").innerHTML = renderFrequencyRows(compactRows.length ? compactRows : rows, 3);
+    recommendation
+      ? `Primary: ${primary.mode} | ${primary.uplink} up / ${primary.downlink} down | ${correctionSideLabel(recommendation.correction_side)}`
+      : `Primary: ${primary.mode} | ${primary.uplink} up / ${primary.downlink} down`;
+  trackerById("freqStatus").textContent = recommendation
+    ? `${recommendation.is_ongoing ? "Tune now" : "Tune next"} from active pass ${activePass?.name || sat.name}`
+    : "Showing static catalog frequencies";
+  trackerById("freqRowsCompact").innerHTML = renderFrequencyRows(
+    guideRows.length ? guideRows : (compactRows.length ? compactRows : rows),
+    3
+  );
   trackerById("freqRowsAll").innerHTML = renderFrequencyRows(allRows);
 }
 

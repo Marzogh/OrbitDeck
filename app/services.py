@@ -15,6 +15,13 @@ from app.models import (
     AppSettings,
     CachePolicy,
     CachePolicyUpdate,
+    CorrectionSide,
+    DopplerDirection,
+    FrequencyGuideMatrix,
+    FrequencyGuideProfile,
+    FrequencyGuideRow,
+    FrequencyRecommendation,
+    GuidePassPhase,
     IssDisplayMode,
     IssState,
     LiveTrack,
@@ -370,9 +377,15 @@ class TrackingService:
         phase = (utc_hour / 24.0 + sat.phase_offset + lon_shift * 0.05) % 1.0
         return math.cos(2 * math.pi * phase) > -0.05
 
-    def live_tracks(self, now: datetime, location: ResolvedLocation) -> list[LiveTrack]:
+    def live_tracks(
+        self,
+        now: datetime,
+        location: ResolvedLocation,
+        sat_ids: set[str] | None = None,
+    ) -> list[LiveTrack]:
         tracks: list[LiveTrack] = []
-        for sat in self._satellites:
+        satellites = self._satellites if sat_ids is None else [s for s in self._satellites if s.sat_id in sat_ids]
+        for sat in satellites:
             track = self._track_at(sat, now, location)
             if track is not None:
                 tracks.append(track)
@@ -559,6 +572,244 @@ class CacheService:
         if update.stale_after_hours is not None:
             next_state.stale_after_hours = update.stale_after_hours
         return next_state
+
+
+class FrequencyGuideService:
+    SPEED_OF_LIGHT_M_S = 299_792_458.0
+    PHASE_PROGRESS: dict[GuidePassPhase, float] = {
+        GuidePassPhase.aos: 0.0,
+        GuidePassPhase.early: 0.25,
+        GuidePassPhase.mid: 0.5,
+        GuidePassPhase.late: 0.75,
+        GuidePassPhase.los: 1.0,
+    }
+
+    def __init__(self, path: str = "data/frequency_guides.json") -> None:
+        self.path = Path(path)
+        self._profiles = self._load_profiles()
+
+    def _load_profiles(self) -> dict[str, FrequencyGuideProfile]:
+        if not self.path.exists():
+            return {}
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        profiles: dict[str, FrequencyGuideProfile] = {}
+        for item in raw.get("profiles", []):
+            try:
+                profile = FrequencyGuideProfile.model_validate(item)
+            except Exception:
+                continue
+            profiles[profile.sat_id] = profile
+        return profiles
+
+    def profile_for_satellite(self, sat_id: str) -> FrequencyGuideProfile | None:
+        return self._profiles.get(sat_id)
+
+    def doppler_shift_hz(self, carrier_mhz: float, range_rate_km_s: float) -> float:
+        carrier_hz = carrier_mhz * 1_000_000.0
+        range_rate_m_s = range_rate_km_s * 1000.0
+        return (range_rate_m_s / self.SPEED_OF_LIGHT_M_S) * carrier_hz
+
+    def quantize_mhz(self, freq_mhz: float | None, step_hz: int) -> float | None:
+        if freq_mhz is None:
+            return None
+        if step_hz <= 0:
+            return round(freq_mhz, 6)
+        hz = freq_mhz * 1_000_000.0
+        snapped = round(hz / step_hz) * step_hz
+        return round(snapped / 1_000_000.0, 3)
+
+    def corrected_downlink_mhz(self, nominal_mhz: float | None, range_rate_km_s: float, step_hz: int) -> float | None:
+        if nominal_mhz is None:
+            return None
+        shift_hz = self.doppler_shift_hz(nominal_mhz, range_rate_km_s)
+        observed = (nominal_mhz * 1_000_000.0 + shift_hz) / 1_000_000.0
+        return self.quantize_mhz(observed, step_hz)
+
+    def corrected_uplink_mhz(self, nominal_mhz: float | None, range_rate_km_s: float, step_hz: int) -> float | None:
+        if nominal_mhz is None:
+            return None
+        shift_hz = self.doppler_shift_hz(nominal_mhz, range_rate_km_s)
+        corrected = (nominal_mhz * 1_000_000.0 - shift_hz) / 1_000_000.0
+        return self.quantize_mhz(corrected, step_hz)
+
+    def resolve_phase(self, now: datetime, pass_event: PassEvent | None) -> GuidePassPhase:
+        if pass_event is None or now <= pass_event.aos:
+            return GuidePassPhase.aos
+        if now >= pass_event.los:
+            return GuidePassPhase.los
+        total = max(1.0, (pass_event.los - pass_event.aos).total_seconds())
+        progress = max(0.0, min(1.0, (now - pass_event.aos).total_seconds() / total))
+        if progress < 0.2:
+            return GuidePassPhase.aos
+        if progress < 0.4:
+            return GuidePassPhase.early
+        if progress < 0.6:
+            return GuidePassPhase.mid
+        if progress < 0.8:
+            return GuidePassPhase.late
+        return GuidePassPhase.los
+
+    def _column_for_profile(
+        self,
+        profile: FrequencyGuideProfile,
+        selected_column_index: int | None,
+    ):
+        if not profile.columns:
+            return None, selected_column_index
+        index = selected_column_index
+        if index is None or index < 0 or index >= len(profile.columns):
+            if profile.default_column_index is not None and 0 <= profile.default_column_index < len(profile.columns):
+                index = profile.default_column_index
+            else:
+                index = len(profile.columns) // 2
+        return profile.columns[index], index
+
+    def _nominal_pair(
+        self,
+        profile: FrequencyGuideProfile,
+        selected_column_index: int | None,
+    ) -> tuple[float | None, float | None, int | None]:
+        column, index = self._column_for_profile(profile, selected_column_index)
+        if column is not None:
+            return column.uplink_mhz, column.downlink_mid_mhz, index
+        return profile.nominal_uplink_mhz, profile.nominal_downlink_mhz, index
+
+    def _apply_correction(
+        self,
+        profile: FrequencyGuideProfile,
+        nominal_uplink_mhz: float | None,
+        nominal_downlink_mhz: float | None,
+        range_rate_km_s: float,
+    ) -> tuple[float | None, float | None]:
+        if profile.correction_side == CorrectionSide.full_duplex:
+            uplink = self.corrected_uplink_mhz(nominal_uplink_mhz, range_rate_km_s, profile.uplink_step_hz)
+            downlink = self.corrected_downlink_mhz(nominal_downlink_mhz, range_rate_km_s, profile.downlink_step_hz)
+        elif profile.correction_side == CorrectionSide.downlink_only:
+            uplink = self.quantize_mhz(nominal_uplink_mhz, profile.uplink_step_hz)
+            downlink = self.corrected_downlink_mhz(nominal_downlink_mhz, range_rate_km_s, profile.downlink_step_hz)
+        else:
+            uplink_is_uhf = nominal_uplink_mhz is not None and nominal_uplink_mhz >= 400.0
+            downlink_is_uhf = nominal_downlink_mhz is not None and nominal_downlink_mhz >= 400.0
+            uplink = (
+                self.corrected_uplink_mhz(nominal_uplink_mhz, range_rate_km_s, profile.uplink_step_hz)
+                if uplink_is_uhf
+                else self.quantize_mhz(nominal_uplink_mhz, profile.uplink_step_hz)
+            )
+            downlink = (
+                self.corrected_downlink_mhz(nominal_downlink_mhz, range_rate_km_s, profile.downlink_step_hz)
+                if downlink_is_uhf
+                else self.quantize_mhz(nominal_downlink_mhz, profile.downlink_step_hz)
+            )
+        return uplink, downlink
+
+    def _phase_sample_time(self, pass_event: PassEvent, phase: GuidePassPhase) -> datetime:
+        if phase == GuidePassPhase.mid:
+            return pass_event.tca
+        progress = self.PHASE_PROGRESS[phase]
+        duration = pass_event.los - pass_event.aos
+        return pass_event.aos + timedelta(seconds=duration.total_seconds() * progress)
+
+    def _track_at_phase(
+        self,
+        profile: FrequencyGuideProfile,
+        pass_event: PassEvent | None,
+        phase: GuidePassPhase,
+        current_track: LiveTrack | None,
+        track_path: list[LiveTrack] | None,
+    ) -> LiveTrack | None:
+        if pass_event is None:
+            return current_track
+        target = self._phase_sample_time(pass_event, phase)
+        candidates = track_path or []
+        if current_track is not None:
+            candidates = [current_track, *candidates]
+        if not candidates:
+            return current_track
+        return min(candidates, key=lambda item: abs((item.timestamp - target).total_seconds()))
+
+    def recommendation(
+        self,
+        sat_id: str,
+        pass_event: PassEvent | None,
+        current_track: LiveTrack | None = None,
+        track_path: list[LiveTrack] | None = None,
+        selected_column_index: int | None = None,
+        now: datetime | None = None,
+    ) -> FrequencyRecommendation | None:
+        profile = self.profile_for_satellite(sat_id)
+        if profile is None:
+            return None
+        current = now or datetime.now(UTC)
+        phase = self.resolve_phase(current, pass_event)
+
+        is_upcoming = bool(pass_event is not None and current < pass_event.aos)
+        is_ongoing = bool(pass_event is not None and pass_event.aos <= current <= pass_event.los)
+        label = "AOS cue" if is_upcoming else "Tune now" if is_ongoing else "Reference"
+        nominal_uplink, nominal_downlink, column_index = self._nominal_pair(profile, selected_column_index)
+        track = self._track_at_phase(profile, pass_event, phase, current_track, track_path)
+        range_rate = track.range_rate_km_s if track is not None else 0.0
+        uplink, downlink = self._apply_correction(profile, nominal_uplink, nominal_downlink, range_rate)
+
+        return FrequencyRecommendation(
+            sat_id=profile.sat_id,
+            mode=profile.mode,
+            phase=phase,
+            label=label,
+            is_upcoming=is_upcoming,
+            is_ongoing=is_ongoing,
+            correction_side=profile.correction_side,
+            doppler_direction=profile.doppler_direction,
+            uplink_mhz=uplink,
+            downlink_mhz=downlink,
+            uplink_label=profile.uplink_label,
+            downlink_label=profile.downlink_label,
+            uplink_mode=profile.uplink_mode,
+            downlink_mode=profile.downlink_mode,
+            tone=profile.tone,
+            beacon_mhz=profile.beacon_mhz,
+            preset=profile.preset,
+            note=profile.note,
+            schedule_note=profile.schedule_note,
+            selected_column_index=column_index,
+        )
+
+    def matrix(
+        self,
+        sat_id: str,
+        pass_event: PassEvent | None = None,
+        current_track: LiveTrack | None = None,
+        track_path: list[LiveTrack] | None = None,
+        selected_column_index: int | None = None,
+        active_phase: GuidePassPhase | None = None,
+    ) -> FrequencyGuideMatrix | None:
+        profile = self.profile_for_satellite(sat_id)
+        if profile is None or profile.mode.value != "linear":
+            return None
+        _, _, index = self._nominal_pair(profile, selected_column_index)
+        rows: list[FrequencyGuideRow] = []
+        nominal_uplink, nominal_downlink, _ = self._nominal_pair(profile, index)
+        for phase in GuidePassPhase:
+            track = self._track_at_phase(profile, pass_event, phase, current_track, track_path)
+            range_rate = track.range_rate_km_s if track is not None else 0.0
+            uplink, downlink = self._apply_correction(profile, nominal_uplink, nominal_downlink, range_rate)
+            rows.append(
+                FrequencyGuideRow(
+                    phase=phase,
+                    uplink_mhz=uplink,
+                    downlink_mhz=downlink,
+                )
+            )
+        return FrequencyGuideMatrix(
+            sat_id=profile.sat_id,
+            mode=profile.mode,
+            selected_column_index=index,
+            columns=profile.columns,
+            rows=rows,
+            active_phase=active_phase,
+        )
 
 
 class DataIngestionService:

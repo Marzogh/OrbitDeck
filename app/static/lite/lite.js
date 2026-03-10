@@ -1,30 +1,19 @@
 let trackerApi;
 let trackerById;
-let trackerSetBrowserLocation;
-
-const LITE_CACHE_KEY = "issTrackerLiteSnapshotV1";
+const LITE_CACHE_KEY = "issTrackerLiteSnapshotV2";
 const LITE_FOCUS_SAT_KEY = "issTrackerLiteFocusSatId";
-const LIVE_REFRESH_MS = 15000;
-const HIDDEN_REFRESH_MS = 60000;
-const MAX_ROTATOR_PASS_DURATION_MIN = 10;
-const MANUAL_LOCATION_DEBOUNCE_MS = 700;
+const LIVE_REFRESH_MS = 30000;
+const HIDDEN_REFRESH_MS = 120000;
 const SNAPSHOT_WARN_AFTER_HOURS = 12;
 const SNAPSHOT_CRITICAL_AFTER_HOURS = 24;
-const TIMEZONE_CHOICES = [
-  "BrowserLocal",
-  "UTC",
-  "Australia/Brisbane",
-  "Australia/Sydney",
-  "America/New_York",
-  "America/Los_Angeles",
-  "Europe/London",
-  "Asia/Tokyo",
-];
-let manualLocationTimer = null;
-let gpsSettingsTimer = null;
+const MAX_TRACKED_SATS = 8;
+let refreshTimer = null;
+let latestRenderedSnapshot = null;
 let savedFocusSatId = localStorage.getItem(LITE_FOCUS_SAT_KEY) || null;
 let temporaryFocusSatId = null;
-let selectedDisplayTimezone = "UTC";
+let currentLiteSettings = null;
+let availableSatellites = [];
+let setupGatePinnedOpen = false;
 
 function updateClock() {
   const now = new Date();
@@ -44,9 +33,7 @@ function modeLabel(mode) {
 }
 
 function effectiveDisplayTimezone() {
-  return selectedDisplayTimezone === "BrowserLocal"
-    ? Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
-    : selectedDisplayTimezone;
+  return latestRenderedSnapshot?.timezone?.timezone || "UTC";
 }
 
 function fmtLocalTime(iso) {
@@ -69,8 +56,19 @@ function fmtRelativeAge(iso) {
   const min = Math.round(sec / 60);
   if (min < 60) return `${min}m ago`;
   const hours = Math.round(min / 60);
-  if (hours < 48) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.round(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
+  const months = Math.round(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.round(days / 365)}y ago`;
+}
+
+function fmtFreshness(iso) {
+  if (!iso) return "unknown";
+  return `Last sync ${fmtRelativeAge(iso)}`;
 }
 
 function snapshotAgeHours(iso) {
@@ -115,6 +113,33 @@ function azElToXY(azDeg, elDeg, radius = 108, cx = 120, cy = 120) {
   const el = Math.max(0, Math.min(90, elDeg));
   const r = ((90 - el) / 90) * radius;
   return { x: cx + r * Math.sin(az), y: cy - r * Math.cos(az) };
+}
+
+function skyplotPathD(items) {
+  const visible = (items || [])
+    .filter((item) => Number.isFinite(Number(item?.az_deg)) && Number.isFinite(Number(item?.el_deg)))
+    .map((item) => azElToXY(Number(item.az_deg), Number(item.el_deg)));
+  if (visible.length < 2) return "";
+  return visible.map((point, idx) => `${idx === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
+}
+
+function splitTrackPath(trackPath, activeTime, isUpcoming) {
+  const points = (trackPath || []).filter((item) => item && item.timestamp);
+  if (points.length < 2) return { faded: [], past: [], future: [] };
+  if (isUpcoming) return { faded: [], past: [], future: points };
+  if (!activeTime) return { faded: points, past: [], future: [] };
+  const activeMs = new Date(activeTime).getTime();
+  let splitIdx = -1;
+  points.forEach((item, idx) => {
+    if (new Date(item.timestamp).getTime() <= activeMs) splitIdx = idx;
+  });
+  if (splitIdx < 0) return { faded: [], past: [], future: points };
+  if (splitIdx >= points.length - 1) return { faded: [], past: points, future: [] };
+  return {
+    faded: [],
+    past: points.slice(0, splitIdx + 1),
+    future: points.slice(splitIdx, points.length),
+  };
 }
 
 function parsePair(text) {
@@ -199,65 +224,84 @@ function frequencyEntriesForSatellite(sat) {
     .slice(0, 6);
 }
 
-function isIssPass(p) {
-  const satId = String(p.sat_id || "").toLowerCase();
-  const name = String(p.name || "").toUpperCase().trim();
-  return satId === "iss" || satId === "iss-zarya" || name === "ISS (ZARYA)" || name === "ISS";
-}
-
-function isRotatorAllowedSat(pass) {
-  const name = String(pass?.name || "").toUpperCase();
-  return !name.includes("ISS") || isIssPass(pass);
-}
-
-function passDurationMinutes(pass) {
-  return (new Date(pass.los).getTime() - new Date(pass.aos).getTime()) / 60000;
-}
-
 function isRotatorEligiblePass(pass) {
-  return Number.isFinite(passDurationMinutes(pass)) && passDurationMinutes(pass) <= MAX_ROTATOR_PASS_DURATION_MIN;
+  const duration = (new Date(pass.los).getTime() - new Date(pass.aos).getTime()) / 60000;
+  return Number.isFinite(duration) && duration <= 10;
 }
 
 function passMeetsRotatorElevation(pass) {
-  return Number(pass.max_el_deg) >= (isIssPass(pass) ? 20 : 40);
+  const isIss = String(pass?.sat_id || "").toLowerCase() === "iss-zarya";
+  return Number(pass.max_el_deg) >= (isIss ? 20 : 40);
 }
 
 function filterConsolePasses(passes) {
   const now = Date.now();
   return (passes || [])
-    .filter(isRotatorAllowedSat)
-    .filter((p) => new Date(p.aos).getTime() > now)
+    .filter((p) => new Date(p.los).getTime() >= now)
     .filter(isRotatorEligiblePass)
-    .filter((p) => isIssPass(p) || passMeetsRotatorElevation(p));
-}
-
-function pickOngoingPass(snapshot) {
-  const nowMs = Date.now();
-  const tracks = snapshot.system?.tracks || [];
-  const ongoing = (snapshot.passes.items || [])
-    .filter(isRotatorAllowedSat)
-    .filter((p) => new Date(p.aos).getTime() <= nowMs && new Date(p.los).getTime() >= nowMs)
-    .filter(isRotatorEligiblePass)
-    .filter(passMeetsRotatorElevation)
-    .map((pass) => ({ pass, track: tracks.find((t) => t.sat_id === pass.sat_id) }))
-    .filter((x) => x.track && Number(x.track.el_deg) > 0);
-  if (!ongoing.length) return null;
-  ongoing.sort((a, b) => b.track.el_deg - a.track.el_deg);
-  return ongoing[0];
+    .filter(passMeetsRotatorElevation);
 }
 
 function buildRadioQueue(snapshot) {
-  const qualifyingPasses = filterConsolePasses(snapshot.passes.items || []);
+  const qualifyingPasses = filterConsolePasses(snapshot.passes || []);
+  const satMap = new Map((snapshot.trackedSatellites || []).map((sat) => [sat.sat_id, sat]));
   const seenSatIds = new Set();
   const queue = [];
   for (const pass of qualifyingPasses) {
     if (seenSatIds.has(pass.sat_id)) continue;
     seenSatIds.add(pass.sat_id);
-    const sat = (snapshot.satellites.items || []).find((item) => item.sat_id === pass.sat_id);
+    const sat = satMap.get(pass.sat_id);
     queue.push({ pass, sat, channels: frequencyEntriesForSatellite(sat) });
     if (queue.length >= 5) break;
   }
   return queue;
+}
+
+function passTimeMarkup(pass, options = {}) {
+  const parts = [
+    `<span>AOS ${fmtLocalTime(pass.aos)}</span>`,
+    `<span>TCA ${fmtLocalTime(pass.tca)}</span>`,
+    `<span>LOS ${fmtLocalTime(pass.los)}</span>`,
+  ];
+  if (options.includeMaxEl) parts.push(`<span>MaxEl ${pass.max_el_deg.toFixed(1)} deg</span>`);
+  return `<div class="lite-pass-times mono">${parts.join("")}</div>`;
+}
+
+function fmtGuideMHz(value) {
+  return Number.isFinite(Number(value)) ? `${Number(value).toFixed(3)} MHz` : "—";
+}
+
+function frequencyGuideMarkup(recommendation, matrix) {
+  if (!recommendation) return "";
+  const chips = [
+    `<span class="chip">${recommendation.label}</span>`,
+    recommendation.phase ? `<span class="chip">${String(recommendation.phase).toUpperCase()}</span>` : "",
+    recommendation.tone ? `<span class="chip">Tone ${recommendation.tone}</span>` : "",
+    recommendation.beacon_mhz ? `<span class="chip">Beacon ${fmtGuideMHz(recommendation.beacon_mhz)}</span>` : "",
+    recommendation.preset ? `<span class="chip">${recommendation.preset}</span>` : "",
+  ].filter(Boolean).join("");
+  const rows = `
+    <div class="lite-radio-channel">
+      <div class="lite-radio-channel-mode">Pass Frequencies</div>
+      <div class="lite-guide-primary">
+        <div class="lite-radio-pair"><span class="lite-radio-label">Up</span><span class="mono">${fmtGuideMHz(recommendation.uplink_mhz)}${recommendation.uplink_mode ? ` ${recommendation.uplink_mode}` : ""}</span></div>
+        <div class="lite-radio-pair"><span class="lite-radio-label">Down</span><span class="mono">${fmtGuideMHz(recommendation.downlink_mhz)}${recommendation.downlink_mode ? ` ${recommendation.downlink_mode}` : ""}</span></div>
+      </div>
+      <div class="lite-pass-chip-row">${chips}</div>
+      <div class="lite-radio-band-line">${recommendation.uplink_label || "Uplink"} -> ${recommendation.downlink_label || "Downlink"} | ${recommendation.correction_side === "full_duplex" ? "Full duplex correction" : recommendation.correction_side === "downlink_only" ? "Downlink Doppler only" : "UHF-side Doppler only"}</div>
+      ${recommendation.note ? `<div class="lite-card-hint">${recommendation.note}</div>` : ""}
+      ${recommendation.schedule_note ? `<div class="lite-card-hint">${recommendation.schedule_note}</div>` : ""}
+    </div>
+  `;
+  if (!matrix || !(matrix.rows || []).length) return rows;
+  const matrixRows = matrix.rows.map((row) => `
+    <div class="lite-guide-matrix-row ${row.phase === matrix.active_phase ? "is-active" : ""}">
+      <span>${String(row.phase).toUpperCase()}</span>
+      <span>${fmtGuideMHz(row.uplink_mhz)}</span>
+      <span>${fmtGuideMHz(row.downlink_mhz)}</span>
+    </div>
+  `).join("");
+  return `${rows}<div class="lite-guide-matrix"><div class="lite-guide-matrix-head"><span>Phase</span><span>Up</span><span>Down</span></div>${matrixRows}</div>`;
 }
 
 async function registerServiceWorker() {
@@ -283,94 +327,73 @@ function saveCachedSnapshot(snapshot) {
   } catch (_) {}
 }
 
-function syncLocationControls() {
-  const mode = trackerById("locationMode")?.value || "current";
-  trackerById("manualCoords")?.classList.toggle("hidden", mode !== "manual");
-  trackerById("gpsSetupLite")?.classList.toggle("hidden", mode !== "gps");
-  const help = trackerById("locationModeHelp");
-  if (help) {
-    help.textContent = mode === "browser"
-      ? "Requests this phone's location and sends it to the Pi immediately."
-      : mode === "gps"
-        ? "Uses a GPS receiver connected to the Raspberry Pi. Configure USB or Bluetooth below."
-      : mode === "manual"
-        ? "Shows latitude/longitude entry fields below and saves automatically."
-        : "Uses the Raspberry Pi's current saved location source.";
-  }
-}
-
-function syncGpsControls() {
-  const mode = trackerById("gpsConnectionModeLite")?.value || "usb";
-  trackerById("gpsUsbFieldsLite")?.classList.toggle("hidden", mode !== "usb");
-  trackerById("gpsBluetoothFieldsLite")?.classList.toggle("hidden", mode !== "bluetooth");
+async function fetchLiteSettings() {
+  return trackerApi.get("/api/v1/settings/lite");
 }
 
 async function fetchSnapshot() {
-  const [system, passes, satellites, timezone, gpsSettings] = await Promise.all([
-    trackerApi.get("/api/v1/system/state"),
-    trackerApi.get("/api/v1/passes?hours=24&include_all_sats=true&include_ongoing=true"),
-    trackerApi.get("/api/v1/satellites"),
-    trackerApi.get("/api/v1/settings/timezone"),
-    trackerApi.get("/api/v1/settings/gps"),
-  ]);
-  return {
-    system,
-    passes,
-    satellites,
-    timezone,
-    gpsSettings,
-    cachedAt: new Date().toISOString(),
-    source: "live",
-  };
+  const satId = temporaryFocusSatId || savedFocusSatId;
+  const query = satId ? `?sat_id=${encodeURIComponent(satId)}` : "";
+  const snapshot = await trackerApi.get(`/api/v1/lite/snapshot${query}`);
+  snapshot.cachedAt = new Date().toISOString();
+  snapshot.source = "live";
+  return snapshot;
 }
 
-function ensureTimezoneSelector() {
-  const select = trackerById("displayTimezoneLite");
+function renderTrackedSatelliteOptions(selectId, selectedIds) {
+  const select = trackerById(selectId);
   if (!select) return;
-  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const choices = Array.from(new Set([browserTz, ...TIMEZONE_CHOICES]));
-  const sorted = choices
-    .filter((tz) => tz !== "BrowserLocal" && tz !== "UTC")
-    .sort((a, b) => a.localeCompare(b));
-  const ordered = ["BrowserLocal", "UTC", ...sorted];
-  select.innerHTML = ordered
-    .map((tz) => `<option value="${tz}">${tz === "BrowserLocal" ? `Browser local (${browserTz})` : tz}</option>`)
+  const selectedSet = new Set(selectedIds || []);
+  select.innerHTML = availableSatellites
+    .map((sat) => `<option value="${sat.sat_id}" ${selectedSet.has(sat.sat_id) ? "selected" : ""}>${sat.name}</option>`)
     .join("");
 }
 
-function syncDetailedSettings(snapshot) {
-  selectedDisplayTimezone = snapshot.timezone?.timezone || selectedDisplayTimezone || "UTC";
+function trackedSatelliteSummary(selectedIds) {
+  const ids = selectedIds || [];
+  if (!ids.length) return "No tracked satellites selected.";
+  const names = ids
+    .map((satId) => availableSatellites.find((sat) => sat.sat_id === satId)?.name || satId)
+    .slice(0, 3);
+  const extra = ids.length > names.length ? ` +${ids.length - names.length} more` : "";
+  return `Tracking ${ids.length}/${MAX_TRACKED_SATS}: ${names.join(", ")}${extra}`;
+}
 
-  ensureTimezoneSelector();
-  const tzSelect = trackerById("displayTimezoneLite");
-  if (tzSelect) {
-    const desired = selectedDisplayTimezone === (Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")
-      ? "BrowserLocal"
-      : selectedDisplayTimezone;
-    if ([...tzSelect.options].some((o) => o.value === desired)) tzSelect.value = desired;
+function selectedValues(selectId) {
+  const select = trackerById(selectId);
+  return Array.from(select?.selectedOptions || []).map((o) => o.value).filter(Boolean);
+}
+
+function syncSetupState() {
+  const setupComplete = Boolean(currentLiteSettings?.setup_complete);
+  const gateVisible = !setupComplete || setupGatePinnedOpen;
+  trackerById("liteSetupGate")?.classList.toggle("hidden", !gateVisible);
+  trackerById("liteDashboard")?.classList.toggle("hidden", !setupComplete);
+  trackerById("cancelLiteSetup")?.classList.toggle("hidden", !setupComplete || !setupGatePinnedOpen);
+  renderTrackedSatelliteOptions("liteTrackedSatSelect", currentLiteSettings?.tracked_sat_ids || ["iss-zarya"]);
+  renderTrackedSatelliteOptions("liteTrackedSatSettings", currentLiteSettings?.tracked_sat_ids || []);
+  const trackedSummary = trackerById("liteTrackedSummary");
+  if (trackedSummary) trackedSummary.textContent = trackedSatelliteSummary(currentLiteSettings?.tracked_sat_ids || []);
+}
+
+function renderControlSummary(snapshot) {
+  const locationSummary = trackerById("liteLocationSummary");
+  const focusSummary = trackerById("liteFocusSummary");
+  if (locationSummary) {
+    locationSummary.textContent =
+      `${snapshot.location.source}: ${snapshot.location.lat.toFixed(4)}, ${snapshot.location.lon.toFixed(4)}`;
   }
-  const focusSatSelect = trackerById("focusSatSelectLite");
-  if (focusSatSelect) {
-    const items = snapshot.satellites.items || [];
-    focusSatSelect.innerHTML = [
-      '<option value="">Auto (active/live pass)</option>',
-      ...items.map((sat) => `<option value="${sat.sat_id}">${sat.name}</option>`),
-    ].join("");
-    focusSatSelect.value = savedFocusSatId || "";
-  }
-  const gps = snapshot.gpsSettings?.state;
-  if (gps) {
-    trackerById("gpsConnectionModeLite").value = gps.connection_mode || "usb";
-    trackerById("gpsSerialDeviceLite").value = gps.serial_device || "";
-    trackerById("gpsBaudRateLite").value = gps.baud_rate || 9600;
-    trackerById("gpsBluetoothAddressLite").value = gps.bluetooth_address || "";
-    trackerById("gpsBluetoothChannelLite").value = gps.bluetooth_channel || 1;
-    syncGpsControls();
+  if (focusSummary) {
+    if (!savedFocusSatId) {
+      focusSummary.textContent = "Auto";
+      return;
+    }
+    focusSummary.textContent = availableSatellites.find((sat) => sat.sat_id === savedFocusSatId)?.name || savedFocusSatId;
   }
 }
 
-function heroBadges(system, selectedSat, snapshot) {
-  const iss = system.iss || {};
+function heroBadges(selectedSat, snapshot) {
+  const iss = snapshot.iss || {};
   const ageHours = snapshotAgeHours(snapshot.cachedAt);
   const ageBadgeClass = ageHours >= SNAPSHOT_CRITICAL_AFTER_HOURS
     ? "chip chip-danger"
@@ -383,7 +406,7 @@ function heroBadges(system, selectedSat, snapshot) {
     `<span class="chip">${iss.sunlit ? "Sunlit" : "Dark Side"}</span>`,
     `<span class="chip">${iss.aboveHorizon ? "Above Horizon" : "Below Horizon"}</span>`,
     `<span class="chip">${modeLabel(iss.mode)}</span>`,
-    `<span class="${ageBadgeClass}">Age ${fmtRelativeAge(snapshot.cachedAt)}</span>`,
+    `<span class="${ageBadgeClass}">${fmtFreshness(snapshot.cachedAt)}</span>`,
   ].join("");
 }
 
@@ -420,25 +443,32 @@ function renderAmsatSummary(status) {
   matched.textContent = `AMSAT match: ${status.matched_name} | Checked ${fmtLocalTime(status.checked_at)}`;
 }
 
-function renderPassCards(passes) {
+function renderPassCards(passes, focusSatId) {
   const target = trackerById("passCards");
-  const qualifying = filterConsolePasses(passes.items || []);
+  const qualifying = filterConsolePasses(passes || []);
   if (!qualifying.length) {
     target.innerHTML = '<div class="lite-pass-item"><div class="lite-pass-title">No passes in the next 24 hours.</div></div>';
     return;
   }
   target.innerHTML = qualifying.slice(0, 6).map((p) => `
-    <article class="lite-pass-item" data-sat-id="${p.sat_id}">
+    <article class="lite-pass-item ${p.sat_id === focusSatId ? "is-selected" : ""}" data-sat-id="${p.sat_id}">
       <div class="lite-pass-row">
-        <div class="lite-pass-title">${p.name}</div>
-        <span class="chip">${p.max_el_deg.toFixed(0)}° max</span>
+        <div>
+          <div class="lite-pass-title">${p.name}</div>
+          <div class="lite-card-hint">${p.sat_id === focusSatId ? "Loaded into focus compass" : "Tap card to load this pass into the focus compass"}</div>
+        </div>
+        <div class="lite-pass-chip-row">
+          ${p.sat_id === focusSatId ? '<span class="chip chip-ok">Selected</span>' : ""}
+          ${p.sat_id !== focusSatId ? '<span class="chip">Load focus</span>' : ""}
+          <span class="chip">${p.max_el_deg.toFixed(0)} deg max</span>
+        </div>
       </div>
-      <div class="lite-pass-times mono">AOS ${fmtLocalTime(p.aos)} | TCA ${fmtLocalTime(p.tca)} | LOS ${fmtLocalTime(p.los)}</div>
+      ${passTimeMarkup(p)}
     </article>
   `).join("");
 }
 
-function renderRadioQueue(snapshot) {
+function renderRadioQueue(snapshot, focusSatId) {
   const target = trackerById("freqRows");
   const queue = buildRadioQueue(snapshot);
   if (!queue.length) {
@@ -446,6 +476,7 @@ function renderRadioQueue(snapshot) {
     return;
   }
   target.innerHTML = queue.map((entry, idx) => {
+    const preview = entry.channels[0];
     const channels = entry.channels.length
       ? entry.channels.slice(0, idx === 0 ? 3 : 2).map((ch) => `
         <div class="lite-radio-channel">
@@ -457,36 +488,64 @@ function renderRadioQueue(snapshot) {
       `).join("")
       : '<div class="lite-radio-empty">No parsed radio channels for this pass.</div>';
     return `
-    <article class="lite-radio-item ${idx === 0 ? "lite-radio-item-primary" : ""}" data-sat-id="${entry.pass.sat_id}">
+    <article class="lite-radio-item ${idx === 0 ? "lite-radio-item-primary" : ""} ${entry.pass.sat_id === focusSatId ? "is-selected" : ""}" data-sat-id="${entry.pass.sat_id}">
       <div class="lite-pass-row">
         <div>
           <div class="lite-radio-queue-label">${idx === 0 ? "Primary Window" : `Queue ${idx + 1}`}</div>
           <div class="lite-radio-title">${entry.pass.name}</div>
+          <div class="lite-card-hint">${entry.pass.sat_id === focusSatId ? "Focus compass and RF loaded" : "Tap card to inspect this pass in the focus card"}</div>
         </div>
-        <span class="${amsatSummaryClass(entry.sat?.operational_status?.summary)}">${amsatSummaryLabel(entry.sat?.operational_status?.summary)}</span>
+        <div class="lite-pass-chip-row">
+          ${entry.pass.sat_id === focusSatId ? '<span class="chip chip-ok">Selected</span>' : ""}
+          ${entry.pass.sat_id !== focusSatId ? '<span class="chip">Inspect</span>' : ""}
+          <span class="${amsatSummaryClass(entry.sat?.operational_status?.summary)}">${amsatSummaryLabel(entry.sat?.operational_status?.summary)}</span>
+        </div>
       </div>
-      <div class="lite-pass-times mono">AOS ${fmtLocalTime(entry.pass.aos)} | LOS ${fmtLocalTime(entry.pass.los)} | MaxEl ${entry.pass.max_el_deg.toFixed(1)}°</div>
-      ${channels}
+      ${passTimeMarkup(entry.pass, { includeMaxEl: true })}
+      ${preview ? `
+        <div class="lite-radio-preview">
+          <span class="lite-radio-preview-mode">${preview.mode}</span>
+          <span class="mono">${preview.up === "—" ? "" : `Up ${preview.up}`}${preview.up !== "—" && preview.down !== "—" ? " | " : ""}${preview.down === "—" ? "" : `Down ${preview.down}`}</span>
+        </div>
+      ` : ""}
+      <details class="lite-radio-details">
+        <summary>${entry.channels.length ? `Show ${Math.min(entry.channels.length, idx === 0 ? 3 : 2)} channels` : "Channel details"}</summary>
+        ${channels}
+      </details>
     </article>
   `;
   }).join("");
 }
 
-function renderLiteSkyplot(track) {
+function renderLiteSkyplot(track, cue, trackPath) {
   const dot = trackerById("liteDot");
   const vector = trackerById("liteVector");
-  if (!dot || !vector) return;
-  const p = azElToXY(Number(track?.az_deg || 0), Number(track?.el_deg || 0));
+  const fadedPath = trackerById("liteTrackPathFaded");
+  const pastPath = trackerById("liteTrackPathPast");
+  const futurePath = trackerById("liteTrackPathFuture");
+  if (!dot || !vector || !fadedPath || !pastPath || !futurePath) return;
+  const source = cue || track || { az_deg: 0, el_deg: 0 };
+  const p = azElToXY(Number(source.az_deg || 0), Number(source.el_deg || 0));
   dot.setAttribute("cx", p.x.toFixed(2));
   dot.setAttribute("cy", p.y.toFixed(2));
   vector.setAttribute("x2", p.x.toFixed(2));
   vector.setAttribute("y2", p.y.toFixed(2));
+  const split = splitTrackPath(trackPath, cue ? cue.time : track?.timestamp, Boolean(cue));
+  fadedPath.setAttribute("d", skyplotPathD(split.faded));
+  pastPath.setAttribute("d", skyplotPathD(split.past));
+  futurePath.setAttribute("d", skyplotPathD(split.future));
 }
 
-function focusRfMarkup(sat, pass) {
+function focusRfMarkup(sat, pass, recommendation, matrix) {
+  if (recommendation) {
+    const passLine = pass
+      ? passTimeMarkup(pass, { includeMaxEl: true })
+      : '<div class="lite-pass-times mono">No associated qualifying pass selected</div>';
+    return `${passLine}${frequencyGuideMarkup(recommendation, matrix)}`;
+  }
   const channels = frequencyEntriesForSatellite(sat).slice(0, 3);
   const passLine = pass
-    ? `<div class="lite-pass-times mono">AOS ${fmtLocalTime(pass.aos)} | TCA ${fmtLocalTime(pass.tca)} | LOS ${fmtLocalTime(pass.los)} | MaxEl ${pass.max_el_deg.toFixed(1)}°</div>`
+    ? passTimeMarkup(pass, { includeMaxEl: true })
     : '<div class="lite-pass-times mono">No associated qualifying pass selected</div>';
   const rows = channels.length
     ? channels.map((ch) => `
@@ -502,54 +561,57 @@ function focusRfMarkup(sat, pass) {
 }
 
 function renderFocusCard(snapshot) {
-  const sats = snapshot.satellites.items || [];
-  const tracks = snapshot.system.tracks || [];
-  const ongoing = pickOngoingPass(snapshot);
-  const preferredFocusSatId = temporaryFocusSatId || savedFocusSatId;
-  const selectedPass = (snapshot.passes.items || []).find((p) => p.sat_id === preferredFocusSatId) || null;
-  const focusSatId = ongoing?.pass?.sat_id || preferredFocusSatId || snapshot.system.activeTrack?.sat_id || snapshot.system.issTrack?.sat_id;
-  const focusSat = sats.find((s) => s.sat_id === focusSatId) || sats[0];
-  const focusTrack = tracks.find((t) => t.sat_id === focusSatId) || snapshot.system.activeTrack || snapshot.system.issTrack;
-  const focusPass = ongoing?.pass || selectedPass || null;
+  const focusSat = snapshot.focusSatellite || (snapshot.trackedSatellites || [])[0];
+  const focusTrack = snapshot.focusTrack || null;
+  const focusTrackPath = snapshot.focusTrackPath || [];
+  const focusPass = snapshot.focusPass || null;
+  const focusCue = snapshot.focusCue || null;
 
-  trackerById("focusModeLabel").textContent = ongoing ? "Live Pass Now" : "Tracking Focus";
+  trackerById("focusModeLabel").textContent = focusCue
+    ? "Upcoming Pass Cue"
+    : focusTrack?.el_deg > 0
+      ? "Live Pass Now"
+      : "Tracking Focus";
   trackerById("focusTitle").textContent = focusSat ? `${focusSat.name} (${focusSat.norad_id})` : "Selected satellite";
-  trackerById("focusReadout").textContent = focusTrack
-    ? `Az ${focusTrack.az_deg.toFixed(1)}° | Alt ${focusTrack.el_deg.toFixed(1)}° | Range ${focusTrack.range_km.toFixed(1)} km`
-    : "Az -- | Alt -- | Range --";
-  trackerById("focusSubpoint").textContent = focusTrack?.subpoint_lat != null && focusTrack?.subpoint_lon != null
-    ? `Subpoint ${Number(focusTrack.subpoint_lat).toFixed(2)}, ${Number(focusTrack.subpoint_lon).toFixed(2)} | Sunlit ${focusTrack.sunlit ? "yes" : "no"}`
-    : `Observer ${snapshot.system.location.source} | Network ${snapshot.system.network.mode}`;
-  trackerById("focusPassMeta").textContent = ongoing
-    ? "A qualified pass is happening right now. This card is showing live satellite details and RF info."
+  trackerById("focusReadout").textContent = focusCue
+    ? `AOS cue Az ${Number(focusCue.az_deg).toFixed(1)} deg | Alt ${Number(focusCue.el_deg).toFixed(1)} deg`
+    : focusTrack
+      ? `Az ${focusTrack.az_deg.toFixed(1)} deg | Alt ${focusTrack.el_deg.toFixed(1)} deg | Range ${focusTrack.range_km.toFixed(1)} km`
+      : "Az -- | Alt -- | Range --";
+  trackerById("focusSubpoint").textContent = focusCue
+    ? `Cue time ${fmtLocalTime(focusCue.time)} | Compass shows where to point at AOS`
+    : focusTrack?.subpoint_lat != null && focusTrack?.subpoint_lon != null
+      ? `Subpoint ${Number(focusTrack.subpoint_lat).toFixed(2)}, ${Number(focusTrack.subpoint_lon).toFixed(2)} | Sunlit ${focusTrack.sunlit ? "yes" : "no"}`
+      : `Observer ${snapshot.location.source} | Network ${snapshot.network.mode}`;
+  trackerById("focusPassMeta").textContent = focusCue
+    ? "This is the rise direction for the selected upcoming pass. It switches to live tracking when the pass begins."
     : temporaryFocusSatId
-      ? "Temporarily selected from the pass/radio queue."
+      ? "Temporarily selected from the pass or radio queue."
       : focusPass
         ? "Showing your saved default focus."
         : "Tap a pass or radio card below to inspect that satellite.";
-  trackerById("focusRfPanel").innerHTML = focusRfMarkup(focusSat, focusPass);
-  renderLiteSkyplot(focusTrack);
+  trackerById("focusRfPanel").innerHTML = focusRfMarkup(
+    focusSat,
+    focusPass,
+    snapshot.frequencyRecommendation,
+    snapshot.frequencyMatrix
+  );
+  renderLiteSkyplot(focusTrack, focusCue, focusTrackPath);
   renderAmsatSummary(focusSat?.operational_status || null);
 }
 
 function renderSnapshot(snapshot) {
-  const sys = snapshot.system;
-  const passes = snapshot.passes;
+  latestRenderedSnapshot = snapshot;
   const ageHours = snapshotAgeHours(snapshot.cachedAt);
   const stale = ageHours >= SNAPSHOT_WARN_AFTER_HOURS;
   const critical = ageHours >= SNAPSHOT_CRITICAL_AFTER_HOURS;
-  const sats = snapshot.satellites;
-  const selectedSat = sats.items.find((s) => s.sat_id === sys.activeTrack?.sat_id)
-    || sats.items.find((s) => s.sat_id === sys.issTrack?.sat_id)
-    || sats.items[0];
-  const activeTrack = sys.activeTrack || sys.issTrack;
+  const selectedSat = snapshot.focusSatellite || snapshot.issTrack;
+  const activeTrack = snapshot.focusTrack || snapshot.issTrack;
 
   trackerById("summary").textContent =
-    `${sys.location.source}: ${sys.location.lat.toFixed(4)}, ${sys.location.lon.toFixed(4)}`;
+    `${snapshot.location.source}: ${snapshot.location.lat.toFixed(4)}, ${snapshot.location.lon.toFixed(4)}`;
   trackerById("telemetry").textContent =
-    `${activeTrack?.name || "No active track"} | ${modeLabel(sys.iss.mode)} | Updated ${fmtRelativeAge(snapshot.cachedAt)}`;
-  trackerById("locationMode").value = "current";
-  syncLocationControls();
+    `${activeTrack?.name || "No active track"} | ${modeLabel(snapshot.iss.mode)}`;
   trackerById("syncMeta").textContent =
     snapshot.source === "live"
       ? `Connected to Pi | Snapshot ${fmtLocalTime(snapshot.cachedAt)}`
@@ -559,33 +621,75 @@ function renderSnapshot(snapshot) {
   } else if (stale) {
     trackerById("syncMeta").textContent += " | Cached data is older than 12h";
   }
-  trackerById("heroBadges").innerHTML = heroBadges(sys, selectedSat, snapshot);
-  syncDetailedSettings(snapshot);
+  trackerById("heroBadges").innerHTML = heroBadges(selectedSat, snapshot);
+  renderControlSummary(snapshot);
   renderFocusCard(snapshot);
 
   trackerById("passMeta").textContent = critical
     ? "Cached snapshot is older than 24h. Pass timing is shown for reference only."
-    : passes.items?.length
-      ? `Showing next ${Math.min(6, passes.items.length)} passes in your phone's local time`
-      : "No upcoming passes in current window";
-  renderPassCards(passes);
+    : snapshot.passes?.length
+      ? `Showing next ${Math.min(6, snapshot.passes.length)} tracked-satellite passes in your selected timezone`
+      : "No upcoming tracked-satellite passes in current window";
+  renderPassCards(snapshot.passes || [], snapshot.focusSatId);
 
   const radioQueue = buildRadioQueue(snapshot);
   trackerById("freqStatus").textContent = snapshot.source === "live"
-    ? `Radio queue synced from rotator filters | ${radioQueue.length} qualified passes`
+    ? `Radio queue synced from tracked satellites | ${radioQueue.length} qualified passes`
     : `Showing cached radio queue | ${radioQueue.length} qualified passes`;
-  renderRadioQueue(snapshot);
+  renderRadioQueue(snapshot, snapshot.focusSatId);
+}
+
+function refreshSnapshotFreshness() {
+  if (!latestRenderedSnapshot) return;
+  const snapshot = latestRenderedSnapshot;
+  const ageHours = snapshotAgeHours(snapshot.cachedAt);
+  const stale = ageHours >= SNAPSHOT_WARN_AFTER_HOURS;
+  const critical = ageHours >= SNAPSHOT_CRITICAL_AFTER_HOURS;
+  const selectedSat = snapshot.focusSatellite || snapshot.issTrack;
+  const activeTrack = snapshot.focusTrack || snapshot.issTrack;
+
+  trackerById("telemetry").textContent =
+    `${activeTrack?.name || "No active track"} | ${modeLabel(snapshot.iss.mode)}`;
+  trackerById("heroBadges").innerHTML = heroBadges(selectedSat, snapshot);
+  trackerById("syncMeta").textContent =
+    snapshot.source === "live"
+      ? `Connected to Pi | Snapshot ${fmtLocalTime(snapshot.cachedAt)}`
+      : `Offline fallback | Last good snapshot ${fmtLocalTime(snapshot.cachedAt)}`;
+  if (critical) {
+    trackerById("syncMeta").textContent += " | Cached data is older than 24h; pass times may be unreliable";
+  } else if (stale) {
+    trackerById("syncMeta").textContent += " | Cached data is older than 12h";
+  }
+}
+
+async function ensureFocusTrackPath(snapshot) {
+  if ((snapshot.focusTrackPath || []).length || !snapshot.focusPass || !snapshot.focusSatId) {
+    return snapshot;
+  }
+  const aos = new Date(snapshot.focusPass.aos);
+  const los = new Date(snapshot.focusPass.los);
+  const minutes = Math.max(1, Math.ceil((los.getTime() - aos.getTime()) / 60000));
+  try {
+    const resp = await trackerApi.get(
+      `/api/v1/track/path?sat_id=${encodeURIComponent(snapshot.focusSatId)}&minutes=${minutes}&step_seconds=30&start_time=${encodeURIComponent(snapshot.focusPass.aos)}`
+    );
+    snapshot.focusTrackPath = resp.items || [];
+  } catch (_) {
+    snapshot.focusTrackPath = snapshot.focusTrackPath || [];
+  }
+  return snapshot;
 }
 
 async function refresh() {
   try {
-    const snapshot = await fetchSnapshot();
+    const snapshot = await ensureFocusTrackPath(await fetchSnapshot());
     saveCachedSnapshot(snapshot);
     renderSnapshot(snapshot);
   } catch (err) {
     const cached = loadCachedSnapshot();
     if (cached) {
       cached.source = "cache";
+      await ensureFocusTrackPath(cached);
       renderSnapshot(cached);
       trackerById("summary").textContent = `${trackerById("summary").textContent} | Link down`;
       return;
@@ -595,101 +699,63 @@ async function refresh() {
   }
 }
 
-async function saveManual() {
-  const lat = Number(trackerById("lat").value);
-  const lon = Number(trackerById("lon").value);
-  if (Number.isNaN(lat) || Number.isNaN(lon)) return;
-  await trackerApi.post("/api/v1/location", {
-    add_profile: {
-      id: "manual-lite",
-      name: "Manual Lite",
-      point: { lat, lon, alt_m: 0 },
-    },
-    selected_profile_id: "manual-lite",
-    source_mode: "manual",
-  });
-  await refresh();
-}
-
-async function applyLocationMode() {
-  const locationMode = trackerById("locationMode").value;
-
-  if (locationMode === "browser") {
-    await trackerSetBrowserLocation();
-    await trackerApi.post("/api/v1/location", { source_mode: "browser" });
-    await refresh();
-    return;
-  }
-
-  if (locationMode === "gps") {
-    await trackerApi.post("/api/v1/location", { source_mode: "gps" });
-    await refresh();
-    return;
-  }
-
-  if (locationMode === "current") {
-    await refresh();
-  }
-}
-
-async function saveTimezone() {
-  const picked = trackerById("displayTimezoneLite").value;
-  if (!picked) return;
-  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const tzToSave = picked === "BrowserLocal" ? browserTz : picked;
-  await trackerApi.post("/api/v1/settings/timezone", { timezone: tzToSave });
-  selectedDisplayTimezone = picked === "BrowserLocal" ? "BrowserLocal" : tzToSave;
-  await refresh();
-}
-
-function scheduleManualLocationSave() {
-  if (trackerById("locationMode").value !== "manual") return;
-  if (manualLocationTimer) clearTimeout(manualLocationTimer);
-  manualLocationTimer = setTimeout(async () => {
-    try {
-      await saveManual();
-    } catch (err) {
-      trackerById("summary").textContent = `Error: ${err.message}`;
-    }
-  }, MANUAL_LOCATION_DEBOUNCE_MS);
-}
-
-async function saveGpsSettings() {
-  const payload = {
-    connection_mode: trackerById("gpsConnectionModeLite").value,
-    serial_device: trackerById("gpsSerialDeviceLite").value,
-    baud_rate: Number(trackerById("gpsBaudRateLite").value) || 9600,
-    bluetooth_address: trackerById("gpsBluetoothAddressLite").value,
-    bluetooth_channel: Number(trackerById("gpsBluetoothChannelLite").value) || 1,
-  };
-  await trackerApi.post("/api/v1/settings/gps", payload);
-}
-
-function scheduleGpsSettingsSave() {
-  if (trackerById("locationMode").value !== "gps") return;
-  if (gpsSettingsTimer) clearTimeout(gpsSettingsTimer);
-  gpsSettingsTimer = setTimeout(async () => {
-    try {
-      await saveGpsSettings();
-    } catch (err) {
-      trackerById("summary").textContent = `Error: ${err.message}`;
-    }
-  }, MANUAL_LOCATION_DEBOUNCE_MS);
-}
-
 function snapToFocusCard() {
   const card = trackerById("focusTitle")?.closest(".lite-focus-card");
   if (!card) return;
   card.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-let refreshTimer = null;
-
 function scheduleRefreshLoop() {
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(() => {
     refresh().catch(() => {});
   }, document.visibilityState === "visible" ? LIVE_REFRESH_MS : HIDDEN_REFRESH_MS);
+}
+
+async function saveTrackedSatellites(selectId, setupComplete) {
+  const satIds = selectedValues(selectId);
+  if (!satIds.length) {
+    throw new Error("Select at least one satellite");
+  }
+  if (satIds.length > MAX_TRACKED_SATS) {
+    throw new Error(`Select at most ${MAX_TRACKED_SATS} satellites`);
+  }
+  const resp = await trackerApi.post("/api/v1/settings/lite", {
+    tracked_sat_ids: satIds,
+    setup_complete: setupComplete,
+  });
+  currentLiteSettings = resp.state;
+  setupGatePinnedOpen = false;
+  if (savedFocusSatId && !satIds.includes(savedFocusSatId)) {
+    savedFocusSatId = null;
+    localStorage.removeItem(LITE_FOCUS_SAT_KEY);
+  }
+  if (temporaryFocusSatId && !satIds.includes(temporaryFocusSatId)) {
+    temporaryFocusSatId = null;
+  }
+  syncSetupState();
+  await refresh();
+}
+
+function cancelLiteSetup() {
+  setupGatePinnedOpen = false;
+  syncSetupState();
+}
+
+async function bootstrapLite() {
+  try {
+    const settings = await fetchLiteSettings();
+    currentLiteSettings = settings.state;
+    availableSatellites = settings.availableSatellites || [];
+    syncSetupState();
+    if (currentLiteSettings?.setup_complete) {
+      await refresh();
+    }
+  } catch (err) {
+    trackerById("liteSetupHelp").textContent = `Error: ${err.message}`;
+    trackerById("liteSetupGate")?.classList.remove("hidden");
+    trackerById("liteDashboard")?.classList.add("hidden");
+  }
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
@@ -701,47 +767,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   ({
     api: trackerApi,
     byId: trackerById,
-    setBrowserLocation: trackerSetBrowserLocation,
   } = window.issTracker);
+
   registerServiceWorker();
-  trackerById("locationMode").addEventListener("change", async () => {
-    syncLocationControls();
-    try {
-      await applyLocationMode();
-    } catch (err) {
-      trackerById("summary").textContent = `Error: ${err.message}`;
-    }
-  });
-  trackerById("displayTimezoneLite").addEventListener("change", async () => {
-    try {
-      await saveTimezone();
-    } catch (err) {
-      trackerById("summary").textContent = `Error: ${err.message}`;
-    }
-  });
-  trackerById("focusSatSelectLite").addEventListener("change", async () => {
-    savedFocusSatId = trackerById("focusSatSelectLite").value || null;
-    temporaryFocusSatId = null;
-    if (savedFocusSatId) localStorage.setItem(LITE_FOCUS_SAT_KEY, savedFocusSatId);
-    else localStorage.removeItem(LITE_FOCUS_SAT_KEY);
-    try {
-      await refresh();
-    } catch (_) {}
-  });
-  trackerById("lat").addEventListener("input", scheduleManualLocationSave);
-  trackerById("lon").addEventListener("input", scheduleManualLocationSave);
-  trackerById("gpsConnectionModeLite").addEventListener("change", async () => {
-    syncGpsControls();
-    try {
-      await saveGpsSettings();
-    } catch (err) {
-      trackerById("summary").textContent = `Error: ${err.message}`;
-    }
-  });
-  trackerById("gpsSerialDeviceLite").addEventListener("input", scheduleGpsSettingsSave);
-  trackerById("gpsBaudRateLite").addEventListener("input", scheduleGpsSettingsSave);
-  trackerById("gpsBluetoothAddressLite").addEventListener("input", scheduleGpsSettingsSave);
-  trackerById("gpsBluetoothChannelLite").addEventListener("input", scheduleGpsSettingsSave);
   trackerById("passCards").addEventListener("click", async (ev) => {
     const card = ev.target.closest("[data-sat-id]");
     if (!card) return;
@@ -760,18 +788,25 @@ window.addEventListener("DOMContentLoaded", async () => {
       await refresh();
     } catch (_) {}
   });
-
   trackerById("refreshNow").addEventListener("click", async () => {
     try {
       await refresh();
     } catch (_) {}
   });
+  trackerById("saveLiteSetup").addEventListener("click", async () => {
+    try {
+      await saveTrackedSatellites("liteTrackedSatSelect", true);
+    } catch (err) {
+      trackerById("liteSetupHelp").textContent = err.message;
+    }
+  });
+  trackerById("cancelLiteSetup").addEventListener("click", cancelLiteSetup);
 
   document.addEventListener("visibilitychange", scheduleRefreshLoop);
 
   updateClock();
   setInterval(updateClock, 1000);
-  syncLocationControls();
-  await refresh();
+  setInterval(refreshSnapshotFreshness, 1000);
+  await bootstrapLite();
   scheduleRefreshLoop();
 });

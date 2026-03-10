@@ -106,6 +106,30 @@ function isIssPass(p) {
   return satId === "iss" || satId === "iss-zarya" || name === "ISS (ZARYA)" || name === "ISS";
 }
 
+function passPriorityLabel(pass) {
+  const maxEl = Number(pass?.max_el_deg ?? 0);
+  if (isIssPass(pass)) return maxEl >= 45 ? "ISS high-visibility window" : "ISS priority window";
+  if (maxEl >= 75) return "High-elevation radio window";
+  if (maxEl >= 55) return "Strong radio window";
+  return "Amateur radio window";
+}
+
+function passQueueDelta(iso) {
+  const deltaMs = new Date(iso || 0).getTime() - Date.now();
+  if (!Number.isFinite(deltaMs)) return "";
+  if (deltaMs <= 0) return "Now";
+  return `+${fmtCountdown(deltaMs)}`;
+}
+
+function passRowMeta(pass) {
+  const labels = [];
+  if (isIssPass(pass)) labels.push("ISS");
+  const maxEl = Number(pass?.max_el_deg ?? 0);
+  if (maxEl >= 75) labels.push("High El");
+  else if (maxEl >= 55) labels.push("Strong El");
+  return labels.join(" • ");
+}
+
 function isRotatorAllowedSat(pass) {
   const name = String(pass?.name || "").toUpperCase();
   return !name.includes("ISS") || isIssPass(pass);
@@ -458,6 +482,59 @@ function buildFreqRows(sat) {
   }));
 }
 
+function fmtGuideMHz(value) {
+  return Number.isFinite(Number(value)) ? `${Number(value).toFixed(3)} MHz` : "—";
+}
+
+function correctionSideLabel(side) {
+  if (side === "full_duplex") return "Full duplex correction";
+  if (side === "downlink_only") return "Downlink Doppler only";
+  if (side === "uhf_only") return "UHF-side Doppler only";
+  return "";
+}
+
+function debugPhaseLabel(phase) {
+  if (phase === "before-aos") return "Simulated before AOS";
+  if (phase === "at-aos") return "Simulated at AOS";
+  if (phase === "mid-pass") return "Simulated mid-pass";
+  if (phase === "near-los") return "Simulated near LOS";
+  return "";
+}
+
+function phaseForSceneMode(mode, matrix) {
+  if (!matrix?.rows?.length) return null;
+  if (mode === "ongoing") return "mid";
+  if (mode === "iss-upcoming" || mode === "upcoming") return "aos";
+  return matrix.active_phase || null;
+}
+
+function rowsFromGuide(recommendation, matrix, sceneMode = "real-time", debugMeta = "") {
+  if (!recommendation) return [];
+  const phase = phaseForSceneMode(sceneMode, matrix);
+  const phaseRow = (matrix?.rows || []).find((row) => row.phase === phase);
+  const activeUp = phaseRow ? fmtGuideMHz(phaseRow.uplink_mhz) : fmtGuideMHz(recommendation.uplink_mhz);
+  const activeDown = phaseRow ? fmtGuideMHz(phaseRow.downlink_mhz) : fmtGuideMHz(recommendation.downlink_mhz);
+  const items = [{
+    mode: `${recommendation.label}${phase ? ` | ${String(phase).toUpperCase()}` : ""}`,
+    up: `${activeUp}${recommendation.uplink_mode ? ` ${recommendation.uplink_mode}` : ""}`,
+    down: `${activeDown}${recommendation.downlink_mode ? ` ${recommendation.downlink_mode}` : ""}`,
+    bands: [
+      `${recommendation.uplink_label || "Uplink"} -> ${recommendation.downlink_label || "Downlink"}`,
+      correctionSideLabel(recommendation.correction_side),
+      debugMeta,
+    ].filter(Boolean).join(" | "),
+  }];
+  (matrix?.rows || []).forEach((row) => {
+    items.push({
+      mode: `Phase ${String(row.phase).toUpperCase()}`,
+      up: fmtGuideMHz(row.uplink_mhz),
+      down: fmtGuideMHz(row.downlink_mhz),
+      bands: row.phase === phase ? "Scene phase" : "Reference",
+    });
+  });
+  return items;
+}
+
 function isUsefulAlternateRow(row) {
   return scoreHamUsefulness(row) >= 60;
 }
@@ -513,7 +590,7 @@ function renderFreqRowsHtml(rows) {
     : '<tr><td colspan="3" class="label">No frequency rows</td></tr>';
 }
 
-function renderUpcomingTelemetryPanel({ track, pass, rows, scene }) {
+function renderUpcomingTelemetryPanel({ track, pass, rows, scene, recommendation }) {
   const status = telemetryState(track, pass, scene.mode);
   const satName = track?.name || pass?.name || "--";
   const primary = rows[0] || null;
@@ -563,6 +640,7 @@ function renderUpcomingTelemetryPanel({ track, pass, rows, scene }) {
           <div><span>Down</span><strong class="mono">${escapeHtml(primary?.down || "—")}</strong></div>
           <div><span>Bands</span><strong>${escapeHtml(primary?.bands || "Unknown")}</strong></div>
         </div>
+        ${recommendation?.note ? `<div class="telemetry-metric-meta">${escapeHtml(recommendation.note)}</div>` : ""}
       </section>
 
       <section class="telemetry-radio-card">
@@ -592,7 +670,7 @@ function renderAlternatesHtml(rows) {
     : '<div class="telemetry-alt-empty">No alternate channels parsed for this pass.</div>';
 }
 
-function renderOngoingRadioOps(primary, rows, variant = "inline") {
+function renderOngoingRadioOps(primary, rows, variant = "inline", recommendation = null) {
   const rootClass = variant === "card"
     ? "telemetry-radio-card telemetry-ops-card"
     : "telemetry-inline-radio";
@@ -611,6 +689,7 @@ function renderOngoingRadioOps(primary, rows, variant = "inline") {
           <div><span>Down</span><strong class="mono">${escapeHtml(primary?.down || "—")}</strong></div>
           <div><span>Bands</span><strong>${escapeHtml(primary?.bands || "Band unknown")}</strong></div>
         </div>
+        ${recommendation?.note ? `<div class="telemetry-metric-meta">${escapeHtml(recommendation.note)}</div>` : ""}
       </div>
       <div class="telemetry-inline-alternates">
         <div class="telemetry-inline-primary-label">Alternates</div>
@@ -652,7 +731,29 @@ function renderOngoingVisualAux({ isIss, hasVideo, url, lat, lon, pathItems, pas
   `;
 }
 
-function renderOngoingTelemetryPanel({ track, pass, rows, isIss, hasVideo, url, lat, lon, pathItems, observerLocation }) {
+function renderUpcomingVisualAux({ track, pass, pathItems, observerLocation }) {
+  if (!track || !pass || !window.issTrackerHemisphere) return "";
+  const lat = Number(track.subpoint_lat ?? 0);
+  const lon = Number(track.subpoint_lon ?? 0);
+  const globe = window.issTrackerHemisphere.render({
+    pass,
+    pathItems,
+    track,
+    observerLocation,
+    ariaLabel: "Observer-centered hemisphere preview",
+    showTcaLabel: true,
+    showDirectionArrow: true,
+    emptyText: "Track preview unavailable",
+  });
+  return `
+    <section class="telemetry-visual-aux">
+      ${globe}
+      <div class="telemetry-visual-meta mono">Lat ${lat.toFixed(2)} | Lon ${lon.toFixed(2)}</div>
+    </section>
+  `;
+}
+
+function renderOngoingTelemetryPanel({ track, pass, rows, isIss, hasVideo, url, lat, lon, pathItems, observerLocation, recommendation }) {
   const status = telemetryState(track, pass, "ongoing");
   const satName = track?.name || pass?.name || "--";
   const primary = rows[0] || null;
@@ -686,7 +787,7 @@ function renderOngoingTelemetryPanel({ track, pass, rows, isIss, hasVideo, url, 
         ${metricCardHtml("LOS", pass ? fmtLocal(pass.los) : "--", pass ? `AOS ${fmtLocal(pass.aos)}` : "")}
       </div>
 
-      ${renderOngoingRadioOps(primary, rows, "card")}
+      ${renderOngoingRadioOps(primary, rows, "card", recommendation)}
 
     </section>
   `;
@@ -820,7 +921,8 @@ function resolveDeveloperScene(system, passes) {
     pass: adjustedPass,
     track,
     debug: true,
-  };
+    debugPhase: phase,
+    };
 }
 
 function isRotatorEligiblePass(pass) {
@@ -911,6 +1013,8 @@ async function renderTelemetryScene(system, scene) {
   const sat = (state.sats || []).find((s) => s.sat_id === targetSatId);
   const pass = scene.pass;
   const pathItems = pass ? await ensurePathForDisplayedPass(system, pass) : [];
+  const recommendation = pass?.frequencyRecommendation || null;
+  const matrix = pass?.frequencyMatrix || null;
   trackerById("telemetryTitle").textContent =
     appendDebugBadge(scene.mode === "ongoing"
       ? `Screen 2: Ongoing Pass - ${track?.name || "--"}`
@@ -926,11 +1030,20 @@ async function renderTelemetryScene(system, scene) {
       : "AOS -- | TCA -- | LOS --";
 
     renderSkyplot(track, system.bodies || [], pass, pathItems);
-    const rows = buildFreqRows(sat);
+    const staticRows = buildFreqRows(sat);
+    const debugMeta = scene.debug ? debugPhaseLabel(scene.debugPhase) : "";
+    const rows = rowsFromGuide(recommendation, matrix, scene.mode, debugMeta).length
+      ? rowsFromGuide(recommendation, matrix, scene.mode, debugMeta)
+      : staticRows;
 
     if (scene.mode !== "ongoing") {
-      leftAux.innerHTML = "";
-      right.innerHTML = renderUpcomingTelemetryPanel({ track, pass, rows, scene });
+      leftAux.innerHTML = renderUpcomingVisualAux({
+        track,
+        pass,
+        pathItems,
+        observerLocation: system.location,
+      });
+      right.innerHTML = renderUpcomingTelemetryPanel({ track, pass, rows, scene, recommendation });
       return;
     }
 
@@ -962,6 +1075,7 @@ async function renderTelemetryScene(system, scene) {
       lon,
       pathItems,
       observerLocation: system.location,
+      recommendation,
     });
   } else {
     leftAux.innerHTML = "";
@@ -988,16 +1102,92 @@ async function renderTelemetryScene(system, scene) {
 function renderPassesScene(passes) {
   setSceneVisible("scenePasses");
   const now = Date.now();
-  const items = filterConsolePasses(passes).slice(0, 10);
-  trackerById("passesMeta").textContent = items.length
-    ? `Next AOS in ${Math.max(0, Math.floor((new Date(items[0].aos).getTime() - now) / 1000))}s | TZ ${state.timezone} | ISS all passes, others>=40°`
-    : `No qualifying passes in 24h | TZ ${state.timezone} | ISS all passes, others>=40°`;
+  const items = filterConsolePasses(passes).slice(0, 6);
+  const next = items[0] || null;
+  const queue = items.slice(1, 4);
+  const nextCountdown = next ? fmtCountdown(new Date(next.aos).getTime() - now) : "None in 24h";
+  const nextLabel = next ? passPriorityLabel(next) : "No qualifying window";
+  const nextAosTime = next ? fmtLocal(next.aos) : "--";
+  const nextPeakTime = next ? fmtLocal(next.tca) : "--";
+  const nextLosTime = next ? fmtLocal(next.los) : "--";
+  trackerById("passesMeta").innerHTML = `
+    <div class="passes-summary-card passes-summary-card-primary">
+      <div class="passes-summary-label">Next AOS</div>
+      <div class="passes-summary-value mono">${escapeHtml(nextCountdown)}</div>
+      <div class="passes-summary-meta">${escapeHtml(nextLabel)}</div>
+    </div>
+    <div class="passes-summary-tags">
+      <div class="passes-summary-tag">
+        <span class="passes-summary-tag-label">Timezone</span>
+        <strong>${escapeHtml(state.timezone || "UTC")}</strong>
+      </div>
+      <div class="passes-summary-tag">
+        <span class="passes-summary-tag-label">Filter</span>
+        <strong>ISS all passes, others &gt;=40°</strong>
+      </div>
+    </div>
+  `;
   if (developerOverridesEnabled() && getDeveloperOverrides().show_debug_badge) {
-    trackerById("passesMeta").textContent = `DEV override | ${trackerById("passesMeta").textContent}`;
+    trackerById("passesMeta").insertAdjacentHTML("beforeend", `
+      <div class="passes-summary-card passes-summary-card-dev">
+        <div class="passes-summary-label">Mode</div>
+        <div class="passes-summary-value">DEV override</div>
+      </div>
+    `);
   }
   trackerById("rotatorPassRows").innerHTML = items.length
-    ? items.map((p, idx) => `<tr class="${idx === 0 ? "selected-row" : ""}"><td><strong>${p.name}</strong></td><td>${fmtLocal(p.aos)}</td><td>${fmtLocal(p.tca)}</td><td>${fmtLocal(p.los)}</td><td>${p.max_el_deg.toFixed(1)}°</td></tr>`).join("")
+    ? items.map((p, idx) => `
+      <tr class="${idx === 0 ? "selected-row" : ""}">
+        <td>
+          <div class="passes-sat-cell">
+            ${idx === 0 ? '<span class="passes-next-badge">Next</span>' : ""}
+            <div>
+              <strong>${escapeHtml(p.name)}</strong>
+              ${passRowMeta(p) ? `<div class="passes-sat-meta">${escapeHtml(passRowMeta(p))}</div>` : ""}
+            </div>
+          </div>
+        </td>
+        <td class="mono">${escapeHtml(fmtLocal(p.aos))}</td>
+        <td class="mono">${escapeHtml(fmtLocal(p.tca))}</td>
+        <td class="mono">${escapeHtml(fmtLocal(p.los))}</td>
+        <td class="mono">${escapeHtml(`${p.max_el_deg.toFixed(1)}°`)}</td>
+      </tr>`).join("")
     : '<tr><td colspan="5" class="label">No qualifying passes</td></tr>';
+
+  trackerById("passesFocus").innerHTML = next
+    ? `
+      <div class="passes-focus-head">
+        <div class="passes-focus-kicker">Next Pass</div>
+        <div class="passes-focus-countdown mono">AOS in ${escapeHtml(nextCountdown)}</div>
+      </div>
+      <div class="passes-focus-body">
+        <div>
+          <div class="passes-focus-name">${escapeHtml(next.name)}</div>
+          <div class="passes-focus-sub">${escapeHtml(nextLabel)}</div>
+        </div>
+        <div class="passes-focus-grid">
+          <div><span>AOS</span><strong class="mono">${escapeHtml(nextAosTime)}</strong></div>
+          <div><span>Peak</span><strong class="mono">${escapeHtml(nextPeakTime)}</strong></div>
+          <div><span>LOS</span><strong class="mono">${escapeHtml(nextLosTime)}</strong></div>
+          <div><span>Max El</span><strong class="mono">${escapeHtml(`${next.max_el_deg.toFixed(1)}°`)}</strong></div>
+        </div>
+      </div>
+      <div class="passes-focus-queue">
+        <div class="passes-focus-queue-title">Queue</div>
+        ${queue.length
+          ? queue.map((p) => `
+            <div class="passes-queue-item">
+              <div class="passes-queue-head">
+                <div class="passes-queue-name">${escapeHtml(p.name)}</div>
+                <div class="passes-queue-delta mono">${escapeHtml(passQueueDelta(p.aos))}</div>
+              </div>
+              <div class="passes-queue-meta mono">${escapeHtml(fmtLocal(p.aos))} · ${escapeHtml(`${p.max_el_deg.toFixed(1)}°`)}</div>
+            </div>
+          `).join("")
+          : '<div class="passes-focus-empty">No additional qualifying passes.</div>'}
+      </div>
+    `
+    : '<div class="passes-focus-empty">No qualifying passes in the next 24 hours.</div>';
 }
 
 function renderRadioScene(passes) {
@@ -1012,7 +1202,8 @@ function renderRadioScene(passes) {
   }
   const cards = upcoming.map((p) => {
     const sat = state.sats.find((s) => s.sat_id === p.sat_id);
-    const channels = frequencyEntriesForSatellite(sat);
+    const guideRows = rowsFromGuide(p.frequencyRecommendation, p.frequencyMatrix, "upcoming");
+    const channels = guideRows.length ? guideRows : frequencyEntriesForSatellite(sat);
     return { pass: p, channels };
   });
   const primary = cards[0] || null;

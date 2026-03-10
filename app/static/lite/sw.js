@@ -1,11 +1,13 @@
-const SHELL_CACHE = "orbitdeck-lite-shell-v6";
-const API_CACHE = "orbitdeck-lite-api-v1";
+const SHELL_CACHE = "orbitdeck-lite-shell-v21";
+const API_CACHE = "orbitdeck-lite-api-v2";
 
 const SHELL_ASSETS = [
   "/lite",
-  "/static/common/styles.css?v=20260309k",
+  "/lite/settings",
+  "/static/common/styles.css?v=20260311c",
   "/static/common/app.js?v=20260308n",
-  "/static/lite/lite.js?v=20260309k",
+  "/static/lite/lite.js?v=20260311c",
+  "/static/lite/settings.js?v=20260311e",
 ];
 
 self.addEventListener("install", (event) => {

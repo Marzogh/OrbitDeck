@@ -98,6 +98,11 @@ class CachePolicy(BaseModel):
     stale_after_hours: int = Field(default=24, ge=1, le=720)
 
 
+class LiteSettings(BaseModel):
+    tracked_sat_ids: list[str] = Field(default_factory=lambda: ["iss-zarya"])
+    setup_complete: bool = False
+
+
 class DeveloperOverridesSettings(BaseModel):
     enabled: bool = False
     force_scene: DeveloperSceneMode = DeveloperSceneMode.auto
@@ -241,11 +246,107 @@ class CachePolicyUpdate(BaseModel):
     stale_after_hours: int | None = Field(default=None, ge=1, le=720)
 
 
+class LiteSettingsUpdate(BaseModel):
+    tracked_sat_ids: list[str] = Field(default_factory=list)
+    setup_complete: bool = True
+
+
 class DatasetSnapshot(BaseModel):
     id: str
     source: Literal["seed", "celestrak", "satnogs", "merged"]
     created_at: datetime
     satellite_count: int
+
+
+class FrequencyGuideMode(str, Enum):
+    fm = "fm"
+    linear = "linear"
+
+
+class DopplerDirection(str, Enum):
+    high_to_low = "high_to_low"
+    low_to_high = "low_to_high"
+
+
+class CorrectionSide(str, Enum):
+    uhf_only = "uhf_only"
+    downlink_only = "downlink_only"
+    full_duplex = "full_duplex"
+
+
+class GuidePassPhase(str, Enum):
+    aos = "aos"
+    early = "early"
+    mid = "mid"
+    late = "late"
+    los = "los"
+
+
+class FrequencyGuideRow(BaseModel):
+    phase: GuidePassPhase
+    uplink_mhz: float | None = None
+    downlink_mhz: float | None = None
+
+
+class FrequencyGuideColumn(BaseModel):
+    index: int
+    uplink_mhz: float | None = None
+    downlink_mid_mhz: float | None = None
+    label: str | None = None
+
+
+class FrequencyGuideProfile(BaseModel):
+    sat_id: str
+    mode: FrequencyGuideMode
+    correction_side: CorrectionSide = CorrectionSide.uhf_only
+    doppler_direction: DopplerDirection
+    nominal_uplink_mhz: float | None = None
+    nominal_downlink_mhz: float | None = None
+    uplink_label: str | None = None
+    downlink_label: str | None = None
+    uplink_mode: str | None = None
+    downlink_mode: str | None = None
+    uplink_step_hz: int = 1000
+    downlink_step_hz: int = 5000
+    default_column_index: int | None = None
+    tone: str | None = None
+    beacon_mhz: float | None = None
+    preset: str | None = None
+    note: str | None = None
+    schedule_note: str | None = None
+    columns: list[FrequencyGuideColumn] = Field(default_factory=list)
+
+
+class FrequencyRecommendation(BaseModel):
+    sat_id: str
+    mode: FrequencyGuideMode
+    phase: GuidePassPhase
+    label: str
+    is_upcoming: bool
+    is_ongoing: bool
+    correction_side: CorrectionSide
+    doppler_direction: DopplerDirection
+    uplink_mhz: float | None = None
+    downlink_mhz: float | None = None
+    uplink_label: str | None = None
+    downlink_label: str | None = None
+    uplink_mode: str | None = None
+    downlink_mode: str | None = None
+    tone: str | None = None
+    beacon_mhz: float | None = None
+    preset: str | None = None
+    note: str | None = None
+    schedule_note: str | None = None
+    selected_column_index: int | None = None
+
+
+class FrequencyGuideMatrix(BaseModel):
+    sat_id: str
+    mode: FrequencyGuideMode
+    selected_column_index: int | None = None
+    columns: list[FrequencyGuideColumn] = Field(default_factory=list)
+    rows: list[FrequencyGuideRow] = Field(default_factory=list)
+    active_phase: GuidePassPhase | None = None
 
 
 class PersistedState(BaseModel):
@@ -254,4 +355,5 @@ class PersistedState(BaseModel):
     network: NetworkState = Field(default_factory=NetworkState)
     gps_settings: GpsSettings = Field(default_factory=GpsSettings)
     cache_policy: CachePolicy = Field(default_factory=CachePolicy)
+    lite_settings: LiteSettings = Field(default_factory=LiteSettings)
     snapshots: list[DatasetSnapshot] = Field(default_factory=list)

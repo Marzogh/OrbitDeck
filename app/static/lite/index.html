@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OrbitDeck Lite</title>
-    <link rel="stylesheet" href="/static/common/styles.css?v=20260309k" />
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260311c" />
     <script defer src="/static/common/app.js?v=20260308n"></script>
-    <script defer src="/static/lite/lite.js?v=20260309k"></script>
+    <script defer src="/static/lite/lite.js?v=20260311c"></script>
   </head>
   <body class="lite">
     <header class="lite-topbar">
@@ -17,6 +17,21 @@
       <div id="clock" class="mono label"></div>
     </header>
     <main class="lite-shell">
+      <section id="liteSetupGate" class="card lite-controls-card">
+        <div class="scene-title">Lite Setup</div>
+        <div class="label">Choose up to 8 satellites for this low-power device. ISS is selected by default.</div>
+        <div class="lite-form-grid">
+          <label for="liteTrackedSatSelect" class="label">Tracked Satellites</label>
+          <select id="liteTrackedSatSelect" multiple size="8"></select>
+          <div id="liteSetupHelp" class="label">These satellites will drive live tracking, passes, radio queue, and focus compass updates.</div>
+        </div>
+        <div class="controls">
+          <button id="saveLiteSetup" type="button">Save Lite Setup</button>
+          <button id="cancelLiteSetup" type="button" class="hidden">Cancel</button>
+        </div>
+      </section>
+
+      <section id="liteDashboard" class="stack hidden">
       <section class="card lite-hero">
         <div class="lite-hero-head">
           <div>
@@ -31,59 +46,23 @@
 
       <section class="card lite-controls-card">
         <div class="label">Remote Control</div>
-        <div class="lite-form-grid">
-          <label for="locationMode" class="label">Location Source</label>
-          <select id="locationMode">
-            <option value="current">Current Pi setting</option>
-            <option value="browser">Use this phone's location</option>
-            <option value="manual">Enter coordinates manually</option>
-            <option value="gps">Use Pi GPS receiver</option>
-          </select>
-          <div id="locationModeHelp" class="label">Uses the Raspberry Pi's current saved location source.</div>
-        </div>
-        <div id="manualCoords" class="lite-form-grid hidden">
-          <input id="lat" type="number" step="0.000001" placeholder="Latitude" />
-          <input id="lon" type="number" step="0.000001" placeholder="Longitude" />
-          <div id="manualHelp" class="label">Manual coordinates apply automatically after you finish entering them.</div>
-        </div>
-        <div class="lite-form-grid">
-          <div class="label">Lite mode is telemetry-only. Video controls are available in kiosk views.</div>
-          <div></div>
-          <div></div>
-        </div>
-        <details class="lite-settings-details">
-          <summary>Detailed settings</summary>
-          <div id="gpsSetupLite" class="hidden">
-            <div class="lite-form-grid">
-              <label for="gpsConnectionModeLite" class="label">GPS Connection</label>
-              <select id="gpsConnectionModeLite">
-                <option value="usb">USB GPS</option>
-                <option value="bluetooth">Bluetooth GPS</option>
-              </select>
-              <div class="label">Choose how the Raspberry Pi connects to the GPS receiver.</div>
-            </div>
-            <div id="gpsUsbFieldsLite" class="lite-form-grid">
-              <input id="gpsSerialDeviceLite" type="text" placeholder="/dev/ttyUSB0" />
-              <input id="gpsBaudRateLite" type="number" step="1" min="1200" max="115200" placeholder="9600" />
-              <div class="label">USB serial device and baud rate.</div>
-            </div>
-            <div id="gpsBluetoothFieldsLite" class="lite-form-grid hidden">
-              <input id="gpsBluetoothAddressLite" type="text" placeholder="AA:BB:CC:DD:EE:FF" />
-              <input id="gpsBluetoothChannelLite" type="number" step="1" min="1" max="30" placeholder="1" />
-              <div class="label">Bluetooth device address and RFCOMM channel.</div>
-            </div>
+        <div class="lite-summary-grid">
+          <div>
+            <div class="label">Location Source</div>
+            <div id="liteLocationSummary" class="value">Loading...</div>
           </div>
-          <div class="lite-form-grid">
-            <label for="focusSatSelectLite" class="label">Tracking Focus</label>
-            <select id="focusSatSelectLite"></select>
-            <div class="label">Sets the default satellite shown in the focus card when no pass is active.</div>
+          <div>
+            <div class="label">Default Focus</div>
+            <div id="liteFocusSummary" class="value">Loading...</div>
           </div>
-          <div class="lite-form-grid">
-            <label for="displayTimezoneLite" class="label">Display Timezone</label>
-            <select id="displayTimezoneLite"></select>
-            <div class="label">Changes how pass times are shown on this lite view.</div>
+        </div>
+        <div class="lite-utility-row">
+          <div>
+            <div class="label">Lite mode is telemetry-only. Video controls are available in kiosk views.</div>
+            <div id="liteTrackedSummary" class="label"></div>
           </div>
-        </details>
+          <a href="/lite/settings" class="lite-nav-link lite-utility-button">Lite Settings</a>
+        </div>
       </section>
 
       <section class="lite-grid">
@@ -100,6 +79,9 @@
                 <circle cx="120" cy="120" r="58" class="plot-ring-inner"></circle>
                 <line x1="120" y1="12" x2="120" y2="228" class="plot-axis"></line>
                 <line x1="12" y1="120" x2="228" y2="120" class="plot-axis"></line>
+                <path id="liteTrackPathFaded" class="plot-pass-path plot-pass-path-faded" d=""></path>
+                <path id="liteTrackPathPast" class="plot-pass-path plot-pass-path-past" d=""></path>
+                <path id="liteTrackPathFuture" class="plot-pass-path plot-pass-path-future" d=""></path>
                 <line id="liteVector" x1="120" y1="120" x2="120" y2="120" class="plot-vector"></line>
                 <circle id="liteDot" cx="120" cy="120" r="7" class="plot-dot"></circle>
                 <circle cx="120" cy="120" r="4" class="plot-center"></circle>
@@ -137,6 +119,7 @@
           </div>
         </div>
         <div id="freqRows" class="lite-freq-list"></div>
+      </section>
       </section>
     </main>
   </body>
