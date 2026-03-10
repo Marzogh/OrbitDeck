@@ -18,6 +18,7 @@ Detailed install/build/run instructions:
 Documentation site tooling:
 - `mkdocs.yml` config at the repo root
 - local docs build guide in [docs/local-build.md](docs/local-build.md)
+- beginner/operator guides in `docs/guide/`
 
 ## Where This Runs
 

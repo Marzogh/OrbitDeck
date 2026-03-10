@@ -15,6 +15,10 @@ nav:
   - Home: index.md
   - Getting Started:
       - Quick Start: guide/quickstart.md
+      - First Hour: guide/first-hour.md
+      - Common Tasks: guide/common-tasks.md
+      - Core Concepts: guide/concepts.md
+      - Glossary: guide/glossary.md
       - Platforms: guide/platforms.md
       - UI Surfaces: guide/ui-surfaces.md
       - Lite Mode: guide/lite-mode.md
@@ -25,6 +29,7 @@ nav:
       - Settings Models: api/settings.md
   - Operations:
       - Install / Build / Run: INSTALL_AND_RUN.md
+      - Troubleshooting: operations/troubleshooting.md
       - Runtime Data and Caching: operations/runtime-data.md
       - Maintainer Guide: operations/maintainer.md
   - Docs Contributing Guide: CONTRIBUTING.md

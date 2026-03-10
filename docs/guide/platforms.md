@@ -30,6 +30,13 @@ Raspberry Pi is the intended kiosk target. The repo includes:
 - `scripts/pi_kiosk.service` for kiosk browser startup
 - `scripts/network_fallback.sh` for AP fallback behavior
 
+On a normal Pi deployment, the common pattern is:
+
+1. boot the Pi
+2. start the FastAPI service
+3. launch the kiosk browser locally
+4. access `/lite` or `/lite/settings` remotely from a phone when you are away from the Pi display
+
 ## Pi Zero
 
 Pi Zero-class hardware uses automatic lite-only routing.

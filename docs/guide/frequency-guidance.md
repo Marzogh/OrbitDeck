@@ -1,6 +1,6 @@
 # Frequency Guidance
 
-OrbitDeck computes operator-facing Doppler guidance, but it does not control radios.
+OrbitDeck computes tuning advice for satellite passes, but it does not control radios.
 
 ## Shared model
 
@@ -21,6 +21,11 @@ Depending on the satellite and pass context, OrbitDeck can return:
 - a phase-aware guide matrix for linear transponders
 - context-sensitive selected columns for active pass state
 
+Examples:
+
+- ISS APRS-style operation usually resolves to a single FM recommendation
+- FO-29 style linear operation can expose a phase matrix that stays stable across the pass while the selected phase changes
+
 The main API route is:
 
 - `GET /api/v1/frequency-guides/recommendation`
@@ -33,3 +38,5 @@ OrbitDeck is intentionally receive-only. It does not perform:
 - rotor control
 - PTT automation
 - transmit frequency programming
+
+That distinction matters for beginners: OrbitDeck tells you what is likely useful to tune, but you still have to do the tuning yourself or use separate radio software.

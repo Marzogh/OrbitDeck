@@ -25,12 +25,16 @@ The lite settings endpoint enforces:
 - at least one valid tracked satellite
 - at most 8 tracked satellites
 
+The available satellite list is returned with the settings response so the frontend can build a valid picker without a second catalog-specific UI contract.
+
 ### GPS settings
 
 GPS settings define how Pi GPS hardware should be configured. Supported connection shapes in the current model are:
 
 - USB serial
 - Bluetooth
+
+These settings are configuration only. A separate process still has to feed live GPS coordinates into location state if you want live GPS-derived position updates.
 
 ### Developer overrides
 
