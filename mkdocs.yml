@@ -1,0 +1,52 @@
+site_name: OrbitDeck
+site_description: Cross-platform amateur satellite operations dashboard documentation
+site_url: https://marzogh.github.io/OrbitDeck/
+repo_url: https://github.com/Marzogh/OrbitDeck
+repo_name: Marzogh/OrbitDeck
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+exclude_docs: |
+  *log.md
+  *proposal*.md
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Quick Start: guide/quickstart.md
+      - Platforms: guide/platforms.md
+      - UI Surfaces: guide/ui-surfaces.md
+      - Lite Mode: guide/lite-mode.md
+      - Frequency Guidance: guide/frequency-guidance.md
+  - API Reference:
+      - Overview: api/index.md
+      - HTTP API: api/http-api.md
+      - Settings Models: api/settings.md
+  - Operations:
+      - Install / Build / Run: INSTALL_AND_RUN.md
+      - Runtime Data and Caching: operations/runtime-data.md
+      - Maintainer Guide: operations/maintainer.md
+  - Docs Contributing Guide: CONTRIBUTING.md
+  - Docs Tooling:
+      - Local Build Guide: local-build.md
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - tables
+  - fenced_code
+  - attr_list
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Marzogh/OrbitDeck

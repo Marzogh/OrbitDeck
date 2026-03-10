@@ -9,7 +9,9 @@ OrbitDeck uses one Python codebase across macOS and Raspberry Pi.
 - Standard UI surfaces in non-lite-only deployments: rotator landing (`/`), kiosk (`/kiosk`), lite (`/lite`), rotator (`/kiosk-rotator`), and settings (`/settings`)
 - Lite also has a dedicated settings route at `/lite/settings`
 
-For the short version, start with the [README](../README.md). This guide goes deeper on installation and deployment.
+For the short version, start with the [docs home](index.md). This guide goes deeper on installation and deployment.
+
+OrbitDeck also includes a MkDocs-based documentation site. For local docs preview and build commands, see [local-build.md](local-build.md).
 
 ## 1) Prerequisites
 

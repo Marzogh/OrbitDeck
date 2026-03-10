@@ -15,6 +15,10 @@ macOS is supported for local development and windowed use, and this project has 
 Detailed install/build/run instructions:
 - [docs/INSTALL_AND_RUN.md](docs/INSTALL_AND_RUN.md)
 
+Documentation site tooling:
+- `mkdocs.yml` config at the repo root
+- local docs build guide in [docs/local-build.md](docs/local-build.md)
+
 ## Where This Runs
 
 ### macOS
@@ -211,6 +215,31 @@ Validation status:
 - OrbitDeck has been exercised on macOS in development mode
 - macOS support is framed as desktop/windowed operation, not full kiosk deployment parity with Raspberry Pi
 - Raspberry Pi remains the primary kiosk deployment target
+
+## Documentation Site
+
+OrbitDeck also ships a MkDocs Material documentation site similar to the SPIMemory docs layout.
+
+Local preview:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r docs/requirements.txt
+mkdocs serve
+```
+
+Production build:
+
+```bash
+mkdocs build --strict
+```
+
+GitHub Pages publishing:
+
+- source lives on `main`
+- built output is published by GitHub Actions to the repository Pages site
+- the generated `site/` directory is intentionally not committed
 
 ## Notes
 
