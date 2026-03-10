@@ -3,8 +3,10 @@
 OrbitDeck is a cross-platform, receive-only amateur-satellite operations dashboard. It combines live tracking, pass prediction, RF metadata, ISS visibility/video state, and AMSAT operational-status comparison behind a FastAPI backend with multiple web UIs.
 
 OrbitDeck currently supports:
-- kiosk UI at `/`
+- rotator/operator landing UI at `/`
+- kiosk UI at `/kiosk`
 - lite/mobile UI at `/lite`
+- lite settings UI at `/lite/settings`
 - rotator/operator UI at `/kiosk-rotator`
 - settings UI at `/settings`
 
@@ -32,17 +34,21 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 ### Pi Zero
 - Supported as a low-power lite deployment target
 - Lite-only routing is enforced automatically by device detection
+- Lite now uses a first-run tracked-satellite setup and a bounded tracked list of up to 8 satellites
 
 ## Capabilities
 
 ### Tracking and pass operations
 - Live satellite tracks from the current observer location
-- Pass prediction for amateur satellites, with ISS-only or favorites-based filtering
+- Pass prediction for amateur satellites, with ISS-only or favorites-based filtering in kiosk mode
+- Lite mode uses a bounded tracked-satellite list of up to 8 satellites to limit CPU work on low-power hardware
 - Track-path sampling for sky/compass views and pass previews
 - Amateur-satellite catalog filtering with cached fallback data
 
 ### Radio and operational data
 - RF metadata merged from cached catalog data and source refreshes
+- Shared Doppler-aware frequency guidance across kiosk, rotator, and lite
+- Frequency recommendations support FM and linear satellites, including phase-aware guide matrices for linear transponders
 - AMSAT operational-status comparison cached from `amsat.org/status`
 - ISS visibility and stream-eligibility state, including telemetry-only mode
 
@@ -57,6 +63,8 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 - Main kiosk screen for large displays
 - Rotator/operator screen for tracking-focused presentation, including the pass globe/hemisphere view and radio-ops telemetry layout
 - Lite/mobile screen optimized for remote use on phones and low-powered devices
+- Separate lite settings screen for tracked satellites, focus, timezone, and location/GPS configuration
+- Lite includes a first-run setup gate, a single focus-card sky compass, and selected-pass AOS cues for upcoming passes
 - Lite offline shell/API caching with stale snapshot fallback behavior
 
 ### Developer mode
@@ -75,8 +83,10 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 ```
 
 Open:
-- Kiosk UI: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
+- Rotator landing UI: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
+- Kiosk UI: [http://127.0.0.1:8000/kiosk](http://127.0.0.1:8000/kiosk)
 - Lite UI: [http://127.0.0.1:8000/lite](http://127.0.0.1:8000/lite)
+- Lite settings UI: [http://127.0.0.1:8000/lite/settings](http://127.0.0.1:8000/lite/settings)
 - Rotator UI: [http://127.0.0.1:8000/kiosk-rotator](http://127.0.0.1:8000/kiosk-rotator)
 - Settings UI: [http://127.0.0.1:8000/settings](http://127.0.0.1:8000/settings)
 - API docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
@@ -97,9 +107,11 @@ python3 scripts/run_tracker.py --mode kiosk --ui kiosk --host 0.0.0.0 --port 800
 ```
 
 Open from another device on your network:
-- Kiosk UI: `http://<pi-ip>:8000/`
+- Rotator landing UI: `http://<pi-ip>:8000/`
+- Kiosk UI: `http://<pi-ip>:8000/kiosk`
 - Lite UI: `http://<pi-ip>:8000/lite`
 - Rotator UI: `http://<pi-ip>:8000/kiosk-rotator`
+- Settings UI: `http://<pi-ip>:8000/settings`
 - API docs: `http://<pi-ip>:8000/docs`
 
 ### Direct `uvicorn` alternative
@@ -118,8 +130,10 @@ Use the launcher when you want browser-open behavior. Use direct `uvicorn` when 
 OrbitDeck exposes a broader API than the UI uses directly. Full schema details are available at `/docs`.
 
 ### UI routes
-- `/` main kiosk UI
+- `/` rotator/operator landing UI
+- `/kiosk` main kiosk UI
 - `/lite` lite/mobile UI
+- `/lite/settings` lite settings UI
 - `/settings` kiosk settings UI, or lite on Pi Zero-class devices
 - `/kiosk-rotator` rotator/operator UI, or lite on Pi Zero-class devices
 
@@ -130,12 +144,15 @@ OrbitDeck exposes a broader API than the UI uses directly. Full schema details a
 ### Tracking and catalog data
 - `GET /api/v1/satellites`
 - `GET /api/v1/live`
+- `GET /api/v1/lite/snapshot`
 - `GET /api/v1/passes`
 - `GET /api/v1/track/path`
 - `GET /api/v1/iss/state`
+- `GET /api/v1/frequency-guides/recommendation`
 
 ### Settings and configuration
 - `GET/POST /api/v1/settings/iss-display-mode`
+- `GET/POST /api/v1/settings/lite`
 - `GET/POST /api/v1/settings/timezone`
 - `GET/POST /api/v1/settings/developer-overrides`
 - `GET/POST /api/v1/settings/pass-filter`
@@ -156,6 +173,22 @@ OrbitDeck exposes a broader API than the UI uses directly. Full schema details a
 - Satellite catalog refresh can use remote sources with cached fallback data
 - AMSAT operational-status refresh is throttled to a minimum 12-hour interval
 - Lite mode keeps a cached shell/API snapshot strategy for remote/mobile use when connectivity is unreliable
+- Lite snapshot requests are bounded to the configured tracked satellites instead of the full amateur catalog
+
+## Lite Mode Notes
+
+- On first run, lite mode asks the user to select up to 8 tracked satellites before showing the dashboard
+- `ISS (ZARYA)` is preselected by default, but the tracked list can be changed later from lite detailed settings
+- Lite settings live at `/lite/settings` and expose tracked satellites, default focus, timezone, and location/GPS controls
+- Tapping a pass or radio card loads that satellite into the lite focus card
+- For upcoming selected passes, the lite compass shows an AOS cue until the pass begins, then switches to live az/el tracking
+
+## Frequency Guidance
+
+- OrbitDeck computes receive/operator Doppler guidance but does not control radios
+- Kiosk, rotator, and lite all use the same backend frequency model
+- FM-style satellites expose a single recommendation, while linear satellites can also expose a phase matrix across the pass
+- The dedicated API entrypoint for this model is `GET /api/v1/frequency-guides/recommendation`
 
 ## Testing and Validation
 

@@ -5,7 +5,9 @@ OrbitDeck uses one Python codebase across macOS and Raspberry Pi.
 - macOS: supported for local development and windowed use, and tested in that mode
 - Raspberry Pi: intended kiosk deployment target
 - Pi Zero-class hardware: automatically serves lite mode instead of the full kiosk and rotator surfaces
-- Standard UI surfaces in non-lite-only deployments: kiosk (`/`), lite (`/lite`), rotator (`/kiosk-rotator`), and settings (`/settings`)
+- Pi Zero-class lite mode uses a first-run tracked-satellite setup and limits tracking work to a bounded set of up to 8 satellites
+- Standard UI surfaces in non-lite-only deployments: rotator landing (`/`), kiosk (`/kiosk`), lite (`/lite`), rotator (`/kiosk-rotator`), and settings (`/settings`)
+- Lite also has a dedicated settings route at `/lite/settings`
 
 For the short version, start with the [README](../README.md). This guide goes deeper on installation and deployment.
 
@@ -43,8 +45,10 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 ```
 
 Useful local URLs:
-- Kiosk UI: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
+- Rotator landing UI: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
+- Kiosk UI: [http://127.0.0.1:8000/kiosk](http://127.0.0.1:8000/kiosk)
 - Lite UI: [http://127.0.0.1:8000/lite](http://127.0.0.1:8000/lite)
+- Lite settings UI: [http://127.0.0.1:8000/lite/settings](http://127.0.0.1:8000/lite/settings)
 - Rotator UI: [http://127.0.0.1:8000/kiosk-rotator](http://127.0.0.1:8000/kiosk-rotator)
 - Settings UI: [http://127.0.0.1:8000/settings](http://127.0.0.1:8000/settings)
 - API docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
@@ -83,7 +87,8 @@ python3 scripts/run_tracker.py --mode kiosk --ui kiosk --host 0.0.0.0 --port 800
 ```
 
 Open from another device on the network:
-- Kiosk UI: `http://<pi-ip>:8000/`
+- Rotator landing UI: `http://<pi-ip>:8000/`
+- Kiosk UI: `http://<pi-ip>:8000/kiosk`
 - Lite UI: `http://<pi-ip>:8000/lite`
 - Rotator UI: `http://<pi-ip>:8000/kiosk-rotator`
 - Settings UI: `http://<pi-ip>:8000/settings`
@@ -99,6 +104,13 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ### Pi Zero behavior
 
 On Pi Zero-class hardware, OrbitDeck routes `/`, `/settings`, and `/kiosk-rotator` to the lite UI automatically. `/lite` remains available directly on all hardware.
+
+Lite behavior on low-power hardware:
+- first run opens a setup gate before the dashboard
+- the user chooses up to 8 tracked satellites
+- lite requests only compute passes and live tracking for that bounded set
+- lite settings are managed at `/lite/settings`
+- tapping an upcoming pass loads an AOS cue into the lite focus compass
 
 ## 5) Raspberry Pi production install with systemd
 
@@ -169,6 +181,12 @@ Refresh behavior:
 - `GET /api/v1/satellites?refresh_from_sources=true`
   - attempts to pull fresh CelesTrak + SatNOGS data
   - also tries ephemeris and AMSAT status refresh where allowed
+- `GET /api/v1/lite/snapshot`
+  - returns the bounded lite dashboard snapshot
+  - computes only the configured tracked satellites plus ISS state when needed
+- `GET /api/v1/frequency-guides/recommendation`
+  - returns Doppler-aware operator guidance for a single satellite
+  - can also return a linear-pass phase matrix when the selected satellite supports it
 - `POST /api/v1/datasets/refresh`
   - triggers the manual refresh flow
 - AMSAT refresh is throttled to a minimum 12-hour interval
@@ -180,25 +198,35 @@ If remote refresh fails, cached catalog data remains active.
 
 UI routes:
 - `/`
+- `/kiosk`
 - `/lite`
+- `/lite/settings`
 - `/settings`
 - `/kiosk-rotator`
 
 Settings UI:
 - exposes ISS display mode, tracked satellite selection, pass filters, location-source inputs, timezone, video source overrides, and kiosk developer override controls
 - includes direct navigation back to the kiosk and rotator screens
+- on Pi Zero-class hardware, `/settings` resolves to the lite surface instead of the kiosk settings page
+
+Lite settings UI:
+- exposes tracked satellites, default focus, timezone, location source, and Pi GPS connection details
+- is the main low-power-device configuration surface for lite mode
 
 Core APIs:
 - `GET /health`
 - `GET /api/v1/system/state`
 - `GET /api/v1/satellites`
 - `GET /api/v1/live`
+- `GET /api/v1/lite/snapshot`
 - `GET /api/v1/passes`
 - `GET /api/v1/track/path`
 - `GET /api/v1/iss/state`
+- `GET /api/v1/frequency-guides/recommendation`
 
 Settings/config APIs:
 - `GET/POST /api/v1/settings/iss-display-mode`
+- `GET/POST /api/v1/settings/lite`
 - `GET/POST /api/v1/settings/timezone`
 - `GET/POST /api/v1/settings/developer-overrides`
 - `GET/POST /api/v1/settings/pass-filter`
@@ -235,6 +263,8 @@ node --check app/static/kiosk/rotator.js
 
 - OrbitDeck is receive-only: no rotor/PTT/CAT/transmit control is included
 - The rotator globe/hemisphere view depends on `app/static/common/hemisphere.js` and `app/static/common/hemisphere-land.js`
+- Kiosk, rotator, and lite all use the same shared Doppler/frequency-guidance backend model
 - Kiosk developer overrides are intended for debugging and demo control of rotator scenes
 - The `references/` tree is design and research material, not a runtime dependency
 - When README changes alter run/support guidance, this guide should be updated in the same change
+- If lite frontend changes add new API routes, restart the FastAPI process so the browser and backend stay on the same revision
