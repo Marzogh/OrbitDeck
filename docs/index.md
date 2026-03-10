@@ -1,20 +1,20 @@
 # OrbitDeck
 
-OrbitDeck is a cross-platform dashboard for following amateur radio satellites. It shows where satellites are, when they will pass overhead, what frequencies are useful, and how the different web screens fit together.
+OrbitDeck is a cross-platform dashboard for amateur radio satellites. It provides pass timing, tracking, frequency guidance, and multiple web surfaces backed by one FastAPI service.
 
-This documentation set is meant for:
+This documentation set covers:
 
-- people trying to install and use OrbitDeck on macOS or Raspberry Pi
-- contributors who want to understand how the app is put together
+- installation and operation on macOS and Raspberry Pi
+- implementation details relevant to contributors
 
 ## Start Here
 
 - Use [Quick Start](guide/quickstart.md) to get a local instance running quickly.
-- Use [First Hour](guide/first-hour.md) if you want a beginner walkthrough from first boot to first real pass workflow.
+- Use [First Hour](guide/first-hour.md) for a first-run workflow from startup to pass tracking.
 - Use [Common Tasks](guide/common-tasks.md) for the everyday operator actions.
 - Use [Core Concepts](guide/concepts.md) when you want the app explained in plain terms.
 - Use [Glossary](guide/glossary.md) if a radio or satellite term is unfamiliar.
-- Use [Platforms](guide/platforms.md) if you want the macOS vs Raspberry Pi behavior spelled out.
+- Use [Platforms](guide/platforms.md) for the macOS and Raspberry Pi deployment model.
 - Use [UI Surfaces](guide/ui-surfaces.md) to understand what `/`, `/kiosk`, `/lite`, `/lite/settings`, and `/settings` are each for.
 - Use [HTTP API](api/http-api.md) for the current public route map.
 

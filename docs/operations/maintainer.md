@@ -47,7 +47,7 @@ mkdocs build --strict
 
 When adding or changing product docs, aim for both of these at the same time:
 
-- simple enough that a beginner can get through installation and first use without reading code
+- clear enough that installation and first use do not require reading source code
 - detailed enough that an advanced user can understand the actual runtime and API behavior
 
 If a page only lists routes or only describes broad marketing behavior, it is probably not detailed enough yet.

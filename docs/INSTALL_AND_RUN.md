@@ -18,13 +18,13 @@ OrbitDeck also includes a MkDocs-based documentation site. For local docs previe
 ### macOS
 - Python 3.11+
 - Any modern browser
-- Network access if you want fresh catalog/AMSAT refreshes
+- Network access for fresh catalog and AMSAT refreshes
 
 ### Raspberry Pi
 - Raspberry Pi OS Bookworm or similar Linux desktop environment
 - Python 3.11+
 - Chromium browser for kiosk mode
-- Network access if you want fresh catalog/AMSAT refreshes
+- Network access for fresh catalog and AMSAT refreshes
 - Optional: GPS receiver and NetworkManager (`nmcli`) for AP fallback scripts
 
 ## 2) Clone and install
@@ -75,9 +75,7 @@ What has been tested on macOS:
 - local use of the settings route
 - API docs and local test workflow
 
-What macOS is not positioned as:
-- the primary kiosk deployment target
-- a full replacement for Raspberry Pi kiosk/browser automation
+macOS is not the primary kiosk deployment target and does not replace Raspberry Pi kiosk/browser automation.
 
 ## 4) Run on Raspberry Pi
 
@@ -263,7 +261,6 @@ node --check app/static/kiosk/rotator.js
 
 ## 10) Notes
 
-- OrbitDeck is receive-only: no rotor/PTT/CAT/transmit control is included
 - The rotator globe/hemisphere view depends on `app/static/common/hemisphere.js` and `app/static/common/hemisphere-land.js`
 - Kiosk, rotator, and lite all use the same shared Doppler/frequency-guidance backend model
 - Kiosk developer overrides are intended for debugging and demo control of rotator scenes

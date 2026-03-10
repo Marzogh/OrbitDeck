@@ -18,7 +18,7 @@ In simple terms: the moment the pass ends and the satellite drops below your hor
 
 `TCA` means `time of closest approach`.
 
-For OrbitDeck, this is usually the middle of the pass and often the highest or most useful point.
+In OrbitDeck, this is typically near the middle of the pass and often near the highest point.
 
 ## Azimuth
 
@@ -53,15 +53,15 @@ OrbitDeck helps by showing recommended frequencies during the pass.
 
 ## Rotator view
 
-This is OrbitDeck’s focused tracking screen. It is the view you use when you care about one active or upcoming pass.
+OrbitDeck screen centered on one active or upcoming pass.
 
 ## Kiosk view
 
-This is the broader dashboard screen. It is better when you want a station display or a summary view.
+OrbitDeck dashboard screen for station status and pass summary information.
 
 ## Lite view
 
-This is the mobile and low-power screen. It is designed for phones and Pi Zero-class hardware.
+OrbitDeck screen for phones and Pi Zero-class hardware.
 
 ## Tracked satellites
 
@@ -69,12 +69,8 @@ In lite mode, these are the satellites OrbitDeck is allowed to spend time comput
 
 ## Frequency guidance
 
-This is OrbitDeck’s tuning advice for a pass.
-
-It shows what frequency is likely useful right now, but it does not control your radio for you.
+OrbitDeck tuning guidance for a pass.
 
 ## AMSAT status
 
-This is OrbitDeck’s comparison against recent reports from the AMSAT status site.
-
-It is helpful as a clue, but it is not a promise that a satellite will definitely be usable on your next pass.
+OrbitDeck comparison against recent reports from the AMSAT status site.

@@ -1,8 +1,6 @@
 # Quick Start
 
-## Who this is for
-
-Use this page if you want the shortest path from clone to a running OrbitDeck instance. If you want more explanation while doing it, continue with [First Hour](first-hour.md).
+This page provides the shortest path from clone to a running OrbitDeck instance. For a full first-run workflow, continue with [First Hour](first-hour.md).
 
 ## macOS
 
@@ -25,7 +23,7 @@ Open:
 - Settings UI: <http://127.0.0.1:8000/settings>
 - API docs: <http://127.0.0.1:8000/docs>
 
-After the server opens, these are the most useful first clicks:
+Initial routes to check:
 
 1. `/` for the rotator landing view
 2. `/lite/settings` to set location and tracked satellites
@@ -59,11 +57,11 @@ python3 -m pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Use the launcher when you want OrbitDeck to open a browser window for you. Use direct `uvicorn` when you only want the API server.
+Use the launcher for browser-opening behavior. Use direct `uvicorn` for the API server only.
 
-## Quick sanity checklist
+## Verification
 
-If OrbitDeck is working, all of these should be true:
+Expected results:
 
 - `/health` returns `{"ok": true, ...}`
 - `/docs` opens FastAPI Swagger UI

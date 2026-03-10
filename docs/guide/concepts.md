@@ -2,46 +2,34 @@
 
 OrbitDeck is easier to use once a few design choices are clear.
 
-## Receive-only by design
+## OrbitDeck scope
 
-OrbitDeck is not a rig controller.
+OrbitDeck provides:
 
-It does:
-
-- track satellites
-- predict passes
-- calculate operator-friendly frequency guidance
-- surface AMSAT status comparisons
-- provide mobile and kiosk dashboards
-
-It does not do:
-
-- CAT control
-- rotor control
-- PTT
-- transmit automation
+- satellite tracking
+- pass prediction
+- frequency guidance
+- AMSAT status comparison
+- kiosk, rotator, and lite dashboards
 
 ## Rotator vs kiosk vs lite
 
-These are not duplicate skins.
+- `rotator` presents the active or upcoming pass as the primary object on screen
+- `kiosk` presents broader station state and pass summary information
+- `lite` presents a bounded subset of state for phones and low-power hardware
 
-- `rotator` is the focused tracking view
-- `kiosk` is the broader dashboard
-- `lite` is the small, fast, mobile-oriented view
+## Lite tracked-satellite model
 
-If you document or debug OrbitDeck, keep those roles separate.
+Lite operates on a bounded tracked-satellite set.
 
-## Why lite tracks only a few satellites
+Relevant behavior:
 
-Lite is intentionally lighter than the full dashboard.
+- the tracked list is stored in `LiteSettings`
+- the backend accepts at most 8 valid tracked satellite IDs
+- `GET /api/v1/lite/snapshot` computes tracks and passes for that bounded set
+- the lite frontend layers browser caching on top of the bounded snapshot payload
 
-It works from:
-
-- a saved tracked-satellite list
-- a cached lite snapshot endpoint
-- aggressive UI-side caching and stale-state messaging
-
-That is why lite can stay useful on Pi Zero-class hardware and from a phone over a weak network link.
+This model is the basis for lite operation on Pi Zero-class hardware and mobile clients.
 
 ## Pass filtering vs tracked satellites
 
@@ -55,9 +43,9 @@ This controls which satellites appear in the kiosk pass workflow.
 
 This controls which satellites lite is even allowed to compute and display.
 
-Do not treat these as the same feature.
+They are independent settings with different effects.
 
-## Why ISS gets special treatment
+## ISS state handling
 
 OrbitDeck always treats ISS as a special case because it drives:
 
@@ -67,17 +55,13 @@ OrbitDeck always treats ISS as a special case because it drives:
 
 Even when lite is tracking other satellites, ISS-related state can still appear where needed.
 
-## AMSAT status is a clue, not a guarantee
+## AMSAT status model
 
-OrbitDeck enriches satellites with AMSAT status comparisons. That is useful, but it is still a summary based on reports:
+OrbitDeck enriches satellites with AMSAT status summaries derived from recent reports. Those summaries are cached and refresh-limited.
 
-- helpful for deciding what may be active
-- not a guarantee that a pass will be usable
-- intentionally cached and refresh-limited
+## Frequency guidance model
 
-## Frequency guidance is advice, not control
-
-The frequency recommendation system computes what a person probably wants to tune. It does not drive a radio.
+The frequency recommendation system computes the frequencies associated with the current pass state and selected profile.
 
 Important distinctions:
 

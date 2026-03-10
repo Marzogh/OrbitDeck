@@ -1,6 +1,6 @@
 # First Hour
 
-This walkthrough is for someone who has just cloned OrbitDeck and wants to get from "the server starts" to "I know which screen to use and what I am looking at."
+This walkthrough covers the first-run path from server startup to pass tracking.
 
 ## 0-10 minutes: Start the server
 
@@ -13,7 +13,7 @@ python3 -m pip install -r requirements.txt
 python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --port 8000
 ```
 
-If that command works, OrbitDeck is running. The launcher should open a browser window. If it does not, open these manually:
+After startup, the launcher should open a browser window. If it does not, open these routes manually:
 
 - <http://127.0.0.1:8000/>
 - <http://127.0.0.1:8000/kiosk>
@@ -26,7 +26,7 @@ Open each of these once:
 
 ### Rotator landing: `/`
 
-Use this when you want the focused tracking view. This is the best screen for:
+Primary uses:
 
 - tracking one current or upcoming pass
 - seeing where the pass moves through the sky
@@ -34,11 +34,11 @@ Use this when you want the focused tracking view. This is the best screen for:
 
 ### Kiosk dashboard: `/kiosk`
 
-Use this when you want a broader status dashboard on a larger display.
+This route presents broader status information on larger displays.
 
 ### Lite: `/lite`
 
-Use this when you want:
+Primary uses:
 
 - a phone-friendly remote screen
 - a Pi Zero-friendly screen
@@ -46,7 +46,7 @@ Use this when you want:
 
 ## 20-35 minutes: Set the location correctly
 
-OrbitDeck is only useful if your location is correct.
+OrbitDeck pass and track output depends on a correct observer location.
 
 ### On the full settings screen
 
@@ -92,9 +92,9 @@ Use this checklist:
 
 If those steps work, the main user journey is healthy.
 
-## What success looks like
+## Verification Checklist
 
-By the end of the first hour, you should be able to answer these questions:
+Expected outcomes:
 
 - which OrbitDeck screen is for which job
 - where OrbitDeck is getting its observer location from

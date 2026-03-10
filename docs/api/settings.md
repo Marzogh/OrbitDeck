@@ -34,7 +34,7 @@ GPS settings define how Pi GPS hardware should be configured. Supported connecti
 - USB serial
 - Bluetooth
 
-These settings are configuration only. A separate process still has to feed live GPS coordinates into location state if you want live GPS-derived position updates.
+These settings define the connection parameters only. Live GPS coordinates still have to be written into location state by a separate process.
 
 ### Developer overrides
 

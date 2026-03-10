@@ -16,10 +16,7 @@ What has been exercised on macOS:
 - the kiosk, rotator, lite, and settings routes
 - the local pytest workflow
 
-What macOS is not positioned as:
-
-- the primary kiosk deployment target
-- a replacement for Raspberry Pi boot-time kiosk/browser automation
+macOS is not the kiosk deployment target and does not replace Raspberry Pi boot-time kiosk/browser automation.
 
 ## Raspberry Pi
 
@@ -49,3 +46,5 @@ In practice that means:
 - the bounded lite tracked-satellite workflow is used to keep compute load down
 
 The detection can be overridden for testing with `ISS_TRACKER_DEVICE_CLASS=pi-zero` or `ISS_TRACKER_DEVICE_CLASS=standard`.
+
+For the exact route gating behavior and the developer override model, see [Device Routing and Debug Overrides](../api/device-and-debug.md).

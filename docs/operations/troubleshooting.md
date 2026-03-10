@@ -1,6 +1,6 @@
 # Troubleshooting
 
-This page is for the most common "it runs, but not correctly" situations.
+This page covers the most common cases where OrbitDeck starts but does not behave as expected.
 
 ## The server starts, but the UI looks wrong or old
 
@@ -19,7 +19,7 @@ Try:
 
 ## Lite shows cached data instead of live data
 
-That is expected when the phone cannot currently reach the Pi.
+This is expected when the phone cannot currently reach the Pi.
 
 Check:
 
@@ -32,16 +32,16 @@ Important behavior:
 - after 12 hours, lite warns strongly that data is stale
 - after 24 hours, pass timing should be treated as reference only
 
-## No useful passes appear in lite
+## No passes appear in lite
 
 Check:
 
 1. tracked satellites were actually saved in `/lite/settings`
 2. the selected location is correct
 3. the satellites you chose actually have upcoming passes from that location
-4. lite is not simply outside the next qualifying pass window
+4. lite is not outside the next qualifying pass window
 
-Also remember that lite and rotator apply filtering rules to keep the queue useful rather than overwhelming.
+Lite and rotator apply filtering rules to the queue output.
 
 ## The pass list is empty in kiosk
 
@@ -52,7 +52,7 @@ Check the pass filter profile in `/settings`.
 
 ## GPS mode is selected, but nothing updates
 
-At the moment, OrbitDeck stores GPS configuration and uses GPS location state if it is present. It does not yet include a full GPS daemon or reader in this repo.
+OrbitDeck stores GPS configuration and uses GPS location state if it is present. This repo does not include a GPS daemon or reader process.
 
 So verify:
 

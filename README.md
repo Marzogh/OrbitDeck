@@ -1,6 +1,6 @@
 # OrbitDeck
 
-OrbitDeck is a cross-platform, receive-only amateur-satellite operations dashboard. It combines live tracking, pass prediction, RF metadata, ISS visibility/video state, and AMSAT operational-status comparison behind a FastAPI backend with multiple web UIs.
+OrbitDeck is a cross-platform amateur-satellite operations dashboard. It combines live tracking, pass prediction, RF metadata, ISS visibility/video state, and AMSAT operational-status comparison behind a FastAPI backend with multiple web UIs.
 
 OrbitDeck currently supports:
 - rotator/operator landing UI at `/`
@@ -18,7 +18,7 @@ Detailed install/build/run instructions:
 Documentation site tooling:
 - `mkdocs.yml` config at the repo root
 - local docs build guide in [docs/local-build.md](docs/local-build.md)
-- beginner/operator guides in `docs/guide/`
+- user and operator guides in `docs/guide/`
 
 ## Where This Runs
 
@@ -190,7 +190,7 @@ OrbitDeck exposes a broader API than the UI uses directly. Full schema details a
 
 ## Frequency Guidance
 
-- OrbitDeck computes receive/operator Doppler guidance but does not control radios
+- OrbitDeck computes operator Doppler guidance across kiosk, rotator, and lite
 - Kiosk, rotator, and lite all use the same backend frequency model
 - FM-style satellites expose a single recommendation, while linear satellites can also expose a phase matrix across the pass
 - The dedicated API entrypoint for this model is `GET /api/v1/frequency-guides/recommendation`
@@ -244,7 +244,6 @@ GitHub Pages publishing:
 
 ## Notes
 
-- OrbitDeck is receive-only: no CAT, PTT, rotor control, or transmit automation is included
 - Pi service units and kiosk/network helpers are in `scripts/`:
   - `orbitdeck_api.service`
   - `pi_kiosk.service`

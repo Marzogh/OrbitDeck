@@ -1,14 +1,14 @@
 # Common Tasks
 
-This page is for everyday tasks once OrbitDeck is already running.
+This page covers routine operating tasks once OrbitDeck is already running.
 
 ## Check whether a satellite is worth watching
 
-Use one of these:
+Relevant surfaces:
 
 - `/lite` if you are on a phone or Pi Zero
-- `/` if you want the focused tracking view
-- `/api/v1/satellites` if you want the raw metadata
+- `/` for the tracking view
+- `/api/v1/satellites` for raw metadata
 
 What to look for:
 
@@ -41,7 +41,7 @@ AMSAT summaries are grouped as:
 
 ## Change the observer location
 
-### Fastest options
+### Common options
 
 - use browser geolocation from lite settings
 - enter manual coordinates
@@ -54,7 +54,7 @@ AMSAT summaries are grouped as:
 
 ## Refresh remote source data
 
-If you want a manual data refresh instead of waiting for the normal background cycle:
+For a manual data refresh instead of waiting for the normal background cycle:
 
 - use `POST /api/v1/datasets/refresh`
 - or call `GET /api/v1/satellites?refresh_from_sources=true`
@@ -84,7 +84,7 @@ Profiles:
 - `IssOnly`
 - `Favorites`
 
-This behavior is different from lite. Lite uses a small saved tracking list. Kiosk uses a pass filter.
+This behavior differs from lite. Lite uses a saved tracked-satellite list. Kiosk uses a pass filter.
 
 ## Inspect a Doppler recommendation directly
 
@@ -94,14 +94,14 @@ Use:
 curl "http://127.0.0.1:8000/api/v1/frequency-guides/recommendation?sat_id=iss-zarya"
 ```
 
-Use this when you want the raw recommendation without reading it through the UI.
+Use this endpoint when you want the raw recommendation payload instead of the UI presentation.
 
 ## Record a dataset snapshot
 
-If you want a snapshot entry stored in app state:
+To store a snapshot entry in app state:
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/v1/snapshots/record?source=merged&satellite_count=42"
 ```
 
-This is mostly useful for testing state persistence and cache history behavior.
+This endpoint is mainly used for testing state persistence and cache history behavior.

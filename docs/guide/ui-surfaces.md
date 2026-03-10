@@ -4,9 +4,9 @@ OrbitDeck has multiple web screens because the job is different on a wall displa
 
 ## `/`
 
-The default route serves the focused tracking screen on standard hardware.
+The default route serves the tracking screen on standard hardware.
 
-This is the tracking-focused screen. It emphasizes:
+Primary content:
 
 - active and upcoming pass telemetry
 - sky/hemisphere visualization
@@ -15,9 +15,9 @@ This is the tracking-focused screen. It emphasizes:
 
 ## `/kiosk`
 
-The kiosk UI is the large-display dashboard surface. It is better suited to passive monitoring and broad at-a-glance visibility than to pass-specific operator work.
+The kiosk UI is the large-display dashboard surface.
 
-Use kiosk when you want:
+Primary content:
 
 - a station display on a larger screen
 - ISS state visibility
@@ -25,7 +25,7 @@ Use kiosk when you want:
 
 ## `/kiosk-rotator`
 
-This is the explicit focused-tracking route. It uses the same presentation style as the default landing route on standard hardware, and is the safest direct link when you specifically want the tracking view.
+This route serves the same tracking screen as `/` on standard hardware.
 
 ## `/lite`
 
@@ -36,13 +36,11 @@ The lite UI is optimized for:
 - low-power hardware such as Pi Zero-class systems
 - intermittent connectivity
 
-Lite keeps a service-worker shell cache and a last-good local snapshot fallback.
-
-This is usually the best remote-control surface when the Pi is in another room or another enclosure.
+Lite uses a service-worker shell cache and a last-good local snapshot fallback.
 
 ## `/lite/settings`
 
-This is the lite-specific configuration surface. It exposes:
+This route serves the lite-specific configuration surface. It exposes:
 
 - tracked satellite selection
 - setup completion state

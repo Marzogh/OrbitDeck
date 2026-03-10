@@ -1,10 +1,10 @@
 # Frequency Guidance
 
-OrbitDeck computes tuning advice for satellite passes, but it does not control radios.
+OrbitDeck computes tuning guidance for satellite passes.
 
 ## Shared model
 
-Kiosk, rotator, and lite all use the same backend frequency-guidance model. That keeps:
+Kiosk, rotator, and lite all use the same backend frequency-guidance model. Shared outputs include:
 
 - downlink recommendations
 - uplink guidance
@@ -30,13 +30,6 @@ The main API route is:
 
 - `GET /api/v1/frequency-guides/recommendation`
 
-## What OrbitDeck does not do
+For the backend derivation rules, correction modes, phase model, and matrix behavior, see [Frequency Guidance Model](../api/frequency-guidance-model.md).
 
-OrbitDeck is intentionally receive-only. It does not perform:
-
-- CAT control
-- rotor control
-- PTT automation
-- transmit frequency programming
-
-That distinction matters for beginners: OrbitDeck tells you what is likely useful to tune, but you still have to do the tuning yourself or use separate radio software.
+OrbitDeck provides recommendation data for the current pass state. Tuning changes are made outside the OrbitDeck API surface.
