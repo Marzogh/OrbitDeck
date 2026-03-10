@@ -26,10 +26,10 @@ nav:
   - API Reference:
       - Overview: api/index.md
       - HTTP API: api/http-api.md
-      - Settings Models: api/settings.md
-      - Frequency Guidance Model: api/frequency-guidance-model.md
-      - Lite Snapshot Model: api/lite-snapshot-model.md
-      - AMSAT Status Model: api/amsat-status-model.md
+      - Settings: api/settings.md
+      - Frequency Guidance: api/frequency-guidance-model.md
+      - Lite Snapshot: api/lite-snapshot-model.md
+      - AMSAT Status: api/amsat-status-model.md
       - Device Routing and Debug Overrides: api/device-and-debug.md
   - Operations:
       - Install / Build / Run: INSTALL_AND_RUN.md

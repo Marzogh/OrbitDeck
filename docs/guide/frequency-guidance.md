@@ -30,6 +30,6 @@ The main API route is:
 
 - `GET /api/v1/frequency-guides/recommendation`
 
-For the backend derivation rules, correction modes, phase model, and matrix behavior, see [Frequency Guidance Model](../api/frequency-guidance-model.md).
+For the backend derivation rules, correction modes, phase handling, and matrix behavior, see [Frequency Guidance](../api/frequency-guidance-model.md).
 
 OrbitDeck provides recommendation data for the current pass state. Tuning changes are made outside the OrbitDeck API surface.

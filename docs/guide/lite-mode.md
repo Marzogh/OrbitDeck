@@ -56,4 +56,4 @@ Lite uses two client-side caching layers:
 
 The UI marks stale snapshot age so cached pass timing is distinguishable from live data.
 
-For the backend lite snapshot contract, in-memory cache key, and invalidation rules, see [Lite Snapshot Model](../api/lite-snapshot-model.md).
+For the backend lite snapshot contract, in-memory cache key, and invalidation rules, see [Lite Snapshot](../api/lite-snapshot-model.md).

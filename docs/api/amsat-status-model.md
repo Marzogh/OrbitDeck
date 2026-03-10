@@ -1,4 +1,4 @@
-# AMSAT Status Model
+# AMSAT Status
 
 This page documents the AMSAT status enrichment pipeline used by OrbitDeck.
 

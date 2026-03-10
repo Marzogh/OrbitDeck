@@ -1,4 +1,4 @@
-# Frequency Guidance Model
+# Frequency Guidance
 
 This page documents the backend model behind `GET /api/v1/frequency-guides/recommendation` and the frequency bundles included in other API responses.
 

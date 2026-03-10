@@ -1,4 +1,4 @@
-# Settings Models
+# Settings
 
 OrbitDeck persists most operator-facing configuration in app state.
 

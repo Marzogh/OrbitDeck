@@ -1,4 +1,4 @@
-# Lite Snapshot Model
+# Lite Snapshot
 
 This page documents the backend behavior behind `GET /api/v1/lite/snapshot`.
 
