@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OrbitDeck Lite Settings</title>
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260311c" />
+    <script defer src="/static/common/app.js?v=20260308n"></script>
+    <script defer src="/static/lite/settings.js?v=20260311e"></script>
+  </head>
+  <body class="lite">
+    <header class="lite-topbar">
+      <div>
+        <div class="scene-title">Remote Ops Lite</div>
+        <h1>Lite Settings</h1>
+      </div>
+      <a href="/lite" class="lite-nav-link">Back to Dashboard</a>
+    </header>
+    <main class="lite-shell">
+      <section class="card lite-controls-card">
+        <div class="scene-title">Tracked Satellites</div>
+        <div class="label">Choose up to 8 satellites for this low-power device. These drive lite tracking, passes, radio queue, and focus compass behavior.</div>
+        <div class="lite-form-grid">
+          <label for="liteTrackedSatSettings" class="label">Tracked Satellites</label>
+          <select id="liteTrackedSatSettings" multiple size="8"></select>
+          <div id="trackedSatHelp" class="label">ISS is selected by default, but you can save any bounded set supported by the catalog.</div>
+        </div>
+        <div class="controls">
+          <button id="saveTrackedSatSettings" type="button">Save Tracked Satellites</button>
+        </div>
+      </section>
+
+      <section class="card lite-controls-card">
+        <div class="scene-title">Focus and Time</div>
+        <div class="lite-form-grid">
+          <label for="focusSatSelectLite" class="label">Default Focus</label>
+          <select id="focusSatSelectLite"></select>
+          <div class="label">Used when no pass is actively selected from the dashboard.</div>
+        </div>
+        <div class="lite-form-grid">
+          <label for="displayTimezoneLite" class="label">Display Timezone</label>
+          <select id="displayTimezoneLite"></select>
+          <div class="label">Controls how lite dashboard pass and cue times are displayed.</div>
+        </div>
+      </section>
+
+      <section class="card lite-controls-card">
+        <div class="scene-title">Location</div>
+        <div class="lite-form-grid">
+          <label for="locationMode" class="label">Location Source</label>
+          <select id="locationMode">
+            <option value="current">Current Pi setting</option>
+            <option value="browser">Use this phone's location</option>
+            <option value="manual">Enter coordinates manually</option>
+            <option value="gps">Use Pi GPS receiver</option>
+          </select>
+          <div id="locationModeHelp" class="label">Uses the Raspberry Pi's current saved location source.</div>
+        </div>
+        <div id="manualCoords" class="lite-form-grid hidden">
+          <input id="lat" type="number" step="0.000001" placeholder="Latitude" />
+          <input id="lon" type="number" step="0.000001" placeholder="Longitude" />
+          <div id="manualHelp" class="label">Manual coordinates apply automatically after you finish entering them.</div>
+        </div>
+      </section>
+
+      <section id="gpsCardLite" class="card lite-controls-card hidden">
+        <div class="scene-title">GPS</div>
+        <div class="label">Only used when Location Source is set to Pi GPS receiver.</div>
+        <div id="gpsSetupLite">
+          <div class="lite-form-grid">
+            <label for="gpsConnectionModeLite" class="label">GPS Connection</label>
+            <select id="gpsConnectionModeLite">
+              <option value="usb">USB GPS</option>
+              <option value="bluetooth">Bluetooth GPS</option>
+            </select>
+            <div class="label">Choose how the Raspberry Pi connects to the GPS receiver.</div>
+          </div>
+          <div id="gpsUsbFieldsLite" class="lite-form-grid hidden">
+            <input id="gpsSerialDeviceLite" type="text" placeholder="/dev/ttyUSB0" />
+            <input id="gpsBaudRateLite" type="number" step="1" min="1200" max="115200" placeholder="9600" />
+            <div class="label">USB serial device and baud rate.</div>
+          </div>
+          <div id="gpsBluetoothFieldsLite" class="lite-form-grid hidden">
+            <input id="gpsBluetoothAddressLite" type="text" placeholder="AA:BB:CC:DD:EE:FF" />
+            <input id="gpsBluetoothChannelLite" type="number" step="1" min="1" max="30" placeholder="1" />
+            <div class="label">Bluetooth device address and RFCOMM channel.</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

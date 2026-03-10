@@ -9,20 +9,11 @@ const TRACKED_SAT_KEY = "kioskTrackedSatId";
 const VIDEO_SOURCES_KEY = "kioskVideoSources";
 const DEV_MODE_KEY = "kioskDevModeEnabled";
 const DEV_FORCE_SCENE_KEY = "kioskDevForceScene";
-const TIMEZONE_CHOICES = [
-  "BrowserLocal",
-  "UTC",
-  "Australia/Brisbane",
-  "Australia/Sydney",
-  "America/New_York",
-  "America/Los_Angeles",
-  "Europe/London",
-  "Asia/Tokyo",
-];
 const DEFAULT_VIDEO_SOURCES = [
   "https://www.youtube.com/embed/fO9e9jnhYK8?autoplay=1&mute=1&rel=0&modestbranding=1",
   "https://www.youtube.com/embed/sWasdbDVNvc?autoplay=1&mute=1&rel=0&modestbranding=1",
 ];
+let availableTimezones = [];
 
 function isHamFrequencySatellite(sat) {
   if (!sat || sat.has_amateur_radio === false) return false;
@@ -75,13 +66,23 @@ function getDevSettings() {
 function ensureTimezoneSelector() {
   const select = trackerById("displayTimezone");
   const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const choices = Array.from(new Set([browserTz, ...TIMEZONE_CHOICES]));
+  const fallbackChoices = [browserTz, "UTC"];
+  const choices = Array.from(new Set([browserTz, ...availableTimezones, ...fallbackChoices]));
   const sorted = choices.filter((t) => t !== "BrowserLocal" && t !== "UTC").sort((a, b) => a.localeCompare(b));
   const ordered = ["BrowserLocal", "UTC", ...sorted];
   select.innerHTML = ordered
     .map((tz) => `<option value="${tz}">${tz === "BrowserLocal" ? `Browser local (${browserTz})` : tz}</option>`)
     .join("");
   select.value = selectedDisplayTimezone;
+}
+
+async function fetchTimezones() {
+  try {
+    const resp = await trackerApi.get("/api/v1/settings/timezones");
+    return Array.isArray(resp.timezones) ? resp.timezones : [];
+  } catch (_) {
+    return [];
+  }
 }
 
 function syncLocationModeUi() {
@@ -103,8 +104,9 @@ function syncDeveloperOverridesDraftUi() {
 }
 
 function saveDevSettings() {
-  localStorage.setItem(DEV_MODE_KEY, trackerById("devOverridesEnabled").checked ? "1" : "0");
-  localStorage.setItem(DEV_FORCE_SCENE_KEY, trackerById("devForceScene").value || "auto");
+  const enabled = trackerById("devOverridesEnabled").checked;
+  localStorage.setItem(DEV_MODE_KEY, enabled ? "1" : "0");
+  localStorage.setItem(DEV_FORCE_SCENE_KEY, enabled ? (trackerById("devForceScene").value || "auto") : "auto");
 }
 
 function loadVideoSources() {
@@ -139,12 +141,13 @@ async function saveTimezone() {
 }
 
 async function loadState() {
-  const [mode, sats, locationState, passFilter, timezone] = await Promise.all([
+  const [mode, sats, locationState, passFilter, timezone, timezones] = await Promise.all([
     trackerApi.get("/api/v1/settings/iss-display-mode"),
     trackerApi.get("/api/v1/satellites"),
     trackerApi.get("/api/v1/location"),
     trackerApi.get("/api/v1/settings/pass-filter"),
     trackerApi.get("/api/v1/settings/timezone"),
+    fetchTimezones(),
   ]);
   trackerById("issMode").value = mode.mode;
   selectedPassProfile = passFilter.profile || "IssOnly";
@@ -152,6 +155,7 @@ async function loadState() {
     ? passFilter.satIds
     : ["iss-zarya"];
   selectedDisplayTimezone = timezone.timezone || "UTC";
+  availableTimezones = timezones;
   trackerById("locationMode").value = locationState.state.source_mode;
   const sources = loadVideoSources();
   trackerById("videoSourcePrimary").value = sources[0] || "";

@@ -378,6 +378,13 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 def kiosk_index() -> FileResponse:
     if lite_only_ui():
         return FileResponse("app/static/lite/index.html")
+    return FileResponse("app/static/kiosk/rotator.html")
+
+
+@app.get("/kiosk")
+def legacy_kiosk_index() -> FileResponse:
+    if lite_only_ui():
+        return FileResponse("app/static/lite/index.html")
     return FileResponse("app/static/kiosk/index.html")
 
 

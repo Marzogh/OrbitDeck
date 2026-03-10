@@ -4,11 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ISS Tracker Rotator</title>
-    <link rel="stylesheet" href="/static/common/styles.css?v=20260310a" />
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260311a" />
     <script defer src="/static/common/app.js?v=20260308al"></script>
     <script defer src="/static/common/hemisphere-land.js?v=20260309b"></script>
-    <script defer src="/static/common/hemisphere.js?v=20260309a"></script>
-    <script defer src="/static/kiosk/rotator.js?v=20260310a"></script>
+    <script defer src="/static/common/hemisphere.js?v=20260310b"></script>
+    <script defer src="/static/kiosk/rotator.js?v=20260311a"></script>
   </head>
   <body class="kiosk rotator">
     <header class="rotator-topbar">
@@ -37,7 +37,7 @@
       <section id="sceneTelemetry" class="scene hidden">
         <div class="scene-title" id="telemetryTitle">Telemetry</div>
         <div class="telemetry-layout">
-          <div>
+          <div class="telemetry-left">
             <div class="compass">
               <svg id="skyplot" viewBox="0 0 300 300" class="skyplot" aria-label="Telemetry sky plot">
                 <g class="plot-grid">
@@ -68,8 +68,10 @@
                 <g id="bodyLayer"></g>
               </svg>
             </div>
-            <div id="bodyLegend" class="label"></div>
-            <div id="pathLegend" class="plot-term-legend label">AOS = rise · TCA = peak · LOS = set</div>
+            <div class="telemetry-left-meta">
+              <div id="bodyLegend" class="label"></div>
+              <div id="pathLegend" class="plot-term-legend label">AOS = rise · TCA = peak · LOS = set</div>
+            </div>
             <div id="telemetryLeftAux"></div>
           </div>
           <div id="telemetryRight">
@@ -86,14 +88,19 @@
 
       <section id="scenePasses" class="scene">
         <div class="scene-title">Screen 4: Passes Console</div>
-        <div id="passesMeta" class="scene-overlay mono"></div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr><th>Satellite</th><th>AOS</th><th>TCA</th><th>LOS</th><th>Max El</th></tr>
-            </thead>
-            <tbody id="rotatorPassRows"></tbody>
-          </table>
+        <div id="passesMeta" class="passes-summary-strip"></div>
+        <div class="passes-console-layout">
+          <div class="table-wrap passes-table-wrap">
+            <table class="data-table passes-table">
+              <thead>
+                <tr><th>Satellite</th><th>AOS</th><th>TCA</th><th>LOS</th><th>Max El</th></tr>
+              </thead>
+              <tbody id="rotatorPassRows"></tbody>
+            </table>
+          </div>
+          <section id="passesFocus" class="passes-focus-card">
+            <div class="passes-focus-empty">No qualifying passes</div>
+          </section>
         </div>
       </section>
 

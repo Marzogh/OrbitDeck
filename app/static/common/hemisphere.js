@@ -140,19 +140,27 @@
   function hemisphereFutureArrow(pathItems, observer, splitIdx) {
     const source = (splitIdx >= 0 ? pathItems.slice(splitIdx) : pathItems) || [];
     if (source.length < 2) return "";
-    const visiblePoints = [];
+    let currentSegment = [];
+    let lastSegment = [];
     for (const item of source) {
       const projected = projectHemispherePoint(Number(item.subpoint_lat), Number(item.subpoint_lon), observer.lat, observer.lon);
-      if (!projected) continue;
-      if (visiblePoints.length) {
-        const prev = visiblePoints[visiblePoints.length - 1];
-        if (Math.hypot(projected.x - prev.x, projected.y - prev.y) > (RADIUS * 0.42)) visiblePoints.length = 0;
+      if (!projected) {
+        if (currentSegment.length >= 2) lastSegment = currentSegment;
+        currentSegment = [];
+        continue;
       }
-      visiblePoints.push(projected);
-      if (visiblePoints.length >= 4) break;
+      if (currentSegment.length) {
+        const prev = currentSegment[currentSegment.length - 1];
+        if (Math.hypot(projected.x - prev.x, projected.y - prev.y) > (RADIUS * 0.42)) {
+          if (currentSegment.length >= 2) lastSegment = currentSegment;
+          currentSegment = [];
+        }
+      }
+      currentSegment.push(projected);
     }
+    const visiblePoints = currentSegment.length >= 2 ? currentSegment : lastSegment;
     if (visiblePoints.length < 2) return "";
-    const from = visiblePoints[Math.max(0, visiblePoints.length - 2)];
+    const from = visiblePoints[visiblePoints.length - 2];
     const to = visiblePoints[visiblePoints.length - 1];
     const angle = Math.atan2(to.y - from.y, to.x - from.x) * 180 / Math.PI;
     return `<g class="hemisphere-arrow" transform="translate(${to.x.toFixed(2)} ${to.y.toFixed(2)}) rotate(${angle.toFixed(2)})"><path d="M -9 -4 L 0 0 L -9 4"></path></g>`;

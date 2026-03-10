@@ -35,3 +35,21 @@ def test_rotator_serves_lite_ui_when_pi_zero_forced(tmp_path, monkeypatch):
     resp = client.get("/kiosk-rotator")
     assert resp.status_code == 200
     assert "Remote Ops Lite" in resp.text
+
+
+def test_settings_serves_lite_ui_when_pi_zero_forced(tmp_path, monkeypatch):
+    monkeypatch.setenv("ISS_TRACKER_DEVICE_CLASS", "pi-zero")
+    client = make_client(tmp_path)
+
+    resp = client.get("/settings")
+    assert resp.status_code == 200
+    assert "Lite Settings" in resp.text
+
+
+def test_lite_settings_route_serves_lite_settings_ui(tmp_path, monkeypatch):
+    monkeypatch.setenv("ISS_TRACKER_DEVICE_CLASS", "pi-zero")
+    client = make_client(tmp_path)
+
+    resp = client.get("/lite/settings")
+    assert resp.status_code == 200
+    assert "Lite Settings" in resp.text
