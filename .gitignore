@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 site/
+references/
 data/state.json
 data/snapshots/*.json
 docs/*proposal*.md
