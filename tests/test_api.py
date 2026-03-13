@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.models import IssDisplayMode, LiveTrack, PassEvent, Satellite
+from app.models import IssDisplayMode, LiveTrack, PassEvent, RadioRigModel, Satellite
+from app.radio.controllers.base import BaseIcomController
+from app.radio.service import RigControlService
 from app.services import DataIngestionService, FrequencyGuideService, TrackingService
 from app.store import StateStore
 
@@ -10,7 +12,34 @@ def make_client(tmp_path):
     main.store = StateStore(str(tmp_path / "state.json"))
     main.tracking_service = TrackingService(str(tmp_path / "latest_catalog.json"))
     main.ingestion_service = DataIngestionService()
+    main.radio_control_service = RigControlService()
     return TestClient(main.app)
+
+
+class FakeRigController(BaseIcomController):
+    def connect(self):
+        self.state.connected = True
+        self.state.last_error = None
+        self.stamp_poll()
+        return self.state
+
+    def disconnect(self):
+        self.state.connected = False
+        return self.state
+
+    def poll_state(self):
+        self.state.connected = True
+        self.state.targets.setdefault("main_label", "Main (TX)")
+        self.state.targets.setdefault("sub_label", "Sub (RX)")
+        self.stamp_poll()
+        return self.state
+
+    def apply_target(self, recommendation, apply_mode_and_tone):
+        self.state.targets["main_freq_hz"] = int(round((recommendation.uplink_mhz or 0) * 1_000_000))
+        self.state.targets["sub_freq_hz"] = int(round((recommendation.downlink_mhz or 0) * 1_000_000))
+        self.state.raw_state["applied"] = True
+        self.stamp_poll()
+        return self.state, {"tx": "MAIN", "rx": "SUB"}
 
 
 def test_set_and_get_iss_mode(tmp_path):
@@ -111,6 +140,94 @@ def test_set_and_get_gps_settings(tmp_path):
     assert state["bluetooth_channel"] == 2
     assert state["serial_device"] == "/dev/ttyUSB9"
     assert state["baud_rate"] == 4800
+
+
+def test_set_and_get_radio_settings(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.post(
+        "/api/v1/settings/radio",
+        json={
+            "enabled": True,
+            "rig_model": "ic705",
+            "serial_device": "/dev/ttyUSB7",
+            "baud_rate": 19200,
+            "civ_address": "0xA4",
+            "poll_interval_ms": 750,
+            "auto_connect": True,
+            "auto_track_interval_ms": 1200,
+            "default_apply_mode_and_tone": False,
+            "safe_tx_guard_enabled": True,
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()["state"]
+    assert payload["rig_model"] == "ic705"
+    assert payload["serial_device"] == "/dev/ttyUSB7"
+    assert payload["civ_address"] == "0xA4"
+
+    get_resp = client.get("/api/v1/settings/radio")
+    assert get_resp.status_code == 200
+    state = get_resp.json()["state"]
+    assert state["enabled"] is True
+    assert state["auto_connect"] is True
+
+
+def test_radio_connect_apply_and_stop(tmp_path):
+    client = make_client(tmp_path)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FakeRigController(None, 0x8C)  # type: ignore[arg-type]
+    )
+
+    settings_resp = client.post("/api/v1/settings/radio", json={"enabled": True, "rig_model": "id5100"})
+    assert settings_resp.status_code == 200
+
+    connect_resp = client.post("/api/v1/radio/connect")
+    assert connect_resp.status_code == 200
+    assert connect_resp.json()["runtime"]["connected"] is True
+
+    apply_resp = client.post("/api/v1/radio/apply", json={"sat_id": "iss-zarya"})
+    assert apply_resp.status_code == 200
+    payload = apply_resp.json()
+    assert payload["runtime"]["control_mode"] == "manual_applied"
+    assert payload["recommendation"]["sat_id"] == "iss-zarya"
+    assert payload["targetMapping"]["tx"] == "MAIN"
+
+    start_resp = client.post("/api/v1/radio/auto-track/start", json={"sat_id": "iss-zarya"})
+    assert start_resp.status_code == 200
+    assert start_resp.json()["runtime"]["control_mode"] in {"manual_applied", "auto_tracking"}
+
+    stop_resp = client.post("/api/v1/radio/auto-track/stop")
+    assert stop_resp.status_code == 200
+    assert stop_resp.json()["runtime"]["control_mode"] == "idle"
+
+
+def test_radio_state_is_exposed_via_system_state(tmp_path):
+    client = make_client(tmp_path)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FakeRigController(None, 0x8C)  # type: ignore[arg-type]
+    )
+
+    client.post("/api/v1/radio/connect")
+    resp = client.get("/api/v1/system/state")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert "radioSettings" in payload
+    assert "radioRuntime" in payload
+
+
+def test_radio_poll_endpoint_returns_runtime(tmp_path):
+    client = make_client(tmp_path)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
+    )
+
+    client.post("/api/v1/settings/radio", json={"rig_model": "ic705", "civ_address": "0xA4"})
+    resp = client.post("/api/v1/radio/poll")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["runtime"]["connected"] is True
+    assert payload["settings"]["rig_model"] == "ic705"
 
 
 def test_get_lite_settings_defaults(tmp_path):

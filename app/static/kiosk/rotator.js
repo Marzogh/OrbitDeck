@@ -29,6 +29,7 @@ let sceneIdx = 0;
 let nextSwitchAt = 0;
 let lastOverride = "";
 let activeVideoSource = 0;
+let lastRadioPrimaryPass = null;
 const trailPoints = [];
 const pathCache = new Map();
 
@@ -1207,6 +1208,7 @@ function renderRadioScene(passes) {
     return { pass: p, channels };
   });
   const primary = cards[0] || null;
+  lastRadioPrimaryPass = primary ? primary.pass : null;
   const primaryChannel = primary?.channels[0] || null;
   trackerById("radioPrimary").textContent = primary
     ? `Primary: ${primary.pass.name} | ${primaryChannel?.mode || "No channel detail"} | AOS ${fmtLocal(primary.pass.aos)} | MaxEl ${primary.pass.max_el_deg.toFixed(1)}°`
@@ -1242,8 +1244,59 @@ function renderRadioScene(passes) {
           ${channels}
         </article>
       `;
-    }).join("")
+    }).join("") + renderRigOpsCard(primary?.pass || null, state.system?.radioRuntime || null)
     : '<div class="radio-empty">No upcoming qualified radio passes.</div>';
+}
+
+function renderRigOpsCard(pass, runtime) {
+  const targets = runtime?.targets || {};
+  const labelLeft = targets.main_label || targets.vfo_a_label || "TX";
+  const labelRight = targets.sub_label || targets.vfo_b_label || "RX";
+  const valueLeft = targets.main_freq_hz || targets.vfo_a_freq_hz || "--";
+  const valueRight = targets.sub_freq_hz || targets.vfo_b_freq_hz || "--";
+  const status = runtime?.connected ? `Connected | ${runtime.rig_model || "--"}` : `Disconnected | ${runtime?.rig_model || "--"}`;
+  return `
+    <article class="radio-primary-card radio-rig-card">
+      <div class="radio-card-label">Rig Control</div>
+      <div class="radio-sat-name">${escapeHtml(status)}</div>
+      <div class="radio-pass-time mono">${escapeHtml(runtime?.last_error || "No active radio error")}</div>
+      <div class="radio-channel">
+        <div class="radio-channel-mode">Applied Targets</div>
+        <div class="radio-pair">
+          <div class="radio-pair-label">${escapeHtml(labelLeft)}</div>
+          <div class="radio-pair-value mono">${escapeHtml(normalizeFreqToken(String(valueLeft)))}</div>
+        </div>
+        <div class="radio-pair">
+          <div class="radio-pair-label">${escapeHtml(labelRight)}</div>
+          <div class="radio-pair-value mono">${escapeHtml(normalizeFreqToken(String(valueRight)))}</div>
+        </div>
+        <div class="radio-band-line">${escapeHtml(pass ? `${pass.name} | AOS ${fmtLocal(pass.aos)}` : "No primary radio pass selected")}</div>
+      </div>
+      <div class="controls">
+        <button id="radioApplyBtn" type="button"${pass ? "" : " disabled"}>Apply to Rig</button>
+        <button id="radioAutoStartBtn" type="button"${pass ? "" : " disabled"}>Start Auto-Track</button>
+        <button id="radioAutoStopBtn" type="button">Stop Auto-Track</button>
+      </div>
+    </article>
+  `;
+}
+
+async function applyCurrentRadioTarget(mode) {
+  if (!lastRadioPrimaryPass) return;
+  const payload = {
+    sat_id: lastRadioPrimaryPass.sat_id,
+    pass_aos: lastRadioPrimaryPass.aos,
+    pass_los: lastRadioPrimaryPass.los,
+  };
+  if (mode === "apply") {
+    await trackerApi.post("/api/v1/radio/apply", payload);
+  } else if (mode === "start") {
+    await trackerApi.post("/api/v1/radio/auto-track/start", payload);
+  } else {
+    await trackerApi.post("/api/v1/radio/auto-track/stop", {});
+  }
+  await fetchState();
+  chooseScene();
 }
 
 async function showScene(scene, system, passes) {
@@ -1346,6 +1399,17 @@ window.addEventListener("DOMContentLoaded", async () => {
     setInterval(tickClock, 1000);
     await fetchState();
     chooseScene();
+    document.body.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.id === "radioApplyBtn") {
+        void applyCurrentRadioTarget("apply");
+      } else if (target.id === "radioAutoStartBtn") {
+        void applyCurrentRadioTarget("start");
+      } else if (target.id === "radioAutoStopBtn") {
+        void applyCurrentRadioTarget("stop");
+      }
+    });
     setInterval(() => {
       try {
         chooseScene();

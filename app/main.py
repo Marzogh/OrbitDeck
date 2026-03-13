@@ -26,9 +26,16 @@ from app.models import (
     NetworkUpdate,
     PassFilterUpdate,
     PassProfileMode,
+    RadioApplyRequest,
+    RadioAutoTrackStartRequest,
+    RadioRigModel,
+    RadioSettings,
+    RadioSettingsUpdate,
     SettingsUpdate,
     TimezoneUpdate,
 )
+from app.radio.civ import normalize_civ_address
+from app.radio.service import RigControlService
 from app.services import (
     CacheService,
     DataIngestionService,
@@ -48,6 +55,7 @@ network_service = NetworkService()
 cache_service = CacheService()
 ingestion_service = DataIngestionService()
 frequency_guide_service = FrequencyGuideService()
+radio_control_service = RigControlService()
 _refresh_task: asyncio.Task | None = None
 _lite_snapshot_cache: dict[tuple, tuple[datetime, dict]] = {}
 
@@ -134,6 +142,46 @@ def _apply_lite_settings_update(state, payload: LiteSettingsUpdate):
     return state
 
 
+def _radio_defaults_for_model(model: RadioRigModel) -> tuple[int, str]:
+    if model == RadioRigModel.ic705:
+        return 19200, "0xA4"
+    return 19200, "0x8C"
+
+
+def _apply_radio_settings_update(current: RadioSettings, payload: RadioSettingsUpdate) -> RadioSettings:
+    next_settings = current.model_copy(deep=True)
+    previous_model = next_settings.rig_model
+    if payload.enabled is not None:
+        next_settings.enabled = payload.enabled
+    if payload.rig_model is not None:
+        next_settings.rig_model = payload.rig_model
+    if payload.serial_device is not None:
+        next_settings.serial_device = payload.serial_device.strip()
+    if payload.baud_rate is not None:
+        next_settings.baud_rate = payload.baud_rate
+    if payload.civ_address is not None:
+        next_settings.civ_address = normalize_civ_address(payload.civ_address.strip())
+    if payload.poll_interval_ms is not None:
+        next_settings.poll_interval_ms = payload.poll_interval_ms
+    if payload.auto_connect is not None:
+        next_settings.auto_connect = payload.auto_connect
+    if payload.auto_track_interval_ms is not None:
+        next_settings.auto_track_interval_ms = payload.auto_track_interval_ms
+    if payload.default_apply_mode_and_tone is not None:
+        next_settings.default_apply_mode_and_tone = payload.default_apply_mode_and_tone
+    if payload.safe_tx_guard_enabled is not None:
+        next_settings.safe_tx_guard_enabled = payload.safe_tx_guard_enabled
+    if payload.rig_model is not None and payload.rig_model != previous_model:
+        baud, civ = _radio_defaults_for_model(payload.rig_model)
+        if payload.baud_rate is None:
+            next_settings.baud_rate = baud
+        if payload.civ_address is None:
+            next_settings.civ_address = civ
+    else:
+        next_settings.civ_address = normalize_civ_address(next_settings.civ_address)
+    return next_settings
+
+
 def _pick_focus_pass(passes, sat_id: str | None):
     if sat_id:
         chosen = next((p for p in passes if p.sat_id == sat_id), None)
@@ -189,6 +237,35 @@ def _frequency_bundle(
             active_phase=recommendation.phase,
         )
     return track_path, recommendation, matrix
+
+
+def _resolve_recommendation_for_radio(
+    sat_id: str,
+    location_source: LocationSourceMode | None = None,
+    selected_column_index: int | None = None,
+):
+    _, location = _resolve_location(location_source)
+    now = datetime.now(UTC)
+    tracks = tracking_service.live_tracks(now, location, sat_ids={sat_id})
+    current_track = tracks[0] if tracks else None
+    passes = tracking_service.pass_predictions(
+        now,
+        24,
+        location,
+        sat_ids={sat_id},
+        include_ongoing=True,
+    )
+    focus_pass = _pick_focus_pass(passes, sat_id)
+    track_path = _focus_track_path(location, focus_pass, sat_id)
+    recommendation = frequency_guide_service.recommendation(
+        sat_id,
+        focus_pass,
+        current_track=current_track,
+        track_path=track_path,
+        selected_column_index=selected_column_index,
+        now=now,
+    )
+    return recommendation, focus_pass
 
 
 def _serialize_passes_with_frequency(location, now: datetime, passes, tracks_by_sat: dict[str, object]) -> list[dict]:
@@ -403,6 +480,11 @@ def settings_index() -> FileResponse:
     if lite_only_ui():
         return FileResponse("app/static/lite/settings.html")
     return FileResponse("app/static/kiosk/settings.html")
+
+
+@app.get("/radio")
+def radio_index() -> FileResponse:
+    return FileResponse("app/static/kiosk/radio.html")
 
 
 @app.get("/kiosk-rotator")
@@ -691,6 +773,23 @@ def post_gps_settings(payload: GpsSettingsUpdate) -> dict:
     return {"state": state.gps_settings}
 
 
+@app.get("/api/v1/settings/radio")
+def get_radio_settings() -> dict:
+    state = store.get()
+    return {"state": state.radio_settings}
+
+
+@app.post("/api/v1/settings/radio")
+def post_radio_settings(payload: RadioSettingsUpdate) -> dict:
+    state = store.get()
+    try:
+        state.radio_settings = _apply_radio_settings_update(state.radio_settings, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    store.save(state)
+    return {"state": state.radio_settings}
+
+
 @app.get("/api/v1/cache-policy")
 def get_cache_policy() -> dict:
     state = store.get()
@@ -775,6 +874,72 @@ def get_frequency_guide_recommendation(
     }
 
 
+@app.get("/api/v1/radio/state")
+def get_radio_state() -> dict:
+    state = store.get()
+    return {"settings": state.radio_settings, "runtime": radio_control_service.runtime()}
+
+
+@app.post("/api/v1/radio/connect")
+def connect_radio() -> dict:
+    state = store.get()
+    runtime = radio_control_service.connect(state.radio_settings)
+    return {"settings": state.radio_settings, "runtime": runtime}
+
+
+@app.post("/api/v1/radio/disconnect")
+def disconnect_radio() -> dict:
+    runtime = radio_control_service.disconnect()
+    state = store.get()
+    return {"settings": state.radio_settings, "runtime": runtime}
+
+
+@app.post("/api/v1/radio/poll")
+def poll_radio() -> dict:
+    state = store.get()
+    runtime = radio_control_service.poll(state.radio_settings)
+    return {"settings": state.radio_settings, "runtime": runtime}
+
+
+@app.post("/api/v1/radio/apply")
+def apply_radio_target(payload: RadioApplyRequest) -> dict:
+    state = store.get()
+    try:
+        runtime, recommendation, mapping = radio_control_service.apply(
+            payload,
+            state.radio_settings,
+            _resolve_recommendation_for_radio,
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "runtime": runtime,
+        "recommendation": recommendation,
+        "targetMapping": mapping,
+        "appliedAt": datetime.now(UTC),
+    }
+
+
+@app.post("/api/v1/radio/auto-track/start")
+def start_radio_auto_track(payload: RadioAutoTrackStartRequest) -> dict:
+    state = store.get()
+    try:
+        runtime = radio_control_service.start_auto_track(
+            payload,
+            state.radio_settings,
+            _resolve_recommendation_for_radio,
+            interval_ms=payload.interval_ms,
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"runtime": runtime}
+
+
+@app.post("/api/v1/radio/auto-track/stop")
+def stop_radio_auto_track() -> dict:
+    return {"runtime": radio_control_service.stop_auto_track()}
+
+
 @app.get("/api/v1/system/state")
 def get_system_state(
     location_source: LocationSourceMode | None = Query(default=None),
@@ -817,6 +982,8 @@ def get_system_state(
         "timestamp": now,
         "location": location.__dict__,
         "settings": state.settings,
+        "radioSettings": state.radio_settings,
+        "radioRuntime": radio_control_service.runtime(),
         "network": state.network,
         "cachePolicy": state.cache_policy,
         "iss": iss_state,

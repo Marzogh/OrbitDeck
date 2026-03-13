@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OrbitDeck Radio Control</title>
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260313a" />
+    <script defer src="/static/common/app.js?v=20260308al"></script>
+    <script defer src="/static/kiosk/radio.js?v=20260313a"></script>
+  </head>
+  <body class="kiosk">
+    <header>
+      <h1>OrbitDeck Radio Control</h1>
+      <div class="label">Dedicated rig test page for ID-5100 and IC-705 validation.</div>
+    </header>
+    <main>
+      <section class="card controls">
+        <label for="radioRigModelPage">Rig Model</label>
+        <select id="radioRigModelPage">
+          <option value="id5100">Icom ID-5100</option>
+          <option value="ic705">Icom IC-705</option>
+        </select>
+        <label for="radioSerialDevicePage">Serial Device</label>
+        <input id="radioSerialDevicePage" type="text" placeholder="/dev/cu.usbmodem113201" />
+        <label for="radioBaudRatePage">Baud Rate</label>
+        <input id="radioBaudRatePage" type="number" min="4800" max="19200" step="1" />
+        <label for="radioCivAddressPage">CI-V Address</label>
+        <input id="radioCivAddressPage" type="text" placeholder="0xA4" />
+        <label for="radioSatIdPage">Satellite ID</label>
+        <input id="radioSatIdPage" type="text" placeholder="iss-zarya" />
+        <div class="controls">
+          <button id="saveRadioPage" type="button">Save Settings</button>
+          <button id="connectRadioPage" type="button">Connect</button>
+          <button id="pollRadioPage" type="button">Poll Rig</button>
+          <button id="disconnectRadioPage" type="button">Disconnect</button>
+          <button id="applyRadioPage" type="button">Apply Current Sat</button>
+        </div>
+      </section>
+
+      <section class="card controls">
+        <h2>Runtime</h2>
+        <pre id="radioRuntimePage" class="mono">Loading…</pre>
+      </section>
+
+      <section class="card controls">
+        <a href="/kiosk-rotator">Back to Rotator</a>
+        <a href="/settings">Back to Settings</a>
+      </section>
+    </main>
+  </body>
+</html>
