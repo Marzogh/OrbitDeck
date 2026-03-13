@@ -34,6 +34,7 @@ let fetchStateRequestId = 0;
 const trailPoints = [];
 const pathCache = new Map();
 const STARTUP_LOG_LIMIT = 10;
+const STARTUP_GET_RETRY_DELAYS_MS = [250, 750];
 const startupLines = [];
 let rotatorActionError = "";
 
@@ -186,6 +187,34 @@ function setRotatorActionError(message) {
 
 function clearRotatorActionError() {
   rotatorActionError = "";
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isTransientFetchError(err) {
+  const message = String(err?.message || err || "");
+  return /NetworkError|Failed to fetch|Load failed|fetch resource/i.test(message);
+}
+
+async function getWithRetry(path, report = null) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= STARTUP_GET_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await trackerApi.get(path);
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientFetchError(err) || attempt >= STARTUP_GET_RETRY_DELAYS_MS.length) {
+        throw err;
+      }
+      if (typeof report === "function") {
+        report("Retrying local OrbitDeck request", `${path} failed transiently; retry ${attempt + 1} of ${STARTUP_GET_RETRY_DELAYS_MS.length}`);
+      }
+      await sleep(STARTUP_GET_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+  throw lastErr || new Error(`GET ${path} failed`);
 }
 
 function pinnedRadioStatusLine(session, runtime) {
@@ -1719,17 +1748,17 @@ async function fetchState(progress = null) {
     ? (status, detail = "") => setStartupStatus(status, detail ? `${status}... ${detail}` : status)
     : () => {};
   report("Waiting for OrbitDeck backend", "Requesting live tracking snapshot");
-  const system = await trackerApi.get("/api/v1/system/state");
+  const system = await getWithRetry("/api/v1/system/state", report);
   report(
     "Resolving observer location",
     `${system.location?.source || "default"} ${Number(system.location?.lat || 0).toFixed(4)},${Number(system.location?.lon || 0).toFixed(4)}`
   );
   report("Fetching pass predictions", "Loading the next 24 hours of passes");
-  const passesResp = await trackerApi.get("/api/v1/passes?hours=24&include_all_sats=true&include_ongoing=true");
+  const passesResp = await getWithRetry("/api/v1/passes?hours=24&include_all_sats=true&include_ongoing=true", report);
   report("Loading satellite catalog", "Reading current satellite definitions");
-  const sats = await trackerApi.get("/api/v1/satellites");
+  const sats = await getWithRetry("/api/v1/satellites", report);
   report("Loading kiosk timezone", "Syncing local clock display");
-  const tz = await trackerApi.get("/api/v1/settings/timezone");
+  const tz = await getWithRetry("/api/v1/settings/timezone", report);
   if (requestId !== fetchStateRequestId) {
     return;
   }

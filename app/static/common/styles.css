@@ -2192,7 +2192,7 @@ body.kiosk .radio-visuals {
   order: 2;
   justify-items: center;
   width: 100%;
-  padding-top: 4px;
+  padding-top: 0;
 }
 
 body.kiosk .radio-visuals.hidden {
@@ -2200,7 +2200,7 @@ body.kiosk .radio-visuals.hidden {
 }
 
 body.kiosk .radio-visuals .compass {
-  width: min(100%, 430px);
+  width: min(100%, 390px);
   height: auto;
   aspect-ratio: 1 / 1;
   box-shadow: none;
@@ -2212,7 +2212,7 @@ body.kiosk .radio-visuals .telemetry-left-meta {
 
 body.kiosk #radioLeftAux {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   min-height: 0;
   width: 100%;
   justify-items: center;
@@ -2228,8 +2228,8 @@ body.kiosk .radio-visuals .telemetry-visual-aux {
 }
 
 body.kiosk .radio-visuals .telemetry-visual-aux {
-  width: min(100%, 560px);
-  padding: 4px 8px 6px;
+  width: min(100%, 500px);
+  padding: 2px 6px 2px;
 }
 
 body.kiosk .radio-visuals .telemetry-visual-meta {
@@ -2237,8 +2237,8 @@ body.kiosk .radio-visuals .telemetry-visual-meta {
 }
 
 body.kiosk .radio-visuals .telemetry-visual-aux .hemisphere-map {
-  height: min(38vh, 360px);
-  width: min(100%, 560px);
+  height: min(29vh, 270px);
+  width: min(100%, 500px);
 }
 
 body.kiosk .radio-board {
