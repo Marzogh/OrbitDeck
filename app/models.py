@@ -64,6 +64,25 @@ class RadioControlMode(str, Enum):
     auto_tracking = "auto_tracking"
 
 
+class RadioControlScreenState(str, Enum):
+    idle = "idle"
+    test = "test"
+    armed = "armed"
+    active = "active"
+    released = "released"
+    completed = "completed"
+
+
+class RadioSessionControlState(str, Enum):
+    not_connected = "not_connected"
+    connected_idle = "connected_idle"
+    test_applied = "test_applied"
+    armed_waiting_aos = "armed_waiting_aos"
+    tracking_active = "tracking_active"
+    released = "released"
+    ended = "ended"
+
+
 class GeoPoint(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
@@ -389,6 +408,23 @@ class RadioRuntimeState(BaseModel):
     raw_state: dict[str, object] = Field(default_factory=dict)
 
 
+class RadioControlSessionState(BaseModel):
+    active: bool = False
+    selected_sat_id: str | None = None
+    selected_sat_name: str | None = None
+    selected_pass_aos: datetime | None = None
+    selected_pass_los: datetime | None = None
+    selected_max_el_deg: float | None = None
+    screen_state: RadioControlScreenState = RadioControlScreenState.idle
+    control_state: RadioSessionControlState = RadioSessionControlState.not_connected
+    return_to_rotator_on_end: bool = True
+    is_eligible: bool = False
+    eligibility_reason: str | None = None
+    has_test_pair: bool = False
+    test_pair_reason: str | None = None
+    test_pair: FrequencyRecommendation | None = None
+
+
 class PersistedState(BaseModel):
     settings: AppSettings = Field(default_factory=AppSettings)
     location: LocationState = Field(default_factory=LocationState)
@@ -437,3 +473,11 @@ class RadioPairSetRequest(BaseModel):
     uplink_mode: str | None = None
     downlink_mode: str | None = None
     apply_mode_and_tone: bool | None = None
+
+
+class RadioControlSessionSelectRequest(BaseModel):
+    sat_id: str = Field(min_length=1)
+    sat_name: str | None = None
+    pass_aos: datetime
+    pass_los: datetime
+    max_el_deg: float | None = Field(default=None, ge=0.0, le=90.0)

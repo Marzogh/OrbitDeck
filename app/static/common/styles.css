@@ -1006,8 +1006,82 @@ body.kiosk #devSettingsLink:hover {
 }
 
 body.kiosk .rotator-main {
+  position: relative;
   height: calc(100vh - 62px);
   padding: 8px 10px 12px;
+}
+
+body.kiosk.rotator-booting .scene {
+  visibility: hidden;
+}
+
+body.kiosk .rotator-startup {
+  position: absolute;
+  inset: 8px 10px 12px;
+  z-index: 20;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  animation: fade-in 220ms ease-out;
+}
+
+body.kiosk .rotator-startup-panel {
+  width: 100%;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 22px 24px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 191, 71, 0.24);
+  background:
+    linear-gradient(145deg, rgba(26, 27, 31, 0.94), rgba(15, 16, 20, 0.92)),
+    radial-gradient(circle at top left, rgba(255, 122, 89, 0.16), transparent 52%),
+    radial-gradient(circle at bottom right, rgba(63, 224, 197, 0.12), transparent 46%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 243, 227, 0.08),
+    0 18px 46px rgba(8, 3, 4, 0.34);
+  backdrop-filter: blur(10px);
+}
+
+body.kiosk .rotator-startup-eyebrow {
+  color: #ffb36f;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body.kiosk .rotator-startup-title {
+  margin: 0;
+  color: #fff6ef;
+  font-size: clamp(1.6rem, 2.8vw, 2.5rem);
+  letter-spacing: 0.02em;
+}
+
+body.kiosk .rotator-startup-status {
+  color: #dfefff;
+  font-size: 1rem;
+}
+
+body.kiosk .rotator-startup-terminal {
+  margin: 0;
+  padding: 16px 18px;
+  min-height: 0;
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(63, 224, 197, 0.18);
+  background:
+    linear-gradient(180deg, rgba(5, 13, 18, 0.94), rgba(6, 11, 16, 0.9)),
+    repeating-linear-gradient(
+      0deg,
+      rgba(145, 255, 231, 0.02) 0,
+      rgba(145, 255, 231, 0.02) 1px,
+      transparent 1px,
+      transparent 24px
+    );
+  color: #91ffe7;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 
 body.kiosk .scene {
@@ -1296,6 +1370,21 @@ body.kiosk .passes-focus-queue-title {
   text-transform: uppercase;
   letter-spacing: 0.07em;
   font-size: 0.72rem;
+}
+
+body.kiosk .passes-radio-action {
+  border: 1px solid rgba(63, 224, 197, 0.32);
+  background: linear-gradient(135deg, rgba(16, 62, 55, 0.92), rgba(20, 37, 41, 0.92));
+  color: #e8fffb;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+body.kiosk .passes-radio-action:hover {
+  background: linear-gradient(135deg, rgba(22, 84, 72, 0.96), rgba(28, 46, 53, 0.96));
 }
 
 body.kiosk .passes-queue-item {
@@ -2112,6 +2201,10 @@ body.kiosk .radio-primary-card {
   min-height: 100%;
 }
 
+body.kiosk .radio-session-card {
+  border-color: rgba(63, 224, 197, 0.24);
+}
+
 body.kiosk .radio-card-label {
   color: #ffb36f;
   font-size: 0.8rem;
@@ -2142,6 +2235,15 @@ body.kiosk .radio-channel {
 body.kiosk .radio-channel:first-of-type {
   border-top: none;
   padding-top: 0;
+}
+
+body.kiosk .radio-session-actions {
+  margin-top: 8px;
+}
+
+body.kiosk .radio-session-go-live {
+  box-shadow: 0 0 0 1px rgba(63, 224, 197, 0.4), 0 0 24px rgba(63, 224, 197, 0.18);
+  background: linear-gradient(135deg, rgba(11, 93, 77, 0.94), rgba(26, 55, 49, 0.92));
 }
 
 body.kiosk .radio-channel-mode {
@@ -2176,6 +2278,75 @@ body.kiosk .radio-empty {
   color: #e6cab3;
   font-size: 0.92rem;
   padding-top: 10px;
+}
+
+body.kiosk .rotator-modal {
+  position: absolute;
+  inset: 8px 10px 12px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 10, 14, 0.62);
+  backdrop-filter: blur(8px);
+}
+
+body.kiosk .rotator-modal-panel {
+  width: min(640px, calc(100vw - 56px));
+  display: grid;
+  gap: 14px;
+  padding: 20px 22px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 191, 71, 0.24);
+  background:
+    linear-gradient(145deg, rgba(26, 27, 31, 0.97), rgba(15, 16, 20, 0.95)),
+    radial-gradient(circle at top left, rgba(255, 122, 89, 0.16), transparent 50%);
+  box-shadow: 0 18px 44px rgba(4, 4, 8, 0.34);
+}
+
+body.kiosk .rotator-modal-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+body.kiosk .rotator-modal-kicker {
+  color: #ffb36f;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body.kiosk .rotator-modal-title {
+  margin: 4px 0 0;
+  color: #fff6ef;
+  font-size: 1.45rem;
+}
+
+body.kiosk .rotator-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+body.kiosk .rotator-modal-field {
+  display: grid;
+  gap: 6px;
+}
+
+body.kiosk .rotator-modal-field > span {
+  color: #e6cab3;
+  font-size: 0.85rem;
+}
+
+body.kiosk .rotator-modal-status {
+  color: #91ffe7;
+  min-height: 1.4em;
+}
+
+body.kiosk .rotator-modal-actions {
+  justify-content: flex-end;
 }
 
 body.lite {

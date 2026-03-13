@@ -5,76 +5,205 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OrbitDeck Radio Control</title>
     <link rel="stylesheet" href="/static/common/styles.css?v=20260313a" />
+    <link rel="stylesheet" href="/static/kiosk/radio.css?v=20260314a" />
     <script defer src="/static/common/app.js?v=20260313e"></script>
-    <script defer src="/static/kiosk/radio.js?v=20260313e"></script>
+    <script defer src="/static/kiosk/radio.js?v=20260314a"></script>
   </head>
-  <body class="kiosk">
-    <header>
-      <h1>OrbitDeck Radio Control</h1>
-      <div class="label">Dedicated rig test page for ID-5100 and IC-705 validation.</div>
-    </header>
-    <main>
-      <section class="card controls">
-        <label for="radioRigModelPage">Rig Model</label>
-        <select id="radioRigModelPage">
-          <option value="id5100">Icom ID-5100</option>
-          <option value="ic705">Icom IC-705</option>
-        </select>
-        <label for="radioSerialDevicePage">Serial Device</label>
-        <input id="radioSerialDevicePage" type="text" placeholder="/dev/cu.usbmodem113201" />
-        <label for="radioBaudRatePage">Baud Rate</label>
-        <input id="radioBaudRatePage" type="number" min="4800" max="19200" step="1" />
-        <label for="radioCivAddressPage">CI-V Address</label>
-        <input id="radioCivAddressPage" type="text" placeholder="0xA4" />
-        <label for="radioSatIdPage">Satellite ID</label>
-        <input id="radioSatIdPage" type="text" placeholder="iss-zarya" />
-        <label for="radioVfoPage">Manual VFO</label>
-        <select id="radioVfoPage">
-          <option value="A">A</option>
-          <option value="B">B</option>
-          <option value="MAIN">MAIN</option>
-          <option value="SUB">SUB</option>
-        </select>
-        <label for="radioFreqHzPage">Manual Frequency (Hz)</label>
-        <input id="radioFreqHzPage" type="number" min="1000" step="1" />
-        <label for="radioUplinkHzPage">Pair Uplink (Hz)</label>
-        <input id="radioUplinkHzPage" type="number" min="1000" step="1" />
-        <label for="radioUplinkModePage">Pair Uplink Mode</label>
-        <select id="radioUplinkModePage">
-          <option value="FM">FM</option>
-          <option value="USB">USB</option>
-          <option value="AM">AM</option>
-          <option value="D-STAR">D-STAR</option>
-        </select>
-        <label for="radioDownlinkHzPage">Pair Downlink (Hz)</label>
-        <input id="radioDownlinkHzPage" type="number" min="1000" step="1" />
-        <label for="radioDownlinkModePage">Pair Downlink Mode</label>
-        <select id="radioDownlinkModePage">
-          <option value="FM">FM</option>
-          <option value="USB">USB</option>
-          <option value="AM">AM</option>
-          <option value="D-STAR">D-STAR</option>
-        </select>
-        <div class="controls">
-          <button id="saveRadioPage" type="button">Save Settings</button>
-          <button id="connectRadioPage" type="button">Connect</button>
-          <button id="pollRadioPage" type="button">Poll Rig</button>
-          <button id="disconnectRadioPage" type="button">Disconnect</button>
-          <button id="applyRadioPage" type="button">Apply Current Sat</button>
-          <button id="setFreqRadioPage" type="button">Set Manual Frequency</button>
-          <button id="setPairRadioPage" type="button">Apply Manual Pair</button>
+  <body class="kiosk lcars-radio-page">
+    <div class="radio-shell">
+      <header class="radio-topbar">
+        <div class="radio-topbar-elbow" aria-hidden="true"></div>
+        <div class="radio-topbar-main">
+          <div class="radio-kicker">OrbitDeck / Radio Ops</div>
+          <h1>Ci-V Control Console</h1>
+          <div class="radio-subtitle">Operations-focused rig control for ID-5100 and IC-705 validation.</div>
         </div>
-      </section>
+        <div class="radio-topbar-status">
+          <div class="radio-chip">
+            <span class="radio-chip-label">Rig</span>
+            <span id="radioHeaderRig" class="radio-chip-value">--</span>
+          </div>
+          <div class="radio-chip">
+            <span class="radio-chip-label">Link</span>
+            <span id="radioHeaderLink" class="radio-chip-value">Loading</span>
+          </div>
+          <div class="radio-chip emphasis">
+            <span class="radio-chip-label">Control</span>
+            <span id="radioHeaderControl" class="radio-chip-value">Idle</span>
+          </div>
+        </div>
+      </header>
 
-      <section class="card controls">
-        <h2>Runtime</h2>
-        <pre id="radioRuntimePage" class="mono">Loading…</pre>
-      </section>
+      <main class="radio-layout">
+        <aside class="radio-command-rail">
+          <button id="saveRadioPage" class="radio-command tone-gold" type="button">Save Settings</button>
+          <button id="connectRadioPage" class="radio-command tone-blue" type="button">Connect</button>
+          <button id="pollRadioPage" class="radio-command tone-violet" type="button">Poll Rig</button>
+          <button id="applyRadioPage" class="radio-command tone-orange" type="button">Apply Current Sat</button>
+          <button id="setFreqRadioPage" class="radio-command tone-rose" type="button">Set Manual Frequency</button>
+          <button id="setPairRadioPage" class="radio-command tone-coral" type="button">Apply Manual Pair</button>
+          <button id="disconnectRadioPage" class="radio-command tone-danger" type="button">Disconnect</button>
+          <a class="radio-command tone-neutral link-command" href="/kiosk-rotator">Back to Rotator</a>
+          <a class="radio-command tone-neutral link-command" href="/settings">Back to Settings</a>
+        </aside>
 
-      <section class="card controls">
-        <a href="/kiosk-rotator">Back to Rotator</a>
-        <a href="/settings">Back to Settings</a>
-      </section>
-    </main>
+        <section class="radio-main">
+          <section class="radio-panel radio-status-panel">
+            <div class="radio-panel-header">
+              <span class="radio-panel-tag">State</span>
+              <h2>Live Session</h2>
+            </div>
+            <div class="radio-status-grid">
+              <div class="radio-status-card primary">
+                <span class="radio-status-label">Connection</span>
+                <span id="radioConnectionState" class="radio-status-value">--</span>
+                <span id="radioSerialState" class="radio-status-meta">--</span>
+              </div>
+              <div class="radio-status-card">
+                <span class="radio-status-label">Session Screen</span>
+                <span id="radioScreenState" class="radio-status-value">--</span>
+                <span id="radioControlState" class="radio-status-meta">--</span>
+              </div>
+              <div class="radio-status-card">
+                <span class="radio-status-label">Satellite</span>
+                <span id="radioSessionSat" class="radio-status-value">--</span>
+                <span id="radioSessionWindow" class="radio-status-meta">No active pass</span>
+              </div>
+              <div class="radio-status-card">
+                <span class="radio-status-label">Selected Column</span>
+                <span id="radioSelectedColumn" class="radio-status-value">--</span>
+                <span id="radioLastPoll" class="radio-status-meta">No poll yet</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="radio-flow-grid">
+            <section class="radio-panel radio-lane uplink">
+              <div class="radio-panel-header">
+                <span class="radio-panel-tag">Path A</span>
+                <h2>Uplink</h2>
+              </div>
+              <div class="radio-frequency-readout">
+                <span id="radioUplinkReadout" class="radio-frequency-value">--</span>
+                <span id="radioUplinkModeReadout" class="radio-frequency-mode">--</span>
+              </div>
+              <div class="radio-lane-meta">
+                <div><span class="label">Target VFO</span><span id="radioTargetVfoA" class="value">--</span></div>
+                <div><span class="label">Manual Entry</span><span id="radioManualUplink" class="value">--</span></div>
+              </div>
+            </section>
+
+            <section class="radio-panel radio-lane downlink">
+              <div class="radio-panel-header">
+                <span class="radio-panel-tag">Path B</span>
+                <h2>Downlink</h2>
+              </div>
+              <div class="radio-frequency-readout">
+                <span id="radioDownlinkReadout" class="radio-frequency-value">--</span>
+                <span id="radioDownlinkModeReadout" class="radio-frequency-mode">--</span>
+              </div>
+              <div class="radio-lane-meta">
+                <div><span class="label">Target VFO</span><span id="radioTargetVfoB" class="value">--</span></div>
+                <div><span class="label">Manual Entry</span><span id="radioManualDownlink" class="value">--</span></div>
+              </div>
+            </section>
+          </section>
+
+          <section class="radio-panel radio-controls-panel">
+            <div class="radio-panel-header">
+              <span class="radio-panel-tag">Config</span>
+              <h2>Rig Control Inputs</h2>
+            </div>
+            <div class="radio-form-grid">
+              <label class="radio-field">
+                <span>Rig Model</span>
+                <select id="radioRigModelPage">
+                  <option value="id5100">Icom ID-5100</option>
+                  <option value="ic705">Icom IC-705</option>
+                </select>
+              </label>
+              <label class="radio-field">
+                <span>Serial Device</span>
+                <input id="radioSerialDevicePage" type="text" placeholder="/dev/cu.usbmodem113201" />
+              </label>
+              <label class="radio-field">
+                <span>Baud Rate</span>
+                <input id="radioBaudRatePage" type="number" min="4800" max="19200" step="1" />
+              </label>
+              <label class="radio-field">
+                <span>CI-V Address</span>
+                <input id="radioCivAddressPage" type="text" placeholder="0xA4" />
+              </label>
+              <label class="radio-field">
+                <span>Satellite ID</span>
+                <input id="radioSatIdPage" type="text" placeholder="iss-zarya" />
+              </label>
+              <label class="radio-field">
+                <span>Manual VFO</span>
+                <select id="radioVfoPage">
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                  <option value="MAIN">MAIN</option>
+                  <option value="SUB">SUB</option>
+                </select>
+              </label>
+              <label class="radio-field">
+                <span>Manual Frequency (Hz)</span>
+                <input id="radioFreqHzPage" type="number" min="1000" step="1" />
+              </label>
+              <label class="radio-field">
+                <span>Pair Uplink (Hz)</span>
+                <input id="radioUplinkHzPage" type="number" min="1000" step="1" />
+              </label>
+              <label class="radio-field">
+                <span>Pair Uplink Mode</span>
+                <select id="radioUplinkModePage">
+                  <option value="FM">FM</option>
+                  <option value="USB">USB</option>
+                  <option value="AM">AM</option>
+                  <option value="D-STAR">D-STAR</option>
+                </select>
+              </label>
+              <label class="radio-field">
+                <span>Pair Downlink (Hz)</span>
+                <input id="radioDownlinkHzPage" type="number" min="1000" step="1" />
+              </label>
+              <label class="radio-field">
+                <span>Pair Downlink Mode</span>
+                <select id="radioDownlinkModePage">
+                  <option value="FM">FM</option>
+                  <option value="USB">USB</option>
+                  <option value="AM">AM</option>
+                  <option value="D-STAR">D-STAR</option>
+                </select>
+              </label>
+            </div>
+          </section>
+        </section>
+
+        <aside class="radio-sidebar">
+          <section class="radio-panel radio-sidebar-panel">
+            <div class="radio-panel-header">
+              <span class="radio-panel-tag">Snapshot</span>
+              <h2>Targets</h2>
+            </div>
+            <div class="radio-sidebar-metrics">
+              <div><span class="label">Main / A</span><span id="radioMetricMain" class="value">--</span></div>
+              <div><span class="label">Sub / B</span><span id="radioMetricSub" class="value">--</span></div>
+              <div><span class="label">Preset / Tone</span><span id="radioMetricPreset" class="value">--</span></div>
+              <div><span class="label">Last Error</span><span id="radioMetricError" class="value danger">None</span></div>
+            </div>
+          </section>
+
+          <section class="radio-panel radio-sidebar-panel">
+            <div class="radio-panel-header">
+              <span class="radio-panel-tag">Diagnostics</span>
+              <h2>Action Log</h2>
+            </div>
+            <pre id="radioRuntimePage" class="radio-runtime-log">Loading…</pre>
+          </section>
+        </aside>
+      </main>
+    </div>
   </body>
 </html>

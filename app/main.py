@@ -28,6 +28,7 @@ from app.models import (
     PassProfileMode,
     RadioApplyRequest,
     RadioAutoTrackStartRequest,
+    RadioControlSessionSelectRequest,
     RadioFrequencySetRequest,
     RadioPairSetRequest,
     RadioRigModel,
@@ -48,6 +49,11 @@ from app.services import (
     TrackingService,
 )
 from app.store import StateStore
+
+try:
+    from serial.tools import list_ports  # type: ignore
+except Exception:  # pragma: no cover
+    list_ports = None
 
 store = StateStore()
 location_service = LocationService()
@@ -268,6 +274,19 @@ def _resolve_recommendation_for_radio(
         now=now,
     )
     return recommendation, focus_pass
+
+
+def _resolve_default_test_pair_for_radio(sat_id: str):
+    recommendation = frequency_guide_service.recommendation(
+        sat_id,
+        None,
+        current_track=None,
+        track_path=None,
+        now=datetime.now(UTC),
+    )
+    if recommendation is None or recommendation.uplink_mhz is None or recommendation.downlink_mhz is None:
+        return None
+    return recommendation
 
 
 def _serialize_passes_with_frequency(location, now: datetime, passes, tracks_by_sat: dict[str, object]) -> list[dict]:
@@ -879,28 +898,73 @@ def get_frequency_guide_recommendation(
 @app.get("/api/v1/radio/state")
 def get_radio_state() -> dict:
     state = store.get()
-    return {"settings": state.radio_settings, "runtime": radio_control_service.runtime()}
+    return {
+        "settings": state.radio_settings,
+        "runtime": radio_control_service.runtime(),
+        "session": radio_control_service.session_state(),
+    }
+
+
+@app.get("/api/v1/radio/ports")
+def get_radio_ports() -> dict:
+    items: list[dict[str, str]] = []
+    if list_ports is not None:
+        try:
+            for port in list_ports.comports():
+                items.append(
+                    {
+                        "device": str(getattr(port, "device", "") or ""),
+                        "description": str(getattr(port, "description", "") or ""),
+                        "hwid": str(getattr(port, "hwid", "") or ""),
+                    }
+                )
+        except Exception:
+            items = []
+    return {"items": items}
+
+
+@app.get("/api/v1/radio/session")
+def get_radio_session() -> dict:
+    return {"session": radio_control_service.session_state(), "runtime": radio_control_service.runtime()}
+
+
+@app.post("/api/v1/radio/session/select")
+def select_radio_session(payload: RadioControlSessionSelectRequest) -> dict:
+    session = radio_control_service.select_session(payload, _resolve_default_test_pair_for_radio)
+    return {"session": session, "runtime": radio_control_service.runtime()}
+
+
+@app.post("/api/v1/radio/session/clear")
+def clear_radio_session() -> dict:
+    session = radio_control_service.clear_session()
+    return {"session": session, "runtime": radio_control_service.runtime()}
 
 
 @app.post("/api/v1/radio/connect")
 def connect_radio() -> dict:
     state = store.get()
     runtime = radio_control_service.connect(state.radio_settings)
-    return {"settings": state.radio_settings, "runtime": runtime}
+    return {"settings": state.radio_settings, "runtime": runtime, "session": radio_control_service.session_state()}
 
 
 @app.post("/api/v1/radio/disconnect")
 def disconnect_radio() -> dict:
-    runtime = radio_control_service.disconnect()
     state = store.get()
-    return {"settings": state.radio_settings, "runtime": runtime}
+    try:
+        runtime = radio_control_service.disconnect()
+        session = radio_control_service.session_state()
+    except Exception as exc:
+        runtime = radio_control_service.runtime()
+        runtime.last_error = f"Disconnect encountered an error: {exc}"
+        session = radio_control_service.session_state()
+    return {"settings": state.radio_settings, "runtime": runtime, "session": session}
 
 
 @app.post("/api/v1/radio/poll")
 def poll_radio() -> dict:
     state = store.get()
     runtime = radio_control_service.poll(state.radio_settings)
-    return {"settings": state.radio_settings, "runtime": runtime}
+    return {"settings": state.radio_settings, "runtime": runtime, "session": radio_control_service.session_state()}
 
 
 @app.post("/api/v1/radio/frequency")
@@ -923,10 +987,52 @@ def set_radio_pair(payload: RadioPairSetRequest) -> dict:
     return {
         "settings": state.radio_settings,
         "runtime": runtime,
+        "session": radio_control_service.session_state(),
         "recommendation": recommendation,
         "targetMapping": mapping,
         "appliedAt": datetime.now(UTC),
     }
+
+
+@app.post("/api/v1/radio/session/test")
+def run_radio_session_test() -> dict:
+    state = store.get()
+    try:
+        session, runtime, recommendation, mapping = radio_control_service.run_test_control(state.radio_settings)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "session": session,
+        "runtime": runtime,
+        "recommendation": recommendation,
+        "targetMapping": mapping,
+        "appliedAt": datetime.now(UTC),
+    }
+
+
+@app.post("/api/v1/radio/session/test/confirm")
+def confirm_radio_session_test() -> dict:
+    session, runtime = radio_control_service.confirm_test_success()
+    return {"session": session, "runtime": runtime}
+
+
+@app.post("/api/v1/radio/session/start")
+def start_radio_session_control() -> dict:
+    state = store.get()
+    try:
+        session, runtime = radio_control_service.start_session_control(
+            state.radio_settings,
+            _resolve_recommendation_for_radio,
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"session": session, "runtime": runtime}
+
+
+@app.post("/api/v1/radio/session/stop")
+def stop_radio_session_control() -> dict:
+    session, runtime = radio_control_service.stop_session_control()
+    return {"session": session, "runtime": runtime}
 
 
 @app.post("/api/v1/radio/apply")
@@ -1012,6 +1118,7 @@ def get_system_state(
         "settings": state.settings,
         "radioSettings": state.radio_settings,
         "radioRuntime": radio_control_service.runtime(),
+        "radioControlSession": radio_control_service.session_state(),
         "network": state.network,
         "cachePolicy": state.cache_policy,
         "iss": iss_state,

@@ -1,7 +1,20 @@
+from datetime import UTC, datetime, timedelta
+
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.models import IssDisplayMode, LiveTrack, PassEvent, RadioRigModel, Satellite
+from app.models import (
+    CorrectionSide,
+    DopplerDirection,
+    FrequencyGuideMode,
+    FrequencyRecommendation,
+    GuidePassPhase,
+    IssDisplayMode,
+    LiveTrack,
+    PassEvent,
+    RadioRigModel,
+    Satellite,
+)
 from app.radio.civ import ACK, build_frame, freq_to_bcd
 from app.radio.controllers.base import BaseIcomController
 from app.radio.controllers.ic705 import Ic705Controller
@@ -19,6 +32,10 @@ def make_client(tmp_path):
 
 
 class FakeRigController(BaseIcomController):
+    def __init__(self, transport, civ_address):
+        super().__init__(transport, civ_address)
+        self._snapshot = None
+
     def connect(self):
         self.state.connected = True
         self.state.last_error = None
@@ -49,14 +66,44 @@ class FakeRigController(BaseIcomController):
         self.stamp_poll()
         return self.state, {"vfo": str(vfo), "freq_hz": int(freq_hz)}
 
+    def snapshot_state(self):
+        self._snapshot = {
+            "targets": dict(self.state.targets),
+            "raw_state": dict(self.state.raw_state),
+        }
+        return self._snapshot
+
+    def restore_snapshot(self, snapshot):
+        self.state.targets = dict(snapshot.get("targets", {}))
+        self.state.raw_state = dict(snapshot.get("raw_state", {}))
+        self.stamp_poll()
+        return self.state
+
+
+class FailingRestoreRigController(FakeRigController):
+    def restore_snapshot(self, snapshot):
+        raise RuntimeError("simulated restore failure")
+
+
+class FailingDisconnectRigController(FakeRigController):
+    def disconnect(self):
+        raise RuntimeError("simulated disconnect failure")
+
 
 class ScriptedIc705Transport:
     def __init__(self, freq_a: int, freq_b: int) -> None:
         self.freq_a = int(freq_a)
         self.freq_b = int(freq_b)
+        self.mode_a = "FM"
+        self.mode_b = "FM"
         self.selected_vfo = "A"
         self.split_enabled = False
+        self.squelch_level = 1.0
+        self.scope_enabled = False
+        self.scope_mode = None
+        self.scope_span_hz = None
         self.is_open = False
+        self.force_bad_readback = False
 
     def open(self) -> None:
         self.is_open = True
@@ -81,14 +128,79 @@ class ScriptedIc705Transport:
             else:
                 self.freq_b = freq_hz
             return build_frame(0xE0, ACK, b"", from_addr=to_addr)
+        if command == Ic705Controller.C_SET_MODE:
+            mode_name = next((name for name, code in Ic705Controller.MODE_MAP.items() if code == payload[0]), None)
+            if self.selected_vfo == "A":
+                self.mode_a = mode_name or "UNKNOWN"
+            else:
+                self.mode_b = mode_name or "UNKNOWN"
+            return build_frame(0xE0, ACK, b"", from_addr=to_addr)
+        if command == Ic705Controller.C_RD_MODE:
+            mode_name = self.mode_a if self.selected_vfo == "A" else self.mode_b
+            mode_code = Ic705Controller.MODE_MAP[mode_name]
+            return build_frame(to_addr=0xE0, command=Ic705Controller.C_RD_MODE, payload=bytes([mode_code, 0x01]), from_addr=to_addr)
+        if command == Ic705Controller.C_SEL_MODE:
+            selected = payload[:1] == b"\x00"
+            if self.force_bad_readback:
+                selector = b"\x00" if selected else b"\x01"
+                return build_frame(to_addr=0xE0, command=Ic705Controller.C_SEL_MODE, payload=selector + bytes([0x00, 0x00, 0x00, 0x00]), from_addr=to_addr)
+            mode_name = self.mode_a if (self.selected_vfo == "A") == selected else self.mode_b
+            mode_code = Ic705Controller.MODE_MAP[mode_name]
+            selector = b"\x00" if selected else b"\x01"
+            return build_frame(to_addr=0xE0, command=Ic705Controller.C_SEL_MODE, payload=selector + bytes([mode_code, 0x00, 0x00, 0x01]), from_addr=to_addr)
         if command == Ic705Controller.C_SEL_FREQ:
+            if self.force_bad_readback:
+                selector = b"\x00" if payload[:1] == b"\x00" else b"\x01"
+                return build_frame(to_addr=0xE0, command=Ic705Controller.C_SEL_FREQ, payload=selector + freq_to_bcd(7060000, 5), from_addr=to_addr)
             selected = payload[:1] == b"\x00"
             freq_hz = self.freq_a if (self.selected_vfo == "A") == selected else self.freq_b
             selector = b"\x00" if selected else b"\x01"
             return build_frame(to_addr=0xE0, command=Ic705Controller.C_SEL_FREQ, payload=selector + freq_to_bcd(freq_hz, 5), from_addr=to_addr)
-        if command == Ic705Controller.C_RD_SPLIT:
+        if command == Ic705Controller.C_RD_SPLIT and not payload:
             payload = b"\x01" if self.split_enabled else b"\x00"
             return build_frame(to_addr=0xE0, command=Ic705Controller.C_RD_SPLIT, payload=payload, from_addr=to_addr)
+        if command == Ic705Controller.C_CTL_SPLT:
+            self.split_enabled = payload[:1] == bytes([Ic705Controller.S_SPLT_ON])
+            return build_frame(0xE0, ACK, b"", from_addr=to_addr)
+        if command == Ic705Controller.C_CTL_LVL:
+            if payload[:1] == bytes([Ic705Controller.S_LVL_SQL]):
+                if len(payload) == 1:
+                    raw = int(round(self.squelch_level * 255))
+                    text = f"{raw:04d}"
+                    bcd = bytes(int(text[idx: idx + 2], 16) for idx in range(0, len(text), 2))
+                    return build_frame(to_addr=0xE0, command=Ic705Controller.C_CTL_LVL, payload=bytes([Ic705Controller.S_LVL_SQL]) + bcd, from_addr=to_addr)
+                raw = int("".join(f"{(byte >> 4) & 0x0F}{byte & 0x0F}" for byte in payload[1:3]))
+                self.squelch_level = raw / 255.0
+                return build_frame(0xE0, ACK, b"", from_addr=to_addr)
+        if command == Ic705Controller.C_CTL_SCP:
+            subcmd = payload[:1]
+            if subcmd == bytes([Ic705Controller.S_SCP_STS]):
+                if len(payload) == 1:
+                    return build_frame(to_addr=0xE0, command=Ic705Controller.C_CTL_SCP, payload=bytes([Ic705Controller.S_SCP_STS, 0x01 if self.scope_enabled else 0x00]), from_addr=to_addr)
+                self.scope_enabled = payload[1:2] == b"\x01"
+                return build_frame(0xE0, ACK, b"", from_addr=to_addr)
+            if subcmd == bytes([Ic705Controller.S_SCP_MOD]):
+                if len(payload) == 2:
+                    return build_frame(to_addr=0xE0, command=Ic705Controller.C_CTL_SCP, payload=bytes([Ic705Controller.S_SCP_MOD, Ic705Controller.SCOPE_MAIN, self.scope_mode or Ic705Controller.SCOPE_MODE_CENTER]), from_addr=to_addr)
+                self.scope_mode = payload[2] if len(payload) > 2 else None
+                return build_frame(0xE0, ACK, b"", from_addr=to_addr)
+            if subcmd == bytes([Ic705Controller.S_SCP_SPN]):
+                if len(payload) == 2:
+                    return build_frame(
+                        to_addr=0xE0,
+                        command=Ic705Controller.C_CTL_SCP,
+                        payload=bytes([Ic705Controller.S_SCP_SPN, Ic705Controller.SCOPE_MAIN]) + freq_to_bcd((self.scope_span_hz or 0) // 2, 5),
+                        from_addr=to_addr,
+                    )
+                half_span = 0
+                digits = 1
+                for byte in payload[2:7]:
+                    half_span += (byte & 0x0F) * digits
+                    digits *= 10
+                    half_span += ((byte >> 4) & 0x0F) * digits
+                    digits *= 10
+                self.scope_span_hz = half_span * 2
+                return build_frame(0xE0, ACK, b"", from_addr=to_addr)
         raise AssertionError(f"Unexpected CI-V command: 0x{command:02X}")
 
 
@@ -264,6 +376,7 @@ def test_radio_state_is_exposed_via_system_state(tmp_path):
     payload = resp.json()
     assert "radioSettings" in payload
     assert "radioRuntime" in payload
+    assert "radioControlSession" in payload
 
 
 def test_radio_poll_endpoint_returns_runtime(tmp_path):
@@ -301,13 +414,281 @@ def test_radio_pair_endpoint_returns_mapping(tmp_path):
     )
     client.post("/api/v1/settings/radio", json={"rig_model": "ic705", "civ_address": "0xA4"})
     client.post("/api/v1/radio/connect")
-    resp = client.post("/api/v1/radio/pair", json={"uplink_hz": 145990000, "downlink_hz": 14100000})
+    resp = client.post("/api/v1/radio/pair", json={"uplink_hz": 145990000, "downlink_hz": 437795000})
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["recommendation"]["sat_id"] == "manual-pair"
     assert payload["targetMapping"]["tx"] == "MAIN"
     assert payload["recommendation"]["uplink_mode"] == "FM"
     assert payload["recommendation"]["downlink_mode"] == "FM"
+
+
+def test_radio_pair_endpoint_rejects_non_vhf_uhf_pair(tmp_path):
+    client = make_client(tmp_path)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
+    )
+    client.post("/api/v1/settings/radio", json={"rig_model": "ic705", "civ_address": "0xA4"})
+    client.post("/api/v1/radio/connect")
+    resp = client.post("/api/v1/radio/pair", json={"uplink_hz": 29000000, "downlink_hz": 145990000})
+    assert resp.status_code == 400
+    assert "outside supported VHF/UHF range" in resp.json()["detail"]
+
+
+def test_radio_session_select_and_clear(tmp_path):
+    client = make_client(tmp_path)
+    aos = datetime.now(UTC) + timedelta(minutes=5)
+    los = aos + timedelta(minutes=10)
+    resp = client.post(
+        "/api/v1/radio/session/select",
+        json={
+            "sat_id": "iss-zarya",
+            "sat_name": "ISS (ZARYA)",
+            "pass_aos": aos.isoformat(),
+            "pass_los": los.isoformat(),
+            "max_el_deg": 42.5,
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["session"]["active"] is True
+    assert payload["session"]["selected_sat_id"] == "iss-zarya"
+    assert payload["session"]["has_test_pair"] is True
+
+    clear_resp = client.post("/api/v1/radio/session/clear")
+    assert clear_resp.status_code == 200
+    assert clear_resp.json()["session"]["active"] is False
+
+
+def test_radio_session_select_marks_non_vhf_uhf_satellite_ineligible(tmp_path):
+    client = make_client(tmp_path)
+    aos = datetime.now(UTC) + timedelta(minutes=5)
+    los = aos + timedelta(minutes=10)
+    original_service = main.frequency_guide_service
+
+    class FakeFrequencyGuideService:
+        def recommendation(self, sat_id, *args, **kwargs):
+            return FrequencyRecommendation(
+                sat_id=sat_id,
+                mode=FrequencyGuideMode.fm,
+                phase=GuidePassPhase.mid,
+                label="Test",
+                is_upcoming=False,
+                is_ongoing=True,
+                correction_side=CorrectionSide.full_duplex,
+                doppler_direction=DopplerDirection.high_to_low,
+                uplink_mhz=29.6,
+                downlink_mhz=145.99,
+            )
+
+    main.frequency_guide_service = FakeFrequencyGuideService()
+    try:
+        resp = client.post(
+            "/api/v1/radio/session/select",
+            json={
+                "sat_id": "custom-non-vhf-uhf",
+                "sat_name": "Custom Out Of Band",
+                "pass_aos": aos.isoformat(),
+                "pass_los": los.isoformat(),
+                "max_el_deg": 42.5,
+            },
+        )
+    finally:
+        main.frequency_guide_service = original_service
+    assert resp.status_code == 200
+    payload = resp.json()["session"]
+    assert payload["active"] is True
+    assert payload["is_eligible"] is False
+    assert "outside supported VHF/UHF range" in payload["eligibility_reason"]
+
+
+def test_radio_session_test_and_confirm_release(tmp_path):
+    client = make_client(tmp_path)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
+    )
+    now = datetime.now(UTC)
+    client.post("/api/v1/settings/radio", json={"rig_model": "ic705", "civ_address": "0xA4"})
+    client.post("/api/v1/radio/connect")
+    client.post(
+        "/api/v1/radio/session/select",
+        json={
+            "sat_id": "iss-zarya",
+            "sat_name": "ISS (ZARYA)",
+            "pass_aos": (now + timedelta(minutes=5)).isoformat(),
+            "pass_los": (now + timedelta(minutes=15)).isoformat(),
+            "max_el_deg": 52.0,
+        },
+    )
+    resp = client.post("/api/v1/radio/session/test")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["session"]["screen_state"] == "test"
+    assert payload["runtime"]["control_mode"] == "manual_applied"
+
+    confirm_resp = client.post("/api/v1/radio/session/test/confirm")
+    assert confirm_resp.status_code == 200
+    confirm_payload = confirm_resp.json()
+    assert confirm_payload["session"]["screen_state"] == "released"
+    assert confirm_payload["runtime"]["control_mode"] == "idle"
+
+
+def test_radio_session_confirm_restores_prior_rig_state(tmp_path):
+    client = make_client(tmp_path)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
+    )
+    now = datetime.now(UTC)
+    client.post("/api/v1/settings/radio", json={"rig_model": "ic705", "civ_address": "0xA4"})
+    client.post("/api/v1/radio/connect")
+    main.radio_control_service._controller.state.targets = {"vfo_a_freq_hz": 145500000, "vfo_b_freq_hz": 435000000}
+    main.radio_control_service._controller.state.raw_state = {"split_enabled": False}
+    client.post(
+        "/api/v1/radio/session/select",
+        json={
+            "sat_id": "iss-zarya",
+            "sat_name": "ISS (ZARYA)",
+            "pass_aos": (now + timedelta(minutes=5)).isoformat(),
+            "pass_los": (now + timedelta(minutes=15)).isoformat(),
+            "max_el_deg": 52.0,
+        },
+    )
+    client.post("/api/v1/radio/session/test")
+    confirm_resp = client.post("/api/v1/radio/session/test/confirm")
+    assert confirm_resp.status_code == 200
+    runtime = confirm_resp.json()["runtime"]
+    assert runtime["targets"]["vfo_a_freq_hz"] == 145500000
+    assert runtime["targets"]["vfo_b_freq_hz"] == 435000000
+
+
+def test_radio_disconnect_restores_prior_rig_state(tmp_path):
+    client = make_client(tmp_path)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
+    )
+    now = datetime.now(UTC)
+    client.post("/api/v1/settings/radio", json={"rig_model": "ic705", "civ_address": "0xA4"})
+    client.post("/api/v1/radio/connect")
+    main.radio_control_service._controller.state.targets = {"vfo_a_freq_hz": 145500000, "vfo_b_freq_hz": 435000000, "scope_span_hz": 200000}
+    main.radio_control_service._controller.state.raw_state = {"split_enabled": False, "scope_enabled": False}
+    client.post(
+        "/api/v1/radio/session/select",
+        json={
+            "sat_id": "iss-zarya",
+            "sat_name": "ISS (ZARYA)",
+            "pass_aos": (now + timedelta(minutes=5)).isoformat(),
+            "pass_los": (now + timedelta(minutes=15)).isoformat(),
+            "max_el_deg": 52.0,
+        },
+    )
+    client.post("/api/v1/radio/session/test")
+    disconnect_resp = client.post("/api/v1/radio/disconnect")
+    assert disconnect_resp.status_code == 200
+    runtime = disconnect_resp.json()["runtime"]
+    assert runtime["connected"] is False
+    controller = main.radio_control_service._controller
+    assert controller is None
+
+
+def test_radio_session_stop_does_not_500_when_restore_fails(tmp_path):
+    client = make_client(tmp_path)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FailingRestoreRigController(None, 0xA4)  # type: ignore[arg-type]
+    )
+    now = datetime.now(UTC)
+    client.post("/api/v1/settings/radio", json={"rig_model": "ic705", "civ_address": "0xA4"})
+    client.post("/api/v1/radio/connect")
+    client.post(
+        "/api/v1/radio/session/select",
+        json={
+            "sat_id": "iss-zarya",
+            "sat_name": "ISS (ZARYA)",
+            "pass_aos": (now + timedelta(minutes=5)).isoformat(),
+            "pass_los": (now + timedelta(minutes=15)).isoformat(),
+            "max_el_deg": 52.0,
+        },
+    )
+    client.post("/api/v1/radio/session/test")
+    resp = client.post("/api/v1/radio/session/stop")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["session"]["screen_state"] == "released"
+    assert "restore failed" in (payload["runtime"]["last_error"] or "").lower()
+
+
+def test_radio_disconnect_endpoint_does_not_500_when_controller_disconnect_fails(tmp_path):
+    client = make_client(tmp_path)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FailingDisconnectRigController(None, 0xA4)  # type: ignore[arg-type]
+    )
+    client.post("/api/v1/settings/radio", json={"rig_model": "ic705", "civ_address": "0xA4"})
+    client.post("/api/v1/radio/connect")
+    resp = client.post("/api/v1/radio/disconnect")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert "runtime" in payload
+
+
+def test_radio_ports_endpoint_returns_items_list(tmp_path):
+    client = make_client(tmp_path)
+    resp = client.get("/api/v1/radio/ports")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert "items" in payload
+    assert isinstance(payload["items"], list)
+
+
+def test_radio_session_start_arms_before_aos(tmp_path):
+    client = make_client(tmp_path)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
+    )
+    now = datetime.now(UTC)
+    client.post("/api/v1/settings/radio", json={"rig_model": "ic705", "civ_address": "0xA4"})
+    client.post("/api/v1/radio/connect")
+    client.post(
+        "/api/v1/radio/session/select",
+        json={
+            "sat_id": "iss-zarya",
+            "sat_name": "ISS (ZARYA)",
+            "pass_aos": (now + timedelta(minutes=5)).isoformat(),
+            "pass_los": (now + timedelta(minutes=15)).isoformat(),
+            "max_el_deg": 52.0,
+        },
+    )
+    resp = client.post("/api/v1/radio/session/start")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["session"]["screen_state"] == "armed"
+    assert payload["session"]["control_state"] == "armed_waiting_aos"
+    client.post("/api/v1/radio/session/stop")
+
+
+def test_radio_session_start_applies_when_ongoing(tmp_path):
+    client = make_client(tmp_path)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
+    )
+    now = datetime.now(UTC)
+    client.post("/api/v1/settings/radio", json={"rig_model": "ic705", "civ_address": "0xA4"})
+    client.post("/api/v1/radio/connect")
+    client.post(
+        "/api/v1/radio/session/select",
+        json={
+            "sat_id": "iss-zarya",
+            "sat_name": "ISS (ZARYA)",
+            "pass_aos": (now - timedelta(minutes=2)).isoformat(),
+            "pass_los": (now + timedelta(minutes=8)).isoformat(),
+            "max_el_deg": 61.0,
+        },
+    )
+    resp = client.post("/api/v1/radio/session/start")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["session"]["screen_state"] == "active"
+    assert payload["session"]["control_state"] == "tracking_active"
+    assert payload["runtime"]["control_mode"] in {"manual_applied", "auto_tracking"}
+    client.post("/api/v1/radio/session/stop")
 
 
 def test_ic705_keeps_absolute_ab_identity_after_vfo_b_write():
@@ -324,6 +705,114 @@ def test_ic705_keeps_absolute_ab_identity_after_vfo_b_write():
     assert state.targets["vfo_a_freq_hz"] == 145000000
     assert state.targets["vfo_b_freq_hz"] == 14105000
     assert state.raw_state["selected_vfo"] == "A"
+
+
+def test_ic705_apply_target_opens_squelch_and_sets_wide_scope():
+    transport = ScriptedIc705Transport(freq_a=145000000, freq_b=437800000)
+    controller = Ic705Controller(transport, 0xA4)
+    recommendation = FrequencyRecommendation(
+        sat_id="iss-zarya",
+        mode=FrequencyGuideMode.fm,
+        phase=GuidePassPhase.mid,
+        label="ISS pass",
+        is_upcoming=False,
+        is_ongoing=True,
+        correction_side=CorrectionSide.full_duplex,
+        doppler_direction=DopplerDirection.high_to_low,
+        uplink_mhz=145.99,
+        downlink_mhz=437.795,
+        uplink_mode="FM",
+        downlink_mode="FM",
+    )
+
+    controller.connect()
+    state, mapping = controller.apply_target(recommendation, apply_mode_and_tone=True)
+
+    assert mapping["tx"] == "A"
+    assert mapping["rx"] == "B"
+    assert transport.squelch_level == 0.0
+    assert transport.scope_enabled is True
+    assert transport.scope_mode == Ic705Controller.SCOPE_MODE_CENTER
+    assert transport.scope_span_hz == Ic705Controller.MAX_SCOPE_SPAN_HZ
+    assert state.raw_state["split_enabled"] is True
+    assert state.raw_state["squelch_level"] == 0.0
+    assert state.raw_state["scope_enabled"] is True
+    assert state.raw_state["scope_span_hz"] == Ic705Controller.MAX_SCOPE_SPAN_HZ
+
+
+def test_ic705_snapshot_and_restore_restores_prior_state():
+    transport = ScriptedIc705Transport(freq_a=145500000, freq_b=435000000)
+    transport.mode_a = "USB"
+    transport.mode_b = "AM"
+    transport.selected_vfo = "B"
+    transport.split_enabled = False
+    transport.squelch_level = 0.5
+    transport.scope_enabled = False
+    transport.scope_mode = Ic705Controller.SCOPE_MODE_CENTER
+    transport.scope_span_hz = 200000
+    controller = Ic705Controller(transport, 0xA4)
+    recommendation = FrequencyRecommendation(
+        sat_id="iss-zarya",
+        mode=FrequencyGuideMode.fm,
+        phase=GuidePassPhase.mid,
+        label="ISS pass",
+        is_upcoming=False,
+        is_ongoing=True,
+        correction_side=CorrectionSide.full_duplex,
+        doppler_direction=DopplerDirection.high_to_low,
+        uplink_mhz=145.99,
+        downlink_mhz=437.795,
+        uplink_mode="FM",
+        downlink_mode="FM",
+    )
+
+    controller.connect()
+    snapshot = controller.snapshot_state()
+    controller.apply_target(recommendation, apply_mode_and_tone=True)
+    restored = controller.restore_snapshot(snapshot)
+
+    assert restored.targets["vfo_a_freq_hz"] == 145500000
+    assert restored.targets["vfo_b_freq_hz"] == 435000000
+    assert restored.targets["vfo_a_mode"] == "USB"
+    assert restored.targets["vfo_b_mode"] == "AM"
+    assert restored.raw_state["split_enabled"] is False
+    assert abs(restored.raw_state["squelch_level"] - 0.5) < 0.01
+    assert restored.raw_state["scope_enabled"] is False
+    assert restored.raw_state["scope_span_hz"] == 200000
+
+
+def test_ic705_poll_preserves_known_pair_when_readback_is_garbage():
+    transport = ScriptedIc705Transport(freq_a=145000000, freq_b=437800000)
+    controller = Ic705Controller(transport, 0xA4)
+    recommendation = FrequencyRecommendation(
+        sat_id="iss-zarya",
+        mode=FrequencyGuideMode.fm,
+        phase=GuidePassPhase.mid,
+        label="ISS pass",
+        is_upcoming=False,
+        is_ongoing=True,
+        correction_side=CorrectionSide.full_duplex,
+        doppler_direction=DopplerDirection.high_to_low,
+        uplink_mhz=145.99,
+        downlink_mhz=437.795,
+        uplink_mode="FM",
+        downlink_mode="FM",
+    )
+
+    controller.connect()
+    state, _ = controller.apply_target(recommendation, apply_mode_and_tone=True)
+    assert state.targets["vfo_a_freq_hz"] == 145990000
+    assert state.targets["vfo_b_freq_hz"] == 437795000
+    assert state.targets["vfo_a_mode"] == "FM"
+    assert state.targets["vfo_b_mode"] == "FM"
+
+    transport.force_bad_readback = True
+    polled = controller.poll_state()
+
+    assert polled.targets["vfo_a_freq_hz"] == 145990000
+    assert polled.targets["vfo_b_freq_hz"] == 437795000
+    assert polled.targets["vfo_a_mode"] == "FM"
+    assert polled.targets["vfo_b_mode"] == "FM"
 
 
 def test_get_lite_settings_defaults(tmp_path):

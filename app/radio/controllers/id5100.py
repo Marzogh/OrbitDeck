@@ -40,3 +40,32 @@ class Id5100Controller(BaseIcomController):
         self.state.targets[key] = int(freq_hz)
         self.stamp_poll()
         return self.state, {"vfo": vfo_name, "freq_hz": int(freq_hz)}
+
+    def snapshot_state(self) -> dict[str, object]:
+        self.poll_state()
+        return {
+            "main_freq_hz": self.state.targets.get("main_freq_hz"),
+            "sub_freq_hz": self.state.targets.get("sub_freq_hz"),
+            "main_mode": self.state.targets.get("main_mode", ""),
+            "sub_mode": self.state.targets.get("sub_mode", ""),
+            "dual_watch": self.state.raw_state.get("dual_watch", False),
+            "split_enabled": self.state.raw_state.get("split_enabled", False),
+        }
+
+    def restore_snapshot(self, snapshot: dict[str, object]):
+        self.state.targets.update(
+            {
+                "main_freq_hz": snapshot.get("main_freq_hz"),
+                "sub_freq_hz": snapshot.get("sub_freq_hz"),
+                "main_mode": snapshot.get("main_mode", ""),
+                "sub_mode": snapshot.get("sub_mode", ""),
+            }
+        )
+        self.state.raw_state.update(
+            {
+                "dual_watch": bool(snapshot.get("dual_watch", False)),
+                "split_enabled": bool(snapshot.get("split_enabled", False)),
+            }
+        )
+        self.stamp_poll()
+        return self.state

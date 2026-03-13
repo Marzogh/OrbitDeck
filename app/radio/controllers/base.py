@@ -37,6 +37,18 @@ class BaseIcomController(ABC):
     @abstractmethod
     def set_frequency(self, vfo: str, freq_hz: int) -> tuple[ControllerState, dict[str, object]]: ...
 
+    def snapshot_state(self) -> dict[str, object]:
+        return {
+            "targets": dict(self.state.targets),
+            "raw_state": dict(self.state.raw_state),
+        }
+
+    def restore_snapshot(self, snapshot: dict[str, object]) -> ControllerState:
+        self.state.targets = dict(snapshot.get("targets", {}))
+        self.state.raw_state = dict(snapshot.get("raw_state", {}))
+        self.stamp_poll()
+        return self.state
+
     def supports_auto_track(self) -> bool:
         return True
 

@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ISS Tracker Rotator</title>
-    <link rel="stylesheet" href="/static/common/styles.css?v=20260311a" />
+    <title>OrbitDeck Rotator</title>
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260313c" />
     <script defer src="/static/common/app.js?v=20260308al"></script>
     <script defer src="/static/common/hemisphere-land.js?v=20260309b"></script>
     <script defer src="/static/common/hemisphere.js?v=20260310b"></script>
-    <script defer src="/static/kiosk/rotator.js?v=20260311a"></script>
+    <script defer src="/static/kiosk/rotator.js?v=20260313c"></script>
   </head>
   <body class="kiosk rotator">
     <header class="rotator-topbar">
@@ -22,6 +22,14 @@
       </div>
     </header>
     <main class="rotator-main">
+      <section id="rotatorStartup" class="rotator-startup">
+        <div class="rotator-startup-panel">
+          <div class="rotator-startup-eyebrow mono">OrbitDeck Rotator Boot</div>
+          <h2 class="rotator-startup-title">Preparing live tracking console</h2>
+          <div id="rotatorStartupStatus" class="rotator-startup-status">Waiting for initial data...</div>
+          <pre id="rotatorStartupTerminal" class="rotator-startup-terminal mono">[boot] waiting for initial data...</pre>
+        </div>
+      </section>
       <section id="sceneVideo" class="scene hidden">
         <div class="scene-title">Screen 1: Live Video Focus</div>
         <iframe
@@ -93,7 +101,7 @@
           <div class="table-wrap passes-table-wrap">
             <table class="data-table passes-table">
               <thead>
-                <tr><th>Satellite</th><th>AOS</th><th>TCA</th><th>LOS</th><th>Max El</th></tr>
+                <tr><th>Satellite</th><th>AOS</th><th>TCA</th><th>LOS</th><th>Max El</th><th>Action</th></tr>
               </thead>
               <tbody id="rotatorPassRows"></tbody>
             </table>
@@ -108,6 +116,40 @@
         <div class="scene-title">Screen 9: Radio Ops</div>
         <div id="radioPrimary" class="scene-overlay mono"></div>
         <div id="radioBoard" class="radio-board"></div>
+      </section>
+
+      <section id="radioConnectModal" class="rotator-modal hidden" aria-hidden="true">
+        <div class="rotator-modal-panel">
+          <div class="rotator-modal-head">
+            <div>
+              <div class="rotator-modal-kicker mono">Radio Connection</div>
+              <h2 class="rotator-modal-title">Choose rig and USB port</h2>
+            </div>
+            <button id="radioConnectModalCloseBtn" type="button" class="rotator-modal-close">Close</button>
+          </div>
+          <div class="rotator-modal-grid">
+            <label class="rotator-modal-field">
+              <span>Radio Type</span>
+              <select id="radioConnectRigModel">
+                <option value="ic705">Icom IC-705</option>
+                <option value="id5100">Icom ID-5100</option>
+              </select>
+            </label>
+            <label class="rotator-modal-field">
+              <span>USB Port</span>
+              <select id="radioConnectPortSelect"></select>
+            </label>
+          </div>
+          <label class="rotator-modal-field">
+            <span>Manual Port Override</span>
+            <input id="radioConnectPortManual" type="text" placeholder="/dev/cu.usbmodem..." />
+          </label>
+          <div id="radioConnectModalStatus" class="rotator-modal-status mono">Loading available USB ports...</div>
+          <div class="controls rotator-modal-actions">
+            <button id="radioConnectRefreshPortsBtn" type="button">Refresh Ports</button>
+            <button id="radioConnectConfirmBtn" type="button">Save And Connect</button>
+          </div>
+        </div>
       </section>
     </main>
     <footer class="kiosk-attribution">
