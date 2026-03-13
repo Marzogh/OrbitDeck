@@ -1309,9 +1309,9 @@ async function renderTelemetryScene(system, scene) {
   const matrix = pass?.frequencyMatrix || null;
   trackerById("telemetryTitle").textContent =
     appendDebugBadge(scene.mode === "ongoing"
-      ? `Screen 2: Ongoing Pass - ${track?.name || "--"}`
+      ? `Ongoing Pass - ${track?.name || "--"}`
       : scene.mode === "iss-upcoming"
-        ? "Screen 3: ISS Upcoming Visible Pass"
+        ? "ISS Upcoming Visible Pass"
         : `Upcoming Pass - ${track?.name || "--"}`);
 
   if (track) {

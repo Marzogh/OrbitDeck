@@ -7,6 +7,7 @@ OrbitDeck currently supports:
 - kiosk UI at `/kiosk`
 - lite/mobile UI at `/lite`
 - lite settings UI at `/lite/settings`
+- radio control UI at `/radio`
 - rotator/operator UI at `/kiosk-rotator`
 - settings UI at `/settings`
 
@@ -54,6 +55,11 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 - RF metadata merged from cached catalog data and source refreshes
 - Shared Doppler-aware frequency guidance across kiosk, rotator, and lite
 - Frequency recommendations support FM and linear satellites, including phase-aware guide matrices for linear transponders
+- Native Icom CI-V rig control for direct validation and pass-driven control workflows
+- Dedicated `/radio` page for serial-port setup, connect/poll checks, manual VFO writes, and manual uplink/downlink pair testing
+- Rotator-embedded radio-control sessions for selecting a pass, testing the default pair, arming before AOS, and tracking until LOS
+- Current rig models in the persisted settings model: `id5100` and `ic705`
+- Current live-validation milestone: IC-705 connect, poll, direct frequency write, and manual pair application
 - AMSAT operational-status comparison cached from `amsat.org/status`
 - ISS visibility and stream-eligibility state, including telemetry-only mode
 
@@ -67,6 +73,7 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 ### UI surfaces
 - Main kiosk screen for large displays
 - Rotator/operator screen for tracking-focused presentation, including the pass globe/hemisphere view and radio-ops telemetry layout
+- Dedicated radio-control screen for rig validation and CI-V state inspection
 - Lite/mobile screen optimized for remote use on phones and low-powered devices
 - Separate lite settings screen for tracked satellites, focus, timezone, and location/GPS configuration
 - Lite includes a first-run setup gate, a single focus-card sky compass, and selected-pass AOS cues for upcoming passes
@@ -92,6 +99,7 @@ Open:
 - Kiosk UI: [http://127.0.0.1:8000/kiosk](http://127.0.0.1:8000/kiosk)
 - Lite UI: [http://127.0.0.1:8000/lite](http://127.0.0.1:8000/lite)
 - Lite settings UI: [http://127.0.0.1:8000/lite/settings](http://127.0.0.1:8000/lite/settings)
+- Radio control UI: [http://127.0.0.1:8000/radio](http://127.0.0.1:8000/radio)
 - Rotator UI: [http://127.0.0.1:8000/kiosk-rotator](http://127.0.0.1:8000/kiosk-rotator)
 - Settings UI: [http://127.0.0.1:8000/settings](http://127.0.0.1:8000/settings)
 - API docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
@@ -115,6 +123,7 @@ Open from another device on your network:
 - Rotator landing UI: `http://<pi-ip>:8000/`
 - Kiosk UI: `http://<pi-ip>:8000/kiosk`
 - Lite UI: `http://<pi-ip>:8000/lite`
+- Radio control UI: `http://<pi-ip>:8000/radio`
 - Rotator UI: `http://<pi-ip>:8000/kiosk-rotator`
 - Settings UI: `http://<pi-ip>:8000/settings`
 - API docs: `http://<pi-ip>:8000/docs`
@@ -139,6 +148,7 @@ OrbitDeck exposes a broader API than the UI uses directly. Full schema details a
 - `/kiosk` main kiosk UI
 - `/lite` lite/mobile UI
 - `/lite/settings` lite settings UI
+- `/radio` radio control UI
 - `/settings` kiosk settings UI, or lite on Pi Zero-class devices
 - `/kiosk-rotator` rotator/operator UI, or lite on Pi Zero-class devices
 
@@ -162,9 +172,29 @@ OrbitDeck exposes a broader API than the UI uses directly. Full schema details a
 - `GET/POST /api/v1/settings/developer-overrides`
 - `GET/POST /api/v1/settings/pass-filter`
 - `GET/POST /api/v1/settings/gps`
+- `GET/POST /api/v1/settings/radio`
 - `GET/POST /api/v1/location`
 - `GET/POST /api/v1/network`
 - `GET/POST /api/v1/cache-policy`
+
+### Radio control
+- `GET /api/v1/radio/state`
+- `GET /api/v1/radio/ports`
+- `GET /api/v1/radio/session`
+- `POST /api/v1/radio/session/select`
+- `POST /api/v1/radio/session/clear`
+- `POST /api/v1/radio/connect`
+- `POST /api/v1/radio/disconnect`
+- `POST /api/v1/radio/poll`
+- `POST /api/v1/radio/frequency`
+- `POST /api/v1/radio/pair`
+- `POST /api/v1/radio/session/test`
+- `POST /api/v1/radio/session/test/confirm`
+- `POST /api/v1/radio/session/start`
+- `POST /api/v1/radio/session/stop`
+- `POST /api/v1/radio/apply`
+- `POST /api/v1/radio/auto-track/start`
+- `POST /api/v1/radio/auto-track/stop`
 
 ### Refresh and history
 - `POST /api/v1/datasets/refresh`
@@ -194,6 +224,16 @@ OrbitDeck exposes a broader API than the UI uses directly. Full schema details a
 - Kiosk, rotator, and lite all use the same backend frequency model
 - FM-style satellites expose a single recommendation, while linear satellites can also expose a phase matrix across the pass
 - The dedicated API entrypoint for this model is `GET /api/v1/frequency-guides/recommendation`
+- The same recommendation model is reused by `/api/v1/radio/apply`, `/api/v1/radio/pair`, and the rotator radio-control session workflow
+
+## Radio Control
+
+- `/radio` is the direct rig-validation surface
+- `/kiosk-rotator` is the pass-driven control surface
+- `GET /api/v1/system/state` now includes `radioSettings`, `radioRuntime`, and `radioControlSession`
+- Rotator radio control accepts recommendations that land inside VHF `144-148 MHz` or UHF `420-450 MHz`
+- Receive-only downlink recommendations remain eligible when the downlink is inside the supported VHF/UHF range
+- The IC-705 controller keeps `VFO A` and `VFO B` as absolute identities, rather than exposing selected/unselected reads as fixed labels
 
 ## Testing and Validation
 
@@ -210,6 +250,7 @@ node --check app/static/lite/lite.js
 node --check app/static/lite/sw.js
 node --check app/static/kiosk/kiosk.js
 node --check app/static/kiosk/rotator.js
+node --check app/static/kiosk/radio.js
 ```
 
 Validation status:

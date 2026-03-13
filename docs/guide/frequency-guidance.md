@@ -30,6 +30,14 @@ The main API route is:
 
 - `GET /api/v1/frequency-guides/recommendation`
 
+The same recommendation structure is also reused by:
+
+- `GET /api/v1/system/state`
+- `GET /api/v1/lite/snapshot`
+- `GET /api/v1/passes`
+- `POST /api/v1/radio/apply`
+- rotator radio-control sessions when OrbitDeck resolves a default test pair
+
 For the backend derivation rules, correction modes, phase handling, and matrix behavior, see [Frequency Guidance](../api/frequency-guidance-model.md).
 
-OrbitDeck provides recommendation data for the current pass state. Tuning changes are made outside the OrbitDeck API surface.
+OrbitDeck provides recommendation data for the current pass state. That recommendation can be read directly, shown in the UI, or applied through the radio-control API.
