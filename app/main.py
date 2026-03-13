@@ -284,7 +284,7 @@ def _resolve_default_test_pair_for_radio(sat_id: str):
         track_path=None,
         now=datetime.now(UTC),
     )
-    if recommendation is None or recommendation.uplink_mhz is None or recommendation.downlink_mhz is None:
+    if recommendation is None or (recommendation.uplink_mhz is None and recommendation.downlink_mhz is None):
         return None
     return recommendation
 

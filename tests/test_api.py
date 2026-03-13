@@ -430,7 +430,7 @@ def test_radio_pair_endpoint_rejects_non_vhf_uhf_pair(tmp_path):
     )
     client.post("/api/v1/settings/radio", json={"rig_model": "ic705", "civ_address": "0xA4"})
     client.post("/api/v1/radio/connect")
-    resp = client.post("/api/v1/radio/pair", json={"uplink_hz": 29000000, "downlink_hz": 145990000})
+    resp = client.post("/api/v1/radio/pair", json={"uplink_hz": 29000000, "downlink_hz": 1268000000})
     assert resp.status_code == 400
     assert "outside supported VHF/UHF range" in resp.json()["detail"]
 
@@ -478,7 +478,7 @@ def test_radio_session_select_marks_non_vhf_uhf_satellite_ineligible(tmp_path):
                 correction_side=CorrectionSide.full_duplex,
                 doppler_direction=DopplerDirection.high_to_low,
                 uplink_mhz=29.6,
-                downlink_mhz=145.99,
+                downlink_mhz=1268.0,
             )
 
     main.frequency_guide_service = FakeFrequencyGuideService()
@@ -500,6 +500,49 @@ def test_radio_session_select_marks_non_vhf_uhf_satellite_ineligible(tmp_path):
     assert payload["active"] is True
     assert payload["is_eligible"] is False
     assert "outside supported VHF/UHF range" in payload["eligibility_reason"]
+
+
+def test_radio_session_select_marks_downlink_only_satellite_eligible(tmp_path):
+    client = make_client(tmp_path)
+    aos = datetime.now(UTC) + timedelta(minutes=5)
+    los = aos + timedelta(minutes=10)
+    original_service = main.frequency_guide_service
+
+    class FakeFrequencyGuideService:
+        def recommendation(self, sat_id, *args, **kwargs):
+            return FrequencyRecommendation(
+                sat_id=sat_id,
+                mode=FrequencyGuideMode.fm,
+                phase=GuidePassPhase.mid,
+                label="Receive only",
+                is_upcoming=False,
+                is_ongoing=True,
+                correction_side=CorrectionSide.downlink_only,
+                doppler_direction=DopplerDirection.high_to_low,
+                uplink_mhz=None,
+                downlink_mhz=437.175,
+                downlink_mode="FM",
+            )
+
+    main.frequency_guide_service = FakeFrequencyGuideService()
+    try:
+        resp = client.post(
+            "/api/v1/radio/session/select",
+            json={
+                "sat_id": "receieve-only",
+                "sat_name": "Receive Only Sat",
+                "pass_aos": aos.isoformat(),
+                "pass_los": los.isoformat(),
+                "max_el_deg": 42.5,
+            },
+        )
+    finally:
+        main.frequency_guide_service = original_service
+    assert resp.status_code == 200
+    payload = resp.json()["session"]
+    assert payload["active"] is True
+    assert payload["is_eligible"] is True
+    assert payload["has_test_pair"] is True
 
 
 def test_radio_session_test_and_confirm_release(tmp_path):
@@ -738,6 +781,36 @@ def test_ic705_apply_target_opens_squelch_and_sets_wide_scope():
     assert state.raw_state["squelch_level"] == 0.0
     assert state.raw_state["scope_enabled"] is True
     assert state.raw_state["scope_span_hz"] == Ic705Controller.MAX_SCOPE_SPAN_HZ
+
+
+def test_ic705_apply_target_supports_receive_only_downlink():
+    transport = ScriptedIc705Transport(freq_a=145500000, freq_b=430000000)
+    controller = Ic705Controller(transport, 0xA4)
+    recommendation = FrequencyRecommendation(
+        sat_id="silversat",
+        mode=FrequencyGuideMode.fm,
+        phase=GuidePassPhase.mid,
+        label="Receive only",
+        is_upcoming=False,
+        is_ongoing=True,
+        correction_side=CorrectionSide.downlink_only,
+        doppler_direction=DopplerDirection.high_to_low,
+        uplink_mhz=None,
+        downlink_mhz=437.175,
+        downlink_mode="FM",
+    )
+
+    controller.connect()
+    state, mapping = controller.apply_target(recommendation, apply_mode_and_tone=True)
+
+    assert mapping["tx"] is None
+    assert mapping["rx"] == "B"
+    assert mapping["receive_only"] is True
+    assert state.targets["vfo_a_freq_hz"] == 145500000
+    assert state.targets["vfo_b_freq_hz"] == 437175000
+    assert state.raw_state["split_enabled"] is False
+    assert state.raw_state["receive_only"] is True
+    assert state.raw_state["selected_vfo"] == "B"
 
 
 def test_ic705_snapshot_and_restore_restores_prior_state():

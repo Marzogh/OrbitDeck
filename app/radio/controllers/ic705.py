@@ -369,26 +369,39 @@ class Ic705Controller(BaseIcomController):
         return self.state
 
     def apply_target(self, recommendation: FrequencyRecommendation, apply_mode_and_tone: bool):
-        if recommendation.uplink_mhz is None or recommendation.downlink_mhz is None:
-            raise ValueError("recommendation must include uplink and downlink")
-        vfo_a_hz = int(round(recommendation.uplink_mhz * 1_000_000))
-        vfo_b_hz = int(round(recommendation.downlink_mhz * 1_000_000))
-        uplink_mode = recommendation.uplink_mode or "FM"
-        downlink_mode = recommendation.downlink_mode or "FM"
+        if recommendation.uplink_mhz is None and recommendation.downlink_mhz is None:
+            raise ValueError("recommendation must include at least one radio frequency")
+        current_a_hz = int(self.state.targets.get("vfo_a_freq_hz") or 0)
+        current_b_hz = int(self.state.targets.get("vfo_b_freq_hz") or 0)
+        current_a_mode = str(self.state.targets.get("vfo_a_mode") or "FM")
+        current_b_mode = str(self.state.targets.get("vfo_b_mode") or "FM")
+        vfo_a_hz = int(round(recommendation.uplink_mhz * 1_000_000)) if recommendation.uplink_mhz is not None else current_a_hz
+        vfo_b_hz = int(round(recommendation.downlink_mhz * 1_000_000)) if recommendation.downlink_mhz is not None else current_b_hz
+        uplink_mode = (recommendation.uplink_mode or current_a_mode or "FM")
+        downlink_mode = (recommendation.downlink_mode or current_b_mode or "FM")
+        receive_only = recommendation.uplink_mhz is None and recommendation.downlink_mhz is not None
+        transmit_only = recommendation.downlink_mhz is None and recommendation.uplink_mhz is not None
         self._set_active_vfo("A")
         self._set_split_enabled(False)
-        self._set_selected_freq(vfo_a_hz)
-        if apply_mode_and_tone:
-            self._set_selected_mode(uplink_mode)
+        if recommendation.uplink_mhz is not None:
+            self._set_selected_freq(vfo_a_hz)
+            if apply_mode_and_tone:
+                self._set_selected_mode(uplink_mode)
         self._set_active_vfo("B")
-        self._set_selected_freq(vfo_b_hz)
-        if apply_mode_and_tone:
-            self._set_selected_mode(downlink_mode)
+        if recommendation.downlink_mhz is not None:
+            self._set_selected_freq(vfo_b_hz)
+            if apply_mode_and_tone:
+                self._set_selected_mode(downlink_mode)
         self._set_squelch_level(self.SQL_OPEN)
         self._set_scope_enabled(True)
         self._set_scope_mode(self.SCOPE_MODE_CENTER)
         self._set_scope_span(self.MAX_SCOPE_SPAN_HZ)
-        self._set_split_enabled(True, rx_vfo="B")
+        if recommendation.uplink_mhz is not None and recommendation.downlink_mhz is not None:
+            self._set_split_enabled(True, rx_vfo="B")
+        elif receive_only:
+            self._set_active_vfo("B")
+        else:
+            self._set_active_vfo("A")
         self.state.targets.update(
             {
                 "vfo_a_label": "VFO A (TX)",
@@ -405,10 +418,12 @@ class Ic705Controller(BaseIcomController):
         )
         self.state.raw_state.update(
             {
-                "split_enabled": True,
-                "tx_vfo": "A",
-                "selected_vfo": "B",
-                "rx_vfo": "B",
+                "split_enabled": bool(recommendation.uplink_mhz is not None and recommendation.downlink_mhz is not None),
+                "tx_vfo": "A" if recommendation.uplink_mhz is not None else None,
+                "selected_vfo": "B" if receive_only or recommendation.downlink_mhz is not None else "A",
+                "rx_vfo": "B" if recommendation.downlink_mhz is not None else None,
+                "receive_only": receive_only,
+                "transmit_only": transmit_only,
                 "squelch_level": self.SQL_OPEN,
                 "scope_enabled": True,
                 "scope_mode": "center",
@@ -417,7 +432,13 @@ class Ic705Controller(BaseIcomController):
             }
         )
         self.poll_state()
-        return self.state, {"tx": "A", "rx": "B", "vfo_a_freq_hz": vfo_a_hz, "vfo_b_freq_hz": vfo_b_hz}
+        return self.state, {
+            "tx": "A" if recommendation.uplink_mhz is not None else None,
+            "rx": "B" if recommendation.downlink_mhz is not None else None,
+            "vfo_a_freq_hz": vfo_a_hz,
+            "vfo_b_freq_hz": vfo_b_hz,
+            "receive_only": receive_only,
+        }
 
     def set_frequency(self, vfo: str, freq_hz: int):
         vfo_name = str(vfo or "").strip().upper()

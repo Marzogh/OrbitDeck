@@ -101,6 +101,17 @@ button {
   cursor: pointer;
 }
 
+button:disabled,
+button[disabled] {
+  cursor: not-allowed;
+  opacity: 0.45;
+  color: rgba(237, 244, 255, 0.58);
+  border-color: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(160deg, rgba(24, 28, 37, 0.72), rgba(15, 18, 24, 0.68));
+  box-shadow: none;
+  filter: saturate(0.35);
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -1321,6 +1332,13 @@ body.kiosk .passes-focus-body {
   margin-top: 10px;
 }
 
+body.kiosk .passes-focus-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 14px;
+}
+
 body.kiosk .passes-focus-name {
   color: #fff6ef;
   font-size: 2rem;
@@ -1385,6 +1403,13 @@ body.kiosk .passes-radio-action {
 
 body.kiosk .passes-radio-action:hover {
   background: linear-gradient(135deg, rgba(22, 84, 72, 0.96), rgba(28, 46, 53, 0.96));
+}
+
+body.kiosk .passes-focus-action {
+  flex: 0 0 auto;
+  align-self: start;
+  padding-inline: 16px;
+  white-space: nowrap;
 }
 
 body.kiosk .passes-queue-item {

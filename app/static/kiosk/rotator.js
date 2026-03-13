@@ -684,6 +684,35 @@ function modeLongName(modeText) {
   return mode || "General";
 }
 
+function supportsVhfUhfRig(freqMhz) {
+  const value = Number(freqMhz);
+  if (!Number.isFinite(value)) return false;
+  return (value >= 144 && value <= 148) || (value >= 420 && value <= 450);
+}
+
+function radioControlAvailability(recommendation) {
+  const hasUplink = Number.isFinite(Number(recommendation?.uplink_mhz));
+  const hasDownlink = Number.isFinite(Number(recommendation?.downlink_mhz));
+  if (!recommendation || (!hasUplink && !hasDownlink)) {
+    return {
+      eligible: false,
+      reason: "Radio control unavailable: no usable in-range uplink or downlink is defined for this pass.",
+    };
+  }
+  if (!supportsVhfUhfRig(recommendation.uplink_mhz) && !supportsVhfUhfRig(recommendation.downlink_mhz)) {
+    return {
+      eligible: false,
+      reason: "Radio control unavailable: this pass uses frequencies outside the VHF/UHF range supported by the Icom IC-705 and ID-5100.",
+    };
+  }
+  return {
+    eligible: true,
+    reason: hasUplink && hasDownlink
+      ? "This pass is supported by the Icom IC-705 and ID-5100 radio-control workflow."
+      : "Receive-only radio control is available for this pass on the Icom IC-705 and ID-5100.",
+  };
+}
+
 function scoreHamUsefulness(row) {
   const text = `${row.mode} ${row.up} ${row.down} ${row.bands}`.toLowerCase();
   const hasPair = row.up !== "—" || row.down !== "—";
@@ -855,6 +884,7 @@ function renderUpcomingTelemetryPanel({ track, pass, rows, scene, recommendation
   const heroTags = [sunlit, `MaxEl ${maxEl.toFixed(1)}°`];
   if (primary?.bands && primary.bands !== "Band unknown") heroTags.push(primary.bands);
   const upcomingRows = rows.slice(0, 4);
+  const radioControl = radioControlAvailability(recommendation);
   return `
     <section class="telemetry-panel telemetry-panel-upcoming">
       <div class="telemetry-hero-card telemetry-tone-${status.tone}">
@@ -887,6 +917,19 @@ function renderUpcomingTelemetryPanel({ track, pass, rows, scene, recommendation
           <div><span>Bands</span><strong>${escapeHtml(primary?.bands || "Unknown")}</strong></div>
         </div>
         ${recommendation?.note ? `<div class="telemetry-metric-meta">${escapeHtml(recommendation.note)}</div>` : ""}
+        <div class="telemetry-metric-meta">${escapeHtml(radioControl.reason)}</div>
+        <div class="controls">
+          <button
+            type="button"
+            data-radio-action="select-session"
+            data-sat-id="${escapeHtml(pass?.sat_id || "")}"
+            data-sat-name="${escapeHtml(pass?.name || satName)}"
+            data-pass-aos="${escapeHtml(pass?.aos || "")}"
+            data-pass-los="${escapeHtml(pass?.los || "")}"
+            data-max-el="${escapeHtml(String(pass?.max_el_deg ?? ""))}"
+            ${radioControl.eligible && pass ? "" : " disabled"}
+          >Go to Radio Control</button>
+        </div>
       </section>
 
       <section class="telemetry-radio-card">
@@ -1172,11 +1215,14 @@ function resolveDeveloperScene(system, passes) {
 }
 
 function isRotatorEligiblePass(pass) {
-  return Number.isFinite(passDurationMinutes(pass)) && passDurationMinutes(pass) <= MAX_ROTATOR_PASS_DURATION_MIN;
+  const duration = passDurationMinutes(pass);
+  if (!Number.isFinite(duration) || duration <= 0) return false;
+  if (isIssPass(pass)) return true;
+  return duration <= MAX_ROTATOR_PASS_DURATION_MIN;
 }
 
 function passMeetsRotatorElevation(pass) {
-  return Number(pass.max_el_deg) >= (isIssPass(pass) ? 20 : 40);
+  return Number(pass.max_el_deg) >= (isIssPass(pass) ? 10 : 40);
 }
 
 function filterConsolePasses(passes) {
@@ -1185,7 +1231,7 @@ function filterConsolePasses(passes) {
     .filter(isRotatorAllowedSat)
     .filter((p) => new Date(p.aos).getTime() > now)
     .filter(isRotatorEligiblePass)
-    .filter((p) => isIssPass(p) || passMeetsRotatorElevation(p));
+    .filter(passMeetsRotatorElevation);
 }
 
 function pickOngoingPass(system, passes) {
@@ -1210,7 +1256,7 @@ function buildRotationSequence(system, passes) {
     .filter((p) => new Date(p.aos).getTime() > nowMs)
     .filter(isRotatorEligiblePass)
     .filter(passMeetsRotatorElevation);
-  const issUpcoming = upcoming.find((p) => isIssPass(p) && Number(p.max_el_deg) >= 20);
+  const issUpcoming = upcoming.find((p) => isIssPass(p) && passMeetsRotatorElevation(p));
   const exclusionKey = issUpcoming ? stablePassKey(issUpcoming) : "";
   const nonOngoingCandidates = upcoming.filter((p) => Number(p.max_el_deg) >= 40);
   const nextFour = [];
@@ -1369,7 +1415,7 @@ function renderPassesScene(passes) {
       </div>
       <div class="passes-summary-tag">
         <span class="passes-summary-tag-label">Filter</span>
-        <strong>ISS all passes, others &gt;=40°</strong>
+        <strong>ISS &gt;=10°, others &gt;=40°</strong>
       </div>
     </div>
     ${rotatorActionError ? `
@@ -1425,9 +1471,21 @@ function renderPassesScene(passes) {
         <div class="passes-focus-countdown mono">AOS in ${escapeHtml(nextCountdown)}</div>
       </div>
       <div class="passes-focus-body">
-        <div>
+        <div class="passes-focus-summary">
+          <div>
           <div class="passes-focus-name">${escapeHtml(next.name)}</div>
           <div class="passes-focus-sub">${escapeHtml(nextLabel)}</div>
+          </div>
+          <button
+            type="button"
+            class="passes-radio-action passes-focus-action"
+            data-radio-action="select-session"
+            data-sat-id="${escapeHtml(next.sat_id)}"
+            data-sat-name="${escapeHtml(next.name)}"
+            data-pass-aos="${escapeHtml(next.aos)}"
+            data-pass-los="${escapeHtml(next.los)}"
+            data-max-el="${escapeHtml(String(next.max_el_deg))}"
+          >Go to Radio Control</button>
         </div>
         <div class="passes-focus-grid">
           <div><span>AOS</span><strong class="mono">${escapeHtml(nextAosTime)}</strong></div>
@@ -1449,18 +1507,6 @@ function renderPassesScene(passes) {
             </div>
           `).join("")
           : '<div class="passes-focus-empty">No additional qualifying passes.</div>'}
-      </div>
-      <div class="controls">
-        <button
-          type="button"
-          class="passes-radio-action"
-          data-radio-action="select-session"
-          data-sat-id="${escapeHtml(next.sat_id)}"
-          data-sat-name="${escapeHtml(next.name)}"
-          data-pass-aos="${escapeHtml(next.aos)}"
-          data-pass-los="${escapeHtml(next.los)}"
-          data-max-el="${escapeHtml(String(next.max_el_deg))}"
-        >Go to Radio Control</button>
       </div>
     `
     : '<div class="passes-focus-empty">No qualifying passes in the next 24 hours.</div>';

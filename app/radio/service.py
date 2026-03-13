@@ -72,13 +72,22 @@ class RigControlService:
 
     @classmethod
     def _recommendation_supported(cls, recommendation: FrequencyRecommendation | None) -> tuple[bool, str | None]:
-        if recommendation is None or recommendation.uplink_mhz is None or recommendation.downlink_mhz is None:
-            return False, "No usable uplink/downlink pair for this satellite"
-        if not cls._freq_supported_by_vhf_uhf_rig(recommendation.uplink_mhz):
+        if recommendation is None:
+            return False, "No usable radio frequency is defined for this satellite"
+        uplink_ok = cls._freq_supported_by_vhf_uhf_rig(recommendation.uplink_mhz)
+        downlink_ok = cls._freq_supported_by_vhf_uhf_rig(recommendation.downlink_mhz)
+        if uplink_ok or downlink_ok:
+            return True, None
+        if recommendation.uplink_mhz is None and recommendation.downlink_mhz is None:
+            return False, "No usable radio frequency is defined for this satellite"
+        if recommendation.uplink_mhz is not None and recommendation.downlink_mhz is None:
             return False, f"Uplink {recommendation.uplink_mhz:.3f} MHz is outside supported VHF/UHF range"
-        if not cls._freq_supported_by_vhf_uhf_rig(recommendation.downlink_mhz):
+        if recommendation.downlink_mhz is not None and recommendation.uplink_mhz is None:
             return False, f"Downlink {recommendation.downlink_mhz:.3f} MHz is outside supported VHF/UHF range"
-        return True, None
+        return (
+            False,
+            f"Uplink {recommendation.uplink_mhz:.3f} MHz and downlink {recommendation.downlink_mhz:.3f} MHz are outside supported VHF/UHF range",
+        )
 
     def runtime(self) -> RadioRuntimeState:
         return RadioRuntimeState.model_validate(self._runtime.model_dump(mode="python"))
@@ -264,8 +273,8 @@ class RigControlService:
         if not self._session.is_eligible:
             raise ValueError(self._session.eligibility_reason or "Selected satellite is not eligible for VHF/UHF radio control")
         recommendation = self._session.test_pair
-        if recommendation is None or recommendation.uplink_mhz is None or recommendation.downlink_mhz is None:
-            raise ValueError(self._session.test_pair_reason or "No usable default voice pair for this satellite")
+        if recommendation is None or (recommendation.uplink_mhz is None and recommendation.downlink_mhz is None):
+            raise ValueError(self._session.test_pair_reason or "No usable supported radio frequency for this satellite")
         self._capture_restore_snapshot()
         state, mapping = self._controller.apply_target(recommendation, settings.default_apply_mode_and_tone)  # type: ignore[union-attr]
         self._runtime.connected = state.connected
@@ -393,7 +402,7 @@ class RigControlService:
         if not self._runtime.connected or self._controller is None:
             raise RuntimeError("radio is not connected")
         recommendation, pass_event = resolver(payload.sat_id, payload.location_source, payload.selected_column_index)
-        if recommendation is None or recommendation.uplink_mhz is None or recommendation.downlink_mhz is None:
+        if recommendation is None or (recommendation.uplink_mhz is None and recommendation.downlink_mhz is None):
             raise ValueError("recommendation is unavailable for the selected target")
         state, mapping = self._controller.apply_target(
             recommendation,
