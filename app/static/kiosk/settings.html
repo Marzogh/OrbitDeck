@@ -11,6 +11,7 @@
   <body class="kiosk">
     <header>
       <h1>ISS Tracker Settings</h1>
+      <div id="stationBadge" class="label mono">Station: --</div>
       <div id="clock" class="label"></div>
     </header>
     <main>
@@ -96,8 +97,17 @@
           <button id="saveRadioSettings">Save Radio Settings</button>
           <button id="connectRadio">Connect Radio</button>
           <button id="disconnectRadio">Disconnect Radio</button>
+          <a href="/radio">Open Radio Test Page</a>
         </div>
         <div id="radioStatus" class="label">Rig: --</div>
+      </section>
+
+      <section class="card controls">
+        <h2>APRS</h2>
+        <div class="controls">
+          <a href="/aprs">Open APRS Test Page</a>
+        </div>
+        <div id="aprsStatus" class="label">APRS: --</div>
       </section>
 
       <section class="card controls">

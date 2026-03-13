@@ -1,5 +1,6 @@
 let trackerApi;
 let trackerById;
+let trackerRenderStationBadge;
 
 const VIDEO_SOURCES_KEY = "kioskVideoSources";
 const DEV_MODE_KEY = "kioskDevModeEnabled";
@@ -1825,6 +1826,9 @@ function syncDevSettingsLink() {
 }
 
 function updateTopMeta(system) {
+  if (trackerRenderStationBadge) {
+    trackerRenderStationBadge("stationBadge", system?.stationIdentity, system?.aprsSettings);
+  }
   const session = system?.radioControlSession;
   if (session?.active) {
     trackerById("rotatorTracked").textContent = `Tracked: ${session.selected_sat_name || session.selected_sat_id || "--"} (Radio)`;
@@ -1901,7 +1905,7 @@ function chooseScene() {
 
 window.addEventListener("DOMContentLoaded", async () => {
   try {
-    ({ api: trackerApi, byId: trackerById } = window.issTracker);
+    ({ api: trackerApi, byId: trackerById, renderStationBadge: trackerRenderStationBadge } = window.issTracker);
     setStartupVisible(true);
     setStartupStatus("Preparing live tracking console", "Boot sequence started");
     syncDevSettingsLink();

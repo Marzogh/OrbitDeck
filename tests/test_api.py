@@ -1,9 +1,13 @@
 from datetime import UTC, datetime, timedelta
+from types import MethodType
 
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.aprs.codec import decode_ui_frame, encode_ui_frame
+from app.aprs.service import AprsService
 from app.models import (
+    AprsOperatingMode,
     CorrectionSide,
     DopplerDirection,
     FrequencyGuideMode,
@@ -28,7 +32,13 @@ def make_client(tmp_path):
     main.tracking_service = TrackingService(str(tmp_path / "latest_catalog.json"))
     main.ingestion_service = DataIngestionService()
     main.radio_control_service = RigControlService()
+    main.aprs_service = AprsService()
     return TestClient(main.app)
+
+
+def configure_station_identity(client: TestClient, callsign: str = "VK4ABC") -> None:
+    resp = client.post("/api/v1/settings/aprs", json={"callsign": callsign})
+    assert resp.status_code == 200
 
 
 class FakeRigController(BaseIcomController):
@@ -88,6 +98,65 @@ class FailingRestoreRigController(FakeRigController):
 class FailingDisconnectRigController(FakeRigController):
     def disconnect(self):
         raise RuntimeError("simulated disconnect failure")
+
+
+class FakeDireWolfSidecar:
+    def __init__(self) -> None:
+        self.command = []
+        self.output_tail = []
+        self.running = False
+
+    def start(self, settings, target):
+        self.running = True
+        self.command = [settings.direwolf_binary, "-c", "fake-direwolf.conf"]
+        self.output_tail = [f"started {target.frequency_hz}"]
+        return self.command, self.output_tail
+
+    def stop(self):
+        self.running = False
+
+    def is_running(self):
+        return self.running
+
+
+class FakeKissClient:
+    def __init__(self, host, port, callback):
+        self.host = host
+        self.port = port
+        self.callback = callback
+        self.connected = False
+        self.sent = []
+
+    def connect(self, timeout=3.0):
+        self.connected = True
+
+    def close(self):
+        self.connected = False
+
+    def send_data(self, payload, channel=0):
+        self.sent.append((payload, channel))
+
+    def inject(self, payload):
+        self.callback(payload)
+
+
+class FakeAprsService(AprsService):
+    def __init__(self) -> None:
+        self.last_tuned_frequency = None
+        self.kiss_clients = []
+        super().__init__(
+            sidecar_factory=lambda: FakeDireWolfSidecar(),
+            kiss_factory=self._make_kiss_client,
+            wait_for_socket_fn=lambda host, port, timeout: None,
+        )
+
+    def _make_kiss_client(self, host, port, callback):
+        client = FakeKissClient(host, port, callback)
+        self.kiss_clients.append(client)
+        return client
+
+    def _tune_radio(self, settings, frequency_hz: int) -> None:
+        self.last_tuned_frequency = int(frequency_hz)
 
 
 class ScriptedIc705Transport:
@@ -337,6 +406,7 @@ def test_set_and_get_radio_settings(tmp_path):
 
 def test_radio_connect_apply_and_stop(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FakeRigController(None, 0x8C)  # type: ignore[arg-type]
     )
@@ -366,6 +436,7 @@ def test_radio_connect_apply_and_stop(tmp_path):
 
 def test_radio_state_is_exposed_via_system_state(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FakeRigController(None, 0x8C)  # type: ignore[arg-type]
     )
@@ -381,6 +452,7 @@ def test_radio_state_is_exposed_via_system_state(tmp_path):
 
 def test_radio_poll_endpoint_returns_runtime(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
     )
@@ -395,6 +467,7 @@ def test_radio_poll_endpoint_returns_runtime(tmp_path):
 
 def test_radio_frequency_endpoint_updates_runtime(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
     )
@@ -409,6 +482,7 @@ def test_radio_frequency_endpoint_updates_runtime(tmp_path):
 
 def test_radio_pair_endpoint_returns_mapping(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
     )
@@ -425,6 +499,7 @@ def test_radio_pair_endpoint_returns_mapping(tmp_path):
 
 def test_radio_pair_endpoint_rejects_non_vhf_uhf_pair(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
     )
@@ -437,6 +512,7 @@ def test_radio_pair_endpoint_rejects_non_vhf_uhf_pair(tmp_path):
 
 def test_radio_session_select_and_clear(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     aos = datetime.now(UTC) + timedelta(minutes=5)
     los = aos + timedelta(minutes=10)
     resp = client.post(
@@ -462,6 +538,7 @@ def test_radio_session_select_and_clear(tmp_path):
 
 def test_radio_session_select_marks_non_vhf_uhf_satellite_ineligible(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     aos = datetime.now(UTC) + timedelta(minutes=5)
     los = aos + timedelta(minutes=10)
     original_service = main.frequency_guide_service
@@ -504,6 +581,7 @@ def test_radio_session_select_marks_non_vhf_uhf_satellite_ineligible(tmp_path):
 
 def test_radio_session_select_marks_downlink_only_satellite_eligible(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     aos = datetime.now(UTC) + timedelta(minutes=5)
     los = aos + timedelta(minutes=10)
     original_service = main.frequency_guide_service
@@ -547,6 +625,7 @@ def test_radio_session_select_marks_downlink_only_satellite_eligible(tmp_path):
 
 def test_radio_session_test_and_confirm_release(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
     )
@@ -578,6 +657,7 @@ def test_radio_session_test_and_confirm_release(tmp_path):
 
 def test_radio_session_confirm_restores_prior_rig_state(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
     )
@@ -606,6 +686,7 @@ def test_radio_session_confirm_restores_prior_rig_state(tmp_path):
 
 def test_radio_disconnect_restores_prior_rig_state(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
     )
@@ -635,6 +716,7 @@ def test_radio_disconnect_restores_prior_rig_state(tmp_path):
 
 def test_radio_session_stop_does_not_500_when_restore_fails(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FailingRestoreRigController(None, 0xA4)  # type: ignore[arg-type]
     )
@@ -661,6 +743,7 @@ def test_radio_session_stop_does_not_500_when_restore_fails(tmp_path):
 
 def test_radio_disconnect_endpoint_does_not_500_when_controller_disconnect_fails(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FailingDisconnectRigController(None, 0xA4)  # type: ignore[arg-type]
     )
@@ -683,6 +766,7 @@ def test_radio_ports_endpoint_returns_items_list(tmp_path):
 
 def test_radio_session_start_arms_before_aos(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
     )
@@ -709,6 +793,7 @@ def test_radio_session_start_arms_before_aos(tmp_path):
 
 def test_radio_session_start_applies_when_ongoing(tmp_path):
     client = make_client(tmp_path)
+    configure_station_identity(client)
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
     )
@@ -1439,3 +1524,265 @@ def test_iss_state_works_with_noncanonical_iss_id(tmp_path):
         assert "issTrack" in r2.json()
     finally:
         main.ingestion_service = old
+
+
+def test_aprs_targets_include_explicit_satellite_and_terrestrial_region(tmp_path):
+    client = make_client(tmp_path)
+
+    client.post(
+        "/api/v1/location",
+        json={
+            "source_mode": "manual",
+            "add_profile": {
+                "id": "brisbane",
+                "name": "Brisbane",
+                "point": {"lat": -27.4698, "lon": 153.0251, "alt_m": 25},
+            },
+            "selected_profile_id": "brisbane",
+        },
+    )
+
+    resp = client.get("/api/v1/aprs/targets")
+    assert resp.status_code == 200
+    payload = resp.json()
+    satellites = payload["targets"]["satellites"]
+    assert any(item["sat_id"] == "iss-zarya" for item in satellites)
+    assert payload["targets"]["terrestrial"]["region_label"] == "Australia and Oceania"
+    assert payload["targets"]["terrestrial"]["suggested_frequency_hz"] == 145175000
+
+
+def test_aprs_select_target_rejects_non_aprs_satellite(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.post("/api/v1/aprs/select-target", json={"operating_mode": "satellite", "sat_id": "so50"})
+    assert resp.status_code == 400
+    assert "does not support APRS" in resp.json()["detail"]
+
+
+def test_aprs_connect_blocks_radio_control_and_tracks_received_packets(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_service = FakeAprsService()
+
+    client.post(
+        "/api/v1/location",
+        json={
+            "source_mode": "manual",
+            "add_profile": {
+                "id": "brisbane",
+                "name": "Brisbane",
+                "point": {"lat": -27.4698, "lon": 153.0251, "alt_m": 25},
+            },
+            "selected_profile_id": "brisbane",
+        },
+    )
+    save = client.post(
+        "/api/v1/settings/aprs",
+        json={
+            "enabled": True,
+            "callsign": "VK4ABC",
+            "ssid": 10,
+            "operating_mode": "terrestrial",
+            "serial_device": "/dev/ttyUSB0",
+            "audio_input_device": "default",
+            "audio_output_device": "default",
+        },
+    )
+    assert save.status_code == 200
+
+    connect = client.post("/api/v1/aprs/connect")
+    assert connect.status_code == 200
+    assert connect.json()["runtime"]["connected"] is True
+    assert main.aprs_service.last_tuned_frequency == 145175000
+
+    blocked = client.post("/api/v1/radio/connect")
+    assert blocked.status_code == 409
+    assert "APRS owns radio session" in blocked.json()["detail"]
+
+    fake_kiss = main.aprs_service.kiss_clients[-1]
+    fake_kiss.inject(encode_ui_frame("VK4XYZ-7", "APRS", ["WIDE1-1"], ">OrbitDeck test"))
+    aprs_state = client.get("/api/v1/aprs/state").json()
+    assert aprs_state["runtime"]["packets_rx"] == 1
+    assert aprs_state["runtime"]["heard_count"] == 1
+    assert aprs_state["runtime"]["heard_stations"][0]["callsign"] == "VK4XYZ-7"
+
+
+def test_aprs_send_endpoints_increment_tx_counters(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_service = FakeAprsService()
+
+    client.post(
+        "/api/v1/location",
+        json={
+            "source_mode": "manual",
+            "add_profile": {
+                "id": "brisbane",
+                "name": "Brisbane",
+                "point": {"lat": -27.4698, "lon": 153.0251, "alt_m": 25},
+            },
+            "selected_profile_id": "brisbane",
+        },
+    )
+    client.post(
+        "/api/v1/settings/aprs",
+        json={
+            "enabled": True,
+            "callsign": "VK4ABC",
+            "ssid": 10,
+            "operating_mode": "terrestrial",
+            "serial_device": "/dev/ttyUSB0",
+            "audio_input_device": "default",
+            "audio_output_device": "default",
+        },
+    )
+    client.post("/api/v1/aprs/connect")
+
+    m = client.post("/api/v1/aprs/send/message", json={"to": "VK4XYZ", "text": "hello"})
+    s = client.post("/api/v1/aprs/send/status", json={"text": "status"})
+    p = client.post("/api/v1/aprs/send/position", json={"comment": "portable"})
+
+    assert m.status_code == 200
+    assert s.status_code == 200
+    assert p.status_code == 200
+    aprs_state = client.get("/api/v1/aprs/state").json()
+    assert aprs_state["runtime"]["packets_tx"] == 3
+
+
+def test_aprs_settings_store_separate_space_and_terrestrial_comments(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.post(
+        "/api/v1/settings/aprs",
+        json={
+            "terrestrial_beacon_comment": "OrbitDeck terrestrial",
+            "satellite_beacon_comment": "OrbitDeck space",
+            "operating_mode": "satellite",
+        },
+    )
+    assert resp.status_code == 200
+    state = resp.json()["state"]
+    assert state["terrestrial_beacon_comment"] == "OrbitDeck terrestrial"
+    assert state["satellite_beacon_comment"] == "OrbitDeck space"
+
+
+def test_aprs_position_send_uses_mode_specific_default_comment(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_service = FakeAprsService()
+
+    client.post(
+        "/api/v1/location",
+        json={
+            "source_mode": "manual",
+            "add_profile": {
+                "id": "brisbane",
+                "name": "Brisbane",
+                "point": {"lat": -27.4698, "lon": 153.0251, "alt_m": 25},
+            },
+            "selected_profile_id": "brisbane",
+        },
+    )
+    client.post(
+        "/api/v1/settings/aprs",
+        json={
+            "enabled": True,
+            "callsign": "VK4ABC",
+            "operating_mode": "terrestrial",
+            "serial_device": "/dev/ttyUSB0",
+            "audio_input_device": "default",
+            "audio_output_device": "default",
+            "terrestrial_beacon_comment": "LAND",
+            "satellite_beacon_comment": "SPACE",
+        },
+    )
+    client.post("/api/v1/aprs/connect")
+    terrestrial_send = client.post("/api/v1/aprs/send/position", json={})
+    assert terrestrial_send.status_code == 200
+    terrestrial_frame = main.aprs_service.kiss_clients[-1].sent[-1][0]
+    assert decode_ui_frame(terrestrial_frame).text.endswith("LAND")
+
+    targets = client.get("/api/v1/aprs/targets").json()["targets"]["satellites"]
+    iss = next(item for item in targets if item["sat_id"] == "iss-zarya")
+    channel_id = iss["channels"][0]["channel_id"]
+    original_pass_predictions = main.tracking_service.pass_predictions
+
+    def active_pass_predictions(self, start_time, hours, location, sat_ids=None, include_ongoing=False):
+        return [
+            PassEvent(
+                sat_id="iss-zarya",
+                name="ISS (ZARYA)",
+                aos=start_time - timedelta(minutes=1),
+                tca=start_time,
+                los=start_time + timedelta(minutes=8),
+                max_el_deg=48.0,
+            )
+        ]
+
+    main.tracking_service.pass_predictions = MethodType(active_pass_predictions, main.tracking_service)
+    client.post(
+        "/api/v1/aprs/select-target",
+        json={"operating_mode": "satellite", "sat_id": "iss-zarya", "channel_id": channel_id},
+    )
+    try:
+        satellite_connect = client.post("/api/v1/aprs/connect")
+        assert satellite_connect.status_code == 200
+        satellite_send = client.post("/api/v1/aprs/send/position", json={})
+        assert satellite_send.status_code == 200
+        satellite_frame = main.aprs_service.kiss_clients[-1].sent[-1][0]
+        assert decode_ui_frame(satellite_frame).text.endswith("SPACE")
+    finally:
+        main.tracking_service.pass_predictions = original_pass_predictions
+
+
+def test_radio_control_requires_station_callsign(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.post("/api/v1/radio/connect")
+    assert resp.status_code == 403
+    assert "callsign" in resp.json()["detail"].lower()
+
+
+def test_aprs_connect_requires_station_callsign(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_service = FakeAprsService()
+
+    client.post(
+        "/api/v1/location",
+        json={
+            "source_mode": "manual",
+            "add_profile": {
+                "id": "brisbane",
+                "name": "Brisbane",
+                "point": {"lat": -27.4698, "lon": 153.0251, "alt_m": 25},
+            },
+            "selected_profile_id": "brisbane",
+        },
+    )
+    client.post(
+        "/api/v1/settings/aprs",
+        json={
+            "enabled": True,
+            "operating_mode": "terrestrial",
+            "serial_device": "/dev/ttyUSB0",
+            "audio_input_device": "default",
+            "audio_output_device": "default",
+        },
+    )
+
+    resp = client.post("/api/v1/aprs/connect")
+    assert resp.status_code == 403
+    assert "callsign" in resp.json()["detail"].lower()
+
+
+def test_system_state_reports_station_identity(tmp_path):
+    client = make_client(tmp_path)
+
+    initial = client.get("/api/v1/system/state")
+    assert initial.status_code == 200
+    assert initial.json()["stationIdentity"]["configured"] is False
+
+    client.post("/api/v1/settings/aprs", json={"callsign": "VK4ABC"})
+
+    updated = client.get("/api/v1/system/state")
+    assert updated.status_code == 200
+    identity = updated.json()["stationIdentity"]
+    assert identity["configured"] is True
+    assert identity["callsign"] == "VK4ABC"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from contextlib import suppress
@@ -13,8 +14,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.aprs.service import AprsService
 from app.device import lite_only_ui
 from app.models import (
+    AprsOperatingMode,
+    AprsSendMessageRequest,
+    AprsSendPositionRequest,
+    AprsSendStatusRequest,
+    AprsSettings,
+    AprsSettingsUpdate,
+    AprsTargetSelectRequest,
     CachePolicyUpdate,
     DeveloperOverridesUpdate,
     DatasetSnapshot,
@@ -64,8 +73,10 @@ cache_service = CacheService()
 ingestion_service = DataIngestionService()
 frequency_guide_service = FrequencyGuideService()
 radio_control_service = RigControlService()
+aprs_service = AprsService()
 _refresh_task: asyncio.Task | None = None
 _lite_snapshot_cache: dict[tuple, tuple[datetime, dict]] = {}
+_CALLSIGN_PATTERN = re.compile(r"^[A-Z0-9]{3,10}$")
 
 
 def _resolve_location(source_override: LocationSourceMode | None = None):
@@ -188,6 +199,147 @@ def _apply_radio_settings_update(current: RadioSettings, payload: RadioSettingsU
     else:
         next_settings.civ_address = normalize_civ_address(next_settings.civ_address)
     return next_settings
+
+
+def _apply_aprs_settings_update(current: AprsSettings, payload: AprsSettingsUpdate) -> AprsSettings:
+    next_settings = current.model_copy(deep=True)
+    for field in (
+        "enabled",
+        "listen_only",
+        "operating_mode",
+        "rig_model",
+        "ptt_via_cat",
+        "start_on_boot",
+        "selected_satellite_id",
+        "selected_channel_id",
+        "terrestrial_auto_region",
+        "terrestrial_region_label",
+    ):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(next_settings, field, value)
+    for field in (
+        "callsign",
+        "serial_device",
+        "civ_address",
+        "audio_input_device",
+        "audio_output_device",
+        "kiss_host",
+        "direwolf_binary",
+        "beacon_comment",
+        "terrestrial_beacon_comment",
+        "satellite_beacon_comment",
+        "symbol_table",
+        "symbol_code",
+        "terrestrial_path",
+        "satellite_path",
+    ):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(next_settings, field, str(value).strip())
+    if payload.beacon_comment is not None:
+        legacy = str(payload.beacon_comment).strip()
+        next_settings.beacon_comment = legacy
+        if payload.terrestrial_beacon_comment is None:
+            next_settings.terrestrial_beacon_comment = legacy
+        if payload.satellite_beacon_comment is None:
+            next_settings.satellite_beacon_comment = legacy
+    if payload.ssid is not None:
+        next_settings.ssid = payload.ssid
+    if payload.baud_rate is not None:
+        next_settings.baud_rate = payload.baud_rate
+    if payload.kiss_port is not None:
+        next_settings.kiss_port = payload.kiss_port
+    if payload.tx_path is not None:
+        next_settings.tx_path = [str(item).strip().upper() for item in payload.tx_path if str(item).strip()]
+    if payload.terrestrial_manual_frequency_hz is not None:
+        next_settings.terrestrial_manual_frequency_hz = payload.terrestrial_manual_frequency_hz
+    if payload.terrestrial_last_suggested_frequency_hz is not None:
+        next_settings.terrestrial_last_suggested_frequency_hz = payload.terrestrial_last_suggested_frequency_hz
+    return next_settings
+
+
+def _resolved_location_for_aprs():
+    state, location = _resolve_location()
+    return state, location
+
+
+def _aprs_pass_for_satellite(location, sat_id: str | None):
+    if not sat_id:
+        return None
+    now = datetime.now(UTC)
+    passes = tracking_service.pass_predictions(
+        now,
+        24,
+        location,
+        sat_ids={sat_id},
+        include_ongoing=True,
+    )
+    return _pick_focus_pass(passes, sat_id)
+
+
+def _aprs_pass_map(location, satellites) -> dict[str, object]:
+    sat_ids = [sat.sat_id for sat in satellites if sat.radio_channels]
+    out: dict[str, object] = {}
+    now = datetime.now(UTC)
+    if not sat_ids:
+        return out
+    passes = tracking_service.pass_predictions(
+        now,
+        24,
+        location,
+        sat_ids=set(sat_ids),
+        include_ongoing=True,
+    )
+    for sat_id in sat_ids:
+        event = _pick_focus_pass([item for item in passes if item.sat_id == sat_id], sat_id)
+        if event is not None:
+            out[sat_id] = event
+    return out
+
+
+def _aprs_targets_payload(state, location) -> dict:
+    satellites = tracking_service.satellites()
+    pass_map = _aprs_pass_map(location, satellites)
+    return aprs_service.available_targets(state.aprs_settings, satellites, location, pass_by_sat_id=pass_map)
+
+
+def _ensure_radio_available_for_manual_control() -> None:
+    runtime = aprs_service.runtime()
+    if runtime.session_active:
+        raise HTTPException(status_code=409, detail="APRS owns radio session")
+
+
+def _normalized_station_callsign(value: str | None) -> str:
+    return str(value or "").strip().upper()
+
+
+def _station_identity_ready(settings: AprsSettings) -> bool:
+    callsign = _normalized_station_callsign(settings.callsign)
+    return bool(callsign and callsign != "N0CALL" and _CALLSIGN_PATTERN.fullmatch(callsign))
+
+
+def _station_identity_status(settings: AprsSettings) -> dict[str, object]:
+    callsign = _normalized_station_callsign(settings.callsign)
+    ready = _station_identity_ready(settings)
+    if ready:
+        reason = None
+    elif not callsign or callsign == "N0CALL":
+        reason = "Set your amateur radio callsign to enable radio control."
+    else:
+        reason = "Callsign must be 3-10 letters or numbers."
+    return {
+        "configured": ready,
+        "callsign": callsign,
+        "reason": reason,
+    }
+
+
+def _ensure_station_identity_ready() -> None:
+    state = store.get()
+    identity = _station_identity_status(state.aprs_settings)
+    if not identity["configured"]:
+        raise HTTPException(status_code=403, detail=str(identity["reason"]))
 
 
 def _pick_focus_pass(passes, sat_id: str | None):
@@ -508,6 +660,11 @@ def radio_index() -> FileResponse:
     return FileResponse("app/static/kiosk/radio.html")
 
 
+@app.get("/aprs")
+def aprs_index() -> FileResponse:
+    return FileResponse("app/static/kiosk/aprs.html")
+
+
 @app.get("/kiosk-rotator")
 def kiosk_rotator_index() -> FileResponse:
     if lite_only_ui():
@@ -811,6 +968,20 @@ def post_radio_settings(payload: RadioSettingsUpdate) -> dict:
     return {"state": state.radio_settings}
 
 
+@app.get("/api/v1/settings/aprs")
+def get_aprs_settings() -> dict:
+    state = store.get()
+    return {"state": state.aprs_settings}
+
+
+@app.post("/api/v1/settings/aprs")
+def post_aprs_settings(payload: AprsSettingsUpdate) -> dict:
+    state = store.get()
+    state.aprs_settings = _apply_aprs_settings_update(state.aprs_settings, payload)
+    store.save(state)
+    return {"state": state.aprs_settings}
+
+
 @app.get("/api/v1/cache-policy")
 def get_cache_policy() -> dict:
     state = store.get()
@@ -895,6 +1066,140 @@ def get_frequency_guide_recommendation(
     }
 
 
+@app.get("/api/v1/aprs/state")
+def get_aprs_state() -> dict:
+    state = store.get()
+    _, location = _resolved_location_for_aprs()
+    preview = None
+    try:
+        preview = aprs_service.resolve_target(
+            state.aprs_settings,
+            tracking_service.satellites(),
+            location,
+            pass_event=_aprs_pass_for_satellite(location, state.aprs_settings.selected_satellite_id),
+        )
+    except Exception:
+        preview = None
+    return {"settings": state.aprs_settings, "runtime": aprs_service.runtime(), "previewTarget": preview}
+
+
+@app.get("/api/v1/aprs/ports")
+def get_aprs_ports() -> dict:
+    return get_radio_ports()
+
+
+@app.get("/api/v1/aprs/targets")
+def get_aprs_targets() -> dict:
+    state, location = _resolved_location_for_aprs()
+    return {
+        "settings": state.aprs_settings,
+        "targets": _aprs_targets_payload(state, location),
+        "resolvedLocation": location.__dict__,
+    }
+
+
+@app.post("/api/v1/aprs/select-target")
+def select_aprs_target(payload: AprsTargetSelectRequest) -> dict:
+    state, location = _resolved_location_for_aprs()
+    next_settings = state.aprs_settings.model_copy(deep=True)
+    next_settings.operating_mode = payload.operating_mode
+    if payload.operating_mode == AprsOperatingMode.satellite:
+        sat = next((item for item in tracking_service.satellites() if item.sat_id == payload.sat_id), None)
+        if sat is None:
+            raise HTTPException(status_code=400, detail="Selected satellite does not support APRS")
+        if not any(item.kind == "aprs" for item in sat.radio_channels):
+            raise HTTPException(status_code=400, detail="Selected satellite does not support APRS")
+        channel = next((item for item in sat.radio_channels if item.channel_id == payload.channel_id and item.kind == "aprs"), None)
+        if channel is None:
+            raise HTTPException(status_code=400, detail="Selected APRS channel is unavailable")
+        next_settings.selected_satellite_id = sat.sat_id
+        next_settings.selected_channel_id = channel.channel_id
+        next_settings.terrestrial_region_label = None
+        next_settings.terrestrial_last_suggested_frequency_hz = None
+    else:
+        next_settings.selected_satellite_id = None
+        next_settings.selected_channel_id = None
+        if payload.terrestrial_frequency_hz is not None:
+            next_settings.terrestrial_manual_frequency_hz = payload.terrestrial_frequency_hz
+        if next_settings.terrestrial_auto_region and location is not None:
+            target = aprs_service.resolve_target(next_settings, tracking_service.satellites(), location)
+            next_settings.terrestrial_region_label = target.region_label
+            next_settings.terrestrial_last_suggested_frequency_hz = target.frequency_hz
+    state.aprs_settings = next_settings
+    store.save(state)
+    preview = None
+    try:
+        preview = aprs_service.resolve_target(
+            state.aprs_settings,
+            tracking_service.satellites(),
+            location,
+            pass_event=_aprs_pass_for_satellite(location, state.aprs_settings.selected_satellite_id),
+        )
+    except Exception:
+        preview = None
+    return {"state": state.aprs_settings, "runtime": aprs_service.runtime(), "previewTarget": preview}
+
+
+@app.post("/api/v1/aprs/connect")
+def connect_aprs() -> dict:
+    _ensure_station_identity_ready()
+    state, location = _resolved_location_for_aprs()
+    try:
+        target = aprs_service.resolve_target(
+            state.aprs_settings,
+            tracking_service.satellites(),
+            location,
+            pass_event=_aprs_pass_for_satellite(location, state.aprs_settings.selected_satellite_id),
+        )
+        if target.region_label is not None:
+            state.aprs_settings.terrestrial_region_label = target.region_label
+            state.aprs_settings.terrestrial_last_suggested_frequency_hz = target.frequency_hz
+        radio_control_service.disconnect()
+        runtime = aprs_service.connect(state.aprs_settings, target)
+        store.save(state)
+    except (RuntimeError, ValueError, TimeoutError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"settings": state.aprs_settings, "runtime": runtime, "target": target}
+
+
+@app.post("/api/v1/aprs/disconnect")
+def disconnect_aprs() -> dict:
+    return {"runtime": aprs_service.disconnect()}
+
+
+@app.post("/api/v1/aprs/send/message")
+def send_aprs_message(payload: AprsSendMessageRequest) -> dict:
+    _ensure_station_identity_ready()
+    state = store.get()
+    try:
+        runtime = aprs_service.send_message(state.aprs_settings, payload)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"runtime": runtime}
+
+
+@app.post("/api/v1/aprs/send/status")
+def send_aprs_status(payload: AprsSendStatusRequest) -> dict:
+    _ensure_station_identity_ready()
+    state = store.get()
+    try:
+        runtime = aprs_service.send_status(state.aprs_settings, payload)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"runtime": runtime}
+
+
+@app.post("/api/v1/aprs/send/position")
+def send_aprs_position(payload: AprsSendPositionRequest) -> dict:
+    _ensure_station_identity_ready()
+    state, location = _resolved_location_for_aprs()
+    try:
+        runtime = aprs_service.send_position(state.aprs_settings, payload, location)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"runtime": runtime}
+
+
 @app.get("/api/v1/radio/state")
 def get_radio_state() -> dict:
     state = store.get()
@@ -930,6 +1235,8 @@ def get_radio_session() -> dict:
 
 @app.post("/api/v1/radio/session/select")
 def select_radio_session(payload: RadioControlSessionSelectRequest) -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     session = radio_control_service.select_session(payload, _resolve_default_test_pair_for_radio)
     return {"session": session, "runtime": radio_control_service.runtime()}
 
@@ -942,6 +1249,8 @@ def clear_radio_session() -> dict:
 
 @app.post("/api/v1/radio/connect")
 def connect_radio() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     runtime = radio_control_service.connect(state.radio_settings)
     return {"settings": state.radio_settings, "runtime": runtime, "session": radio_control_service.session_state()}
@@ -962,6 +1271,8 @@ def disconnect_radio() -> dict:
 
 @app.post("/api/v1/radio/poll")
 def poll_radio() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     runtime = radio_control_service.poll(state.radio_settings)
     return {"settings": state.radio_settings, "runtime": runtime, "session": radio_control_service.session_state()}
@@ -969,6 +1280,8 @@ def poll_radio() -> dict:
 
 @app.post("/api/v1/radio/frequency")
 def set_radio_frequency(payload: RadioFrequencySetRequest) -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     try:
         runtime, result = radio_control_service.set_frequency(payload, state.radio_settings)
@@ -979,6 +1292,8 @@ def set_radio_frequency(payload: RadioFrequencySetRequest) -> dict:
 
 @app.post("/api/v1/radio/pair")
 def set_radio_pair(payload: RadioPairSetRequest) -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     try:
         runtime, recommendation, mapping = radio_control_service.apply_manual_pair(payload, state.radio_settings)
@@ -996,6 +1311,8 @@ def set_radio_pair(payload: RadioPairSetRequest) -> dict:
 
 @app.post("/api/v1/radio/session/test")
 def run_radio_session_test() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     try:
         session, runtime, recommendation, mapping = radio_control_service.run_test_control(state.radio_settings)
@@ -1012,12 +1329,16 @@ def run_radio_session_test() -> dict:
 
 @app.post("/api/v1/radio/session/test/confirm")
 def confirm_radio_session_test() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     session, runtime = radio_control_service.confirm_test_success()
     return {"session": session, "runtime": runtime}
 
 
 @app.post("/api/v1/radio/session/start")
 def start_radio_session_control() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     try:
         session, runtime = radio_control_service.start_session_control(
@@ -1031,12 +1352,16 @@ def start_radio_session_control() -> dict:
 
 @app.post("/api/v1/radio/session/stop")
 def stop_radio_session_control() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     session, runtime = radio_control_service.stop_session_control()
     return {"session": session, "runtime": runtime}
 
 
 @app.post("/api/v1/radio/apply")
 def apply_radio_target(payload: RadioApplyRequest) -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     try:
         runtime, recommendation, mapping = radio_control_service.apply(
@@ -1056,6 +1381,8 @@ def apply_radio_target(payload: RadioApplyRequest) -> dict:
 
 @app.post("/api/v1/radio/auto-track/start")
 def start_radio_auto_track(payload: RadioAutoTrackStartRequest) -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     try:
         runtime = radio_control_service.start_auto_track(
@@ -1071,6 +1398,8 @@ def start_radio_auto_track(payload: RadioAutoTrackStartRequest) -> dict:
 
 @app.post("/api/v1/radio/auto-track/stop")
 def stop_radio_auto_track() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     return {"runtime": radio_control_service.stop_auto_track()}
 
 
@@ -1119,6 +1448,9 @@ def get_system_state(
         "radioSettings": state.radio_settings,
         "radioRuntime": radio_control_service.runtime(),
         "radioControlSession": radio_control_service.session_state(),
+        "aprsSettings": state.aprs_settings,
+        "aprsRuntime": aprs_service.runtime(),
+        "stationIdentity": _station_identity_status(state.aprs_settings),
         "network": state.network,
         "cachePolicy": state.cache_policy,
         "iss": iss_state,

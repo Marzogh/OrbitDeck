@@ -1,6 +1,7 @@
 let trackerApi;
 let trackerById;
 let trackerSetBrowserLocation;
+let trackerRenderStationBadge;
 let selectedPassProfile = "IssOnly";
 let selectedPassSatIds = ["iss-zarya"];
 let selectedDisplayTimezone = "UTC";
@@ -155,6 +156,20 @@ async function loadRadioState() {
   }
 }
 
+async function loadAprsState() {
+  try {
+    const resp = await trackerApi.get("/api/v1/aprs/state");
+    const settings = resp.settings || {};
+    const runtime = resp.runtime || {};
+    trackerById("aprsStatus").textContent =
+      `APRS: ${settings.operating_mode || "--"} | ${runtime.connected ? "Connected" : "Disconnected"}`
+      + (runtime.target?.frequency_hz ? ` | ${runtime.target.frequency_hz} Hz` : "")
+      + (runtime.last_error ? ` | ${runtime.last_error}` : "");
+  } catch (err) {
+    trackerById("aprsStatus").textContent = `APRS: unavailable | ${err?.message || err}`;
+  }
+}
+
 async function saveRadioSettings() {
   const payload = {
     enabled: trackerById("radioEnabled").checked,
@@ -181,13 +196,14 @@ async function saveTimezone() {
 }
 
 async function loadState() {
-  const [mode, sats, locationState, passFilter, timezone, timezones] = await Promise.all([
+  const [mode, sats, locationState, passFilter, timezone, timezones, system] = await Promise.all([
     trackerApi.get("/api/v1/settings/iss-display-mode"),
     trackerApi.get("/api/v1/satellites"),
     trackerApi.get("/api/v1/location"),
     trackerApi.get("/api/v1/settings/pass-filter"),
     trackerApi.get("/api/v1/settings/timezone"),
     fetchTimezones(),
+    trackerApi.get("/api/v1/system/state"),
   ]);
   trackerById("issMode").value = mode.mode;
   selectedPassProfile = passFilter.profile || "IssOnly";
@@ -200,6 +216,9 @@ async function loadState() {
   const sources = loadVideoSources();
   trackerById("videoSourcePrimary").value = sources[0] || "";
   trackerById("videoSourceSecondary").value = sources[1] || "";
+  if (trackerRenderStationBadge) {
+    trackerRenderStationBadge("stationBadge", system.stationIdentity, system.aprsSettings);
+  }
   ensureTrackSelector(sats.items);
   ensurePassSatSelector(sats.items);
   ensureTimezoneSelector();
@@ -207,10 +226,16 @@ async function loadState() {
   syncLocationModeUi();
   syncDeveloperOverridesUi();
   await loadRadioState();
+  await loadAprsState();
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
-  ({ api: trackerApi, byId: trackerById, setBrowserLocation: trackerSetBrowserLocation } = window.issTracker);
+  ({
+    api: trackerApi,
+    byId: trackerById,
+    setBrowserLocation: trackerSetBrowserLocation,
+    renderStationBadge: trackerRenderStationBadge,
+  } = window.issTracker);
 
   trackerById("saveMode").addEventListener("click", async () => {
     await trackerApi.post("/api/v1/settings/iss-display-mode", { mode: trackerById("issMode").value });

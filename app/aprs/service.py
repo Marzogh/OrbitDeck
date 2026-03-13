@@ -1,0 +1,279 @@
+from __future__ import annotations
+
+from collections import OrderedDict
+from datetime import UTC, datetime
+from typing import Callable
+
+from app.aprs.codec import (
+    decode_ui_frame,
+    encode_ui_frame,
+    format_message_payload,
+    format_position_payload,
+    format_status_payload,
+)
+from app.aprs.direwolf import DireWolfProcess
+from app.aprs.kiss import KissTcpClient, wait_for_socket
+from app.aprs.regions import frequency_for_location
+from app.models import (
+    AprsHeardStation,
+    AprsOperatingMode,
+    AprsRuntimeState,
+    AprsSendMessageRequest,
+    AprsSendPositionRequest,
+    AprsSendStatusRequest,
+    AprsSettings,
+    AprsTargetState,
+    RadioRigModel,
+    Satellite,
+    SatelliteRadioChannel,
+)
+from app.radio.controllers.ic705 import Ic705Controller
+from app.radio.transport import SerialTransport
+from app.radio.civ import parse_civ_address
+
+
+SidecarFactory = Callable[[], DireWolfProcess]
+KissFactory = Callable[[str, int, Callable[[bytes], None]], KissTcpClient]
+WaitForSocket = Callable[[str, int, float], None]
+
+
+class AprsService:
+    def __init__(
+        self,
+        sidecar_factory: SidecarFactory | None = None,
+        kiss_factory: KissFactory | None = None,
+        wait_for_socket_fn: WaitForSocket | None = None,
+    ) -> None:
+        self._sidecar_factory = sidecar_factory or (lambda: DireWolfProcess())
+        self._kiss_factory = kiss_factory or (lambda host, port, cb: KissTcpClient(host, port, cb))
+        self._wait_for_socket = wait_for_socket_fn or wait_for_socket
+        self._sidecar: DireWolfProcess | None = None
+        self._kiss: KissTcpClient | None = None
+        self._runtime = AprsRuntimeState()
+        self._heard_index: OrderedDict[str, AprsHeardStation] = OrderedDict()
+
+    def runtime(self) -> AprsRuntimeState:
+        if self._sidecar is not None:
+            self._runtime.sidecar_running = self._sidecar.is_running()
+            self._runtime.output_tail = list(self._sidecar.output_tail)
+            self._runtime.sidecar_command = list(self._sidecar.command)
+        self._runtime.kiss_connected = bool(self._kiss and self._kiss.connected)
+        return AprsRuntimeState.model_validate(self._runtime.model_dump(mode="python"))
+
+    def _aprs_channels(self, sat: Satellite) -> list[SatelliteRadioChannel]:
+        return [channel for channel in (sat.radio_channels or []) if channel.kind == "aprs" and (channel.downlink_hz or channel.uplink_hz)]
+
+    def resolve_target(self, settings: AprsSettings, satellites: list[Satellite], location, pass_event=None) -> AprsTargetState:
+        if settings.operating_mode == AprsOperatingMode.satellite:
+            sat = next((item for item in satellites if item.sat_id == settings.selected_satellite_id), None)
+            if sat is None:
+                raise ValueError("Selected satellite does not support APRS")
+            channels = self._aprs_channels(sat)
+            channel = next((item for item in channels if item.channel_id == settings.selected_channel_id), None)
+            if channel is None and channels:
+                channel = channels[0]
+            if channel is None:
+                raise ValueError("Selected satellite does not support APRS")
+            frequency_hz = int(channel.downlink_hz or channel.uplink_hz or 0)
+            now = datetime.now(UTC)
+            pass_active = bool(pass_event and pass_event.aos <= now <= pass_event.los)
+            can_transmit = not channel.requires_pass or pass_active
+            return AprsTargetState(
+                operating_mode=AprsOperatingMode.satellite,
+                label=f"{sat.name} | {channel.label}",
+                sat_id=sat.sat_id,
+                sat_name=sat.name,
+                channel_id=channel.channel_id,
+                channel_label=channel.label,
+                mode=channel.mode,
+                frequency_hz=frequency_hz,
+                uplink_hz=channel.uplink_hz,
+                downlink_hz=channel.downlink_hz,
+                path_default=(channel.path_default or settings.satellite_path or "ARISS").strip(),
+                guidance=channel.guidance,
+                requires_pass=channel.requires_pass,
+                pass_active=pass_active,
+                pass_aos=pass_event.aos if pass_event else None,
+                pass_los=pass_event.los if pass_event else None,
+                can_transmit=can_transmit,
+                tx_block_reason=None if can_transmit else "Satellite APRS transmit is only enabled during an active pass",
+                reason=channel.status,
+            )
+        if settings.terrestrial_manual_frequency_hz:
+            label = settings.terrestrial_region_label or "Manual terrestrial APRS"
+            return AprsTargetState(
+                operating_mode=AprsOperatingMode.terrestrial,
+                label="Terrestrial APRS",
+                frequency_hz=int(settings.terrestrial_manual_frequency_hz),
+                path_default=settings.terrestrial_path.strip(),
+                region_label=label,
+                reason="Manual terrestrial override",
+            )
+        if location is None:
+            raise ValueError("Terrestrial APRS requires location to derive a regional frequency or a manual override")
+        region_label, frequency_hz = frequency_for_location(location.lat, location.lon)
+        return AprsTargetState(
+            operating_mode=AprsOperatingMode.terrestrial,
+            label="Terrestrial APRS",
+            frequency_hz=frequency_hz,
+            path_default=settings.terrestrial_path.strip(),
+            region_label=region_label,
+            reason="Derived from current location",
+        )
+
+    def available_targets(self, settings: AprsSettings, satellites: list[Satellite], location, pass_by_sat_id: dict[str, object] | None = None) -> dict[str, object]:
+        satellite_targets = [
+            {
+                "sat_id": sat.sat_id,
+                "name": sat.name,
+                "channels": [
+                    {
+                        "channel_id": channel.channel_id,
+                        "label": channel.label,
+                        "mode": channel.mode or "AFSK",
+                        "frequency_hz": int(channel.downlink_hz or channel.uplink_hz or 0),
+                        "uplink_hz": channel.uplink_hz,
+                        "downlink_hz": channel.downlink_hz,
+                        "path_default": channel.path_default or settings.satellite_path,
+                        "requires_pass": channel.requires_pass,
+                        "guidance": channel.guidance,
+                        "pass": (
+                            {
+                                "aos": pass_by_sat_id[sat.sat_id].aos,
+                                "los": pass_by_sat_id[sat.sat_id].los,
+                                "active": pass_by_sat_id[sat.sat_id].aos <= datetime.now(UTC) <= pass_by_sat_id[sat.sat_id].los,
+                            }
+                            if pass_by_sat_id and sat.sat_id in pass_by_sat_id
+                            else None
+                        ),
+                    }
+                    for channel in self._aprs_channels(sat)
+                ],
+            }
+            for sat in satellites
+            if self._aprs_channels(sat)
+        ]
+        terrestrial = None
+        if location is not None:
+            region_label, frequency_hz = frequency_for_location(location.lat, location.lon)
+            terrestrial = {
+                "region_label": region_label,
+                "suggested_frequency_hz": frequency_hz,
+                "manual_frequency_hz": settings.terrestrial_manual_frequency_hz,
+                "path_default": settings.terrestrial_path.strip(),
+            }
+        return {"satellites": satellite_targets, "terrestrial": terrestrial}
+
+    def connect(self, settings: AprsSettings, target: AprsTargetState) -> AprsRuntimeState:
+        self.disconnect()
+        self._tune_radio(settings, target.frequency_hz)
+        self._sidecar = self._sidecar_factory()
+        self._sidecar.start(settings, target)
+        self._wait_for_socket(settings.kiss_host, settings.kiss_port, 5.0)
+        self._kiss = self._kiss_factory(settings.kiss_host, settings.kiss_port, self._handle_frame)
+        self._kiss.connect()
+        self._runtime.connected = True
+        self._runtime.session_active = True
+        self._runtime.sidecar_running = True
+        self._runtime.kiss_connected = True
+        self._runtime.owned_resource = "radio"
+        self._runtime.last_error = None
+        self._runtime.last_started_at = datetime.now(UTC)
+        self._runtime.target = target
+        return self.runtime()
+
+    def disconnect(self) -> AprsRuntimeState:
+        if self._kiss is not None:
+            self._kiss.close()
+            self._kiss = None
+        if self._sidecar is not None:
+            self._sidecar.stop()
+            self._sidecar = None
+        self._runtime.connected = False
+        self._runtime.session_active = False
+        self._runtime.sidecar_running = False
+        self._runtime.kiss_connected = False
+        self._runtime.owned_resource = None
+        return self.runtime()
+
+    def send_status(self, settings: AprsSettings, payload: AprsSendStatusRequest) -> AprsRuntimeState:
+        self._send_frame(settings, format_status_payload(payload.text))
+        return self.runtime()
+
+    def send_message(self, settings: AprsSettings, payload: AprsSendMessageRequest) -> AprsRuntimeState:
+        self._send_frame(settings, format_message_payload(payload.to, payload.text))
+        return self.runtime()
+
+    def send_position(self, settings: AprsSettings, payload: AprsSendPositionRequest, location) -> AprsRuntimeState:
+        lat = payload.latitude if payload.latitude is not None else getattr(location, "lat", None)
+        lon = payload.longitude if payload.longitude is not None else getattr(location, "lon", None)
+        if lat is None or lon is None:
+            raise ValueError("Position send requires coordinates or a resolved location")
+        default_comment = (
+            settings.satellite_beacon_comment
+            if settings.operating_mode == AprsOperatingMode.satellite
+            else settings.terrestrial_beacon_comment
+        )
+        self._send_frame(
+            settings,
+            format_position_payload(lat, lon, settings.symbol_table, settings.symbol_code, payload.comment or default_comment or ""),
+        )
+        return self.runtime()
+
+    def _send_frame(self, settings: AprsSettings, text: str) -> None:
+        if self._kiss is None or not self._kiss.connected:
+            raise RuntimeError("APRS is not connected")
+        if self._runtime.target and not self._runtime.target.can_transmit:
+            raise RuntimeError(self._runtime.target.tx_block_reason or "APRS transmit is not currently allowed")
+        source = self._source_call(settings)
+        if settings.listen_only:
+            path = []
+        else:
+            path_text = (
+                self._runtime.target.path_default
+                if self._runtime.target and self._runtime.target.path_default
+                else settings.terrestrial_path
+            )
+            path = [item.strip().upper() for item in str(path_text).split(",") if item.strip()]
+        self._kiss.send_data(encode_ui_frame(source, "APOD01", path, text))
+        self._runtime.packets_tx += 1
+
+    def _handle_frame(self, frame: bytes) -> None:
+        try:
+            event = decode_ui_frame(frame)
+        except Exception as exc:
+            self._runtime.last_error = str(exc)
+            return
+        self._runtime.packets_rx += 1
+        self._runtime.last_packet_at = event.received_at
+        packets = [event] + self._runtime.recent_packets[:49]
+        self._runtime.recent_packets = packets
+        heard = self._heard_index.get(event.source)
+        if heard is None:
+            heard = AprsHeardStation(callsign=event.source, last_heard_at=event.received_at, packet_count=0)
+        heard.last_heard_at = event.received_at
+        heard.packet_count += 1
+        heard.latitude = event.latitude if event.latitude is not None else heard.latitude
+        heard.longitude = event.longitude if event.longitude is not None else heard.longitude
+        heard.last_text = event.text or heard.last_text
+        self._heard_index[event.source] = heard
+        self._heard_index.move_to_end(event.source, last=False)
+        while len(self._heard_index) > 50:
+            self._heard_index.popitem(last=True)
+        self._runtime.heard_stations = list(self._heard_index.values())
+        self._runtime.heard_count = len(self._runtime.heard_stations)
+
+    def _source_call(self, settings: AprsSettings) -> str:
+        call = settings.callsign.strip().upper() or "N0CALL"
+        return call if settings.ssid <= 0 else f"{call}-{settings.ssid}"
+
+    def _tune_radio(self, settings: AprsSettings, frequency_hz: int) -> None:
+        if settings.rig_model != RadioRigModel.ic705:
+            return
+        transport = SerialTransport(settings.serial_device, settings.baud_rate, timeout=0.5)
+        controller = Ic705Controller(transport, parse_civ_address(settings.civ_address))
+        try:
+            controller.connect()
+            controller.set_frequency("A", int(frequency_hz))
+        finally:
+            controller.disconnect()

@@ -35,6 +35,7 @@ from app.models import (
     NetworkUpdate,
     PassEvent,
     Satellite,
+    SatelliteRadioChannel,
     StatusReport,
 )
 
@@ -172,7 +173,7 @@ class TrackingService:
     def __init__(self, cache_path: str = "data/snapshots/latest_catalog.json") -> None:
         self.cache_path = Path(cache_path)
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-        self._satellites = self._filter_amateur_catalog(self._ensure_iss(self._load_cached_catalog()))
+        self._satellites = self._normalize_catalog(self._filter_amateur_catalog(self._ensure_iss(self._load_cached_catalog())))
         self._sat_cache: dict[str, Any] = {}
         self._sky_load = None
         self._sky_wgs84 = None
@@ -187,9 +188,9 @@ class TrackingService:
             with self.cache_path.open("r", encoding="utf-8") as f:
                 raw = json.load(f)
             items = [Satellite.model_validate(x) for x in raw]
-            return items if items else SEED_SATELLITES
+            return self._normalize_catalog(items if items else SEED_SATELLITES)
         except Exception:
-            return SEED_SATELLITES
+            return self._normalize_catalog(SEED_SATELLITES)
 
     def _save_cached_catalog(self) -> None:
         with self.cache_path.open("w", encoding="utf-8") as f:
@@ -197,6 +198,50 @@ class TrackingService:
 
     def satellites(self) -> list[Satellite]:
         return [s.model_copy(deep=True) for s in self._satellites]
+
+    def _normalize_catalog(self, satellites: list[Satellite]) -> list[Satellite]:
+        enriched: list[Satellite] = []
+        for sat in satellites:
+            channels = list(sat.radio_channels or [])
+            if not channels:
+                channels = self._infer_seed_channels(sat)
+            sat = sat.model_copy(update={"radio_channels": channels})
+            enriched.append(sat)
+        return enriched
+
+    def _channel_kind(self, label: str, mode: str | None = None) -> str:
+        text = f"{label} {mode or ''}".lower()
+        if "aprs" in text:
+            return "aprs"
+        if "linear" in text or "ssb" in text or "cw" in text:
+            return "linear"
+        if "fm" in text or "repeater" in text:
+            return "fm"
+        return "other"
+
+    def _infer_seed_channels(self, sat: Satellite) -> list[SatelliteRadioChannel]:
+        channels: list[SatelliteRadioChannel] = []
+        text_lines = list(sat.transponders or []) + list(sat.repeaters or [])
+        for idx, line in enumerate(text_lines):
+            if "aprs" not in str(line).lower():
+                continue
+            freqs = re.findall(r"(\d+(?:\.\d+)?)\s*mhz", str(line), flags=re.IGNORECASE)
+            downlink_hz = int(round(float(freqs[0]) * 1_000_000)) if freqs else None
+            channels.append(
+                SatelliteRadioChannel(
+                    channel_id=f"{sat.sat_id}:seed:{idx}",
+                    source="seed",
+                    kind="aprs",
+                    label=str(line).strip(),
+                    mode="AFSK",
+                    downlink_hz=downlink_hz,
+                    uplink_hz=downlink_hz,
+                    path_default="ARISS",
+                    requires_pass=True,
+                    guidance="Seed APRS channel inferred from catalog text",
+                )
+            )
+        return channels
 
     def merge_operational_statuses(self, statuses: dict[str, OperationalStatus]) -> None:
         if not statuses:
@@ -289,7 +334,7 @@ class TrackingService:
     def replace_catalog(self, satellites: list[Satellite]) -> None:
         if not satellites:
             return
-        self._satellites = self._filter_amateur_catalog(self._ensure_iss(satellites))
+        self._satellites = self._normalize_catalog(self._filter_amateur_catalog(self._ensure_iss(satellites)))
         self._sat_cache.clear()
         self._save_cached_catalog()
 
@@ -1066,6 +1111,7 @@ class DataIngestionService:
 
         transponders_by_norad: dict[int, list[str]] = {}
         repeaters_by_norad: dict[int, list[str]] = {}
+        channels_by_norad: dict[int, list[SatelliteRadioChannel]] = {}
         for tx in satnogs:
             norad = tx.get("norad_cat_id")
             if not norad:
@@ -1078,6 +1124,22 @@ class DataIngestionService:
             transponders_by_norad.setdefault(norad, []).append(line)
             if down or up:
                 repeaters_by_norad.setdefault(norad, []).append(f"Uplink {up or 'n/a'} / Downlink {down or 'n/a'}")
+            channels_by_norad.setdefault(norad, []).append(
+                SatelliteRadioChannel(
+                    channel_id=f"{norad}:satnogs:{tx.get('uuid') or tx.get('id') or len(channels_by_norad.get(norad, []))}",
+                    source="satnogs",
+                    kind=self._channel_kind(str(desc), str(mode or "")),
+                    label=str(desc).strip(),
+                    mode=str(mode or "").strip() or None,
+                    uplink_hz=int(up) if up is not None else None,
+                    downlink_hz=int(down) if down is not None else None,
+                    alive=bool(tx.get("alive", True)),
+                    status=str(tx.get("status") or "").strip() or None,
+                    path_default="ARISS" if self._channel_kind(str(desc), str(mode or "")) == "aprs" else None,
+                    requires_pass=self._channel_kind(str(desc), str(mode or "")) == "aprs",
+                    guidance="Derived from SatNOGS transmitter inventory" if self._channel_kind(str(desc), str(mode or "")) == "aprs" else None,
+                )
+            )
 
         parsed_tles = self._parse_tle(amateur_tle) + self._parse_tle(stations_tle)
         merged: dict[int, Satellite] = {}
@@ -1092,6 +1154,7 @@ class DataIngestionService:
                 has_amateur_radio=True,
                 transponders=transponders_by_norad.get(norad, ["Amateur payload"]),
                 repeaters=repeaters_by_norad.get(norad, []),
+                radio_channels=channels_by_norad.get(norad, []),
                 tle_line1=tle1,
                 tle_line2=tle2,
                 period_minutes=92.9 if is_iss else 97.0 + (norad % 13) * 0.6,

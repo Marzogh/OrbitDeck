@@ -38,6 +38,22 @@ function byId(id) {
   return document.getElementById(id);
 }
 
+function formatStationIdentity(identity, aprsSettings = null) {
+  const configured = !!identity?.configured;
+  const callsign = String(identity?.callsign || "").trim();
+  const ssid = Number(aprsSettings?.ssid);
+  if (!configured || !callsign) return "Station: Not Set";
+  const suffix = Number.isInteger(ssid) && ssid > 0 ? `-${ssid}` : "";
+  return `Station: ${callsign}${suffix}`;
+}
+
+function renderStationBadge(targetOrId, identity, aprsSettings = null) {
+  const el = typeof targetOrId === "string" ? byId(targetOrId) : targetOrId;
+  if (!el) return;
+  el.textContent = formatStationIdentity(identity, aprsSettings);
+  el.title = identity?.reason || el.textContent;
+}
+
 async function setBrowserLocation() {
   if (!navigator.geolocation) {
     throw new Error("Browser geolocation not supported");
@@ -65,4 +81,4 @@ async function setBrowserLocation() {
   });
 }
 
-window.issTracker = { api, fmtUtc, byId, setBrowserLocation };
+window.issTracker = { api, fmtUtc, byId, setBrowserLocation, renderStationBadge, formatStationIdentity };

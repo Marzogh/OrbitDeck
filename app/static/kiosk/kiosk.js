@@ -1,6 +1,7 @@
 let trackerApi;
 let trackerById;
 let trackerSetBrowserLocation;
+let trackerRenderStationBadge;
 let selectedSatId = null;
 let selectedLocationSource = null;
 let selectedPassProfile = "IssOnly";
@@ -44,6 +45,19 @@ const BODY_COLORS = {
   Jupiter: "#9d7bff",
   Saturn: "#ff9b2e",
 };
+
+function renderStationIdentity(identity, settings) {
+  const input = trackerById("bootCallsign");
+  const status = trackerById("bootCallsignStatus");
+  if (!input || !status) return;
+  const callsign = (identity?.callsign || settings?.callsign || "").trim();
+  input.value = callsign && callsign !== "N0CALL" ? callsign : "";
+  if (identity?.configured) {
+    status.textContent = `Callsign ${identity.callsign} saved. Radio and APRS control are enabled.`;
+  } else {
+    status.textContent = identity?.reason || "Radio control is disabled until a valid callsign is saved.";
+  }
+}
 
 function effectiveDisplayTimezone() {
   return selectedDisplayTimezone === "BrowserLocal"
@@ -918,6 +932,10 @@ function applySystemSnapshot(sys, mode) {
     `Observer: ${sys.location.source} | lat ${Number(sys.location.lat).toFixed(6)} lon ${Number(sys.location.lon).toFixed(6)} alt ${Number(sys.location.alt_m || 0).toFixed(1)} m`;
   trackerById("diagTime").textContent =
     `UTC Used: ${sys.timestamp} | Sunlit=${track.sunlit ? "yes" : "no"}`;
+  if (trackerRenderStationBadge) {
+    trackerRenderStationBadge("stationBadge", sys.stationIdentity, sys.aprsSettings);
+  }
+  renderStationIdentity(sys.stationIdentity, sys.aprsSettings);
 
   const cue = trackCue(track, previousTrack);
   previousTrack = { az_deg: track.az_deg, el_deg: track.el_deg };
@@ -995,6 +1013,21 @@ async function loadState() {
   syncPassProfileUi();
   ensureTimezoneSelector();
   syncTimezoneUi();
+}
+
+async function saveBootCallsign() {
+  const input = trackerById("bootCallsign");
+  const value = (input?.value || "").trim().toUpperCase();
+  const response = await trackerApi.post("/api/v1/settings/aprs", { callsign: value });
+  renderStationIdentity(
+    {
+      configured: value.length >= 3 && value !== "N0CALL",
+      callsign: value,
+      reason: value ? null : "Radio control is disabled until a valid callsign is saved.",
+    },
+    response.state
+  );
+  await loadState();
 }
 
 async function refreshLiveOnly() {
@@ -1107,6 +1140,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     api: trackerApi,
     byId: trackerById,
     setBrowserLocation: trackerSetBrowserLocation,
+    renderStationBadge: trackerRenderStationBadge,
   } = window.issTracker);
   selectedSatId = localStorage.getItem(TRACKED_SAT_KEY) || selectedSatId;
 
@@ -1218,6 +1252,26 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   trackerById("freqStatus").textContent = "Using cached satellite/frequency catalog";
+  const saveBootCallsignBtn = trackerById("saveBootCallsign");
+  if (saveBootCallsignBtn) saveBootCallsignBtn.addEventListener("click", async () => {
+    try {
+      await saveBootCallsign();
+    } catch (err) {
+      const status = trackerById("bootCallsignStatus");
+      if (status) status.textContent = `Callsign save error: ${err.message}`;
+    }
+  });
+  const bootCallsign = trackerById("bootCallsign");
+  if (bootCallsign) bootCallsign.addEventListener("keydown", async (ev) => {
+    if (ev.key !== "Enter") return;
+    ev.preventDefault();
+    try {
+      await saveBootCallsign();
+    } catch (err) {
+      const status = trackerById("bootCallsignStatus");
+      if (status) status.textContent = `Callsign save error: ${err.message}`;
+    }
+  });
 
   const tick = async () => {
     try {

@@ -1,5 +1,6 @@
 let trackerApi;
 let trackerById;
+let trackerRenderStationBadge;
 
 function pretty(value) {
   return JSON.stringify(value, null, 2);
@@ -31,9 +32,15 @@ function defaultsForModel(model) {
 }
 
 async function loadRadioPage() {
-  const resp = await trackerApi.get("/api/v1/radio/state");
+  const [resp, system] = await Promise.all([
+    trackerApi.get("/api/v1/radio/state"),
+    trackerApi.get("/api/v1/system/state"),
+  ]);
   const settings = resp.settings || {};
   const runtime = resp.runtime || {};
+  if (trackerRenderStationBadge) {
+    trackerRenderStationBadge("stationBadge", system.stationIdentity, system.aprsSettings);
+  }
   trackerById("radioRigModelPage").value = settings.rig_model || "id5100";
   trackerById("radioSerialDevicePage").value = settings.serial_device || "";
   trackerById("radioBaudRatePage").value = settings.baud_rate || 19200;
@@ -60,7 +67,7 @@ async function saveRadioSettingsPage() {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
-  ({ api: trackerApi, byId: trackerById } = window.issTracker);
+  ({ api: trackerApi, byId: trackerById, renderStationBadge: trackerRenderStationBadge } = window.issTracker);
   trackerById("radioRigModelPage").addEventListener("change", () => {
     const model = trackerById("radioRigModelPage").value;
     const defaults = defaultsForModel(model);
