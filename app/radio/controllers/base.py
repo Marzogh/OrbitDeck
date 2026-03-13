@@ -34,6 +34,9 @@ class BaseIcomController(ABC):
     @abstractmethod
     def apply_target(self, recommendation: FrequencyRecommendation, apply_mode_and_tone: bool) -> tuple[ControllerState, dict[str, object]]: ...
 
+    @abstractmethod
+    def set_frequency(self, vfo: str, freq_hz: int) -> tuple[ControllerState, dict[str, object]]: ...
+
     def supports_auto_track(self) -> bool:
         return True
 

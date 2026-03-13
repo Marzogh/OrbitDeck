@@ -31,3 +31,12 @@ class Id5100Controller(BaseIcomController):
         self.state.raw_state.update({"dual_watch": True, "split_enabled": True})
         self.stamp_poll()
         return self.state, {"tx": "MAIN", "rx": "SUB", "main_freq_hz": main_hz, "sub_freq_hz": sub_hz}
+
+    def set_frequency(self, vfo: str, freq_hz: int):
+        vfo_name = str(vfo or "").strip().upper()
+        if vfo_name not in {"MAIN", "SUB"}:
+            raise ValueError("ID-5100 frequency writes require vfo MAIN or SUB")
+        key = "main_freq_hz" if vfo_name == "MAIN" else "sub_freq_hz"
+        self.state.targets[key] = int(freq_hz)
+        self.stamp_poll()
+        return self.state, {"vfo": vfo_name, "freq_hz": int(freq_hz)}

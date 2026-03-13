@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OrbitDeck Radio Control</title>
     <link rel="stylesheet" href="/static/common/styles.css?v=20260313a" />
-    <script defer src="/static/common/app.js?v=20260308al"></script>
-    <script defer src="/static/kiosk/radio.js?v=20260313a"></script>
+    <script defer src="/static/common/app.js?v=20260313e"></script>
+    <script defer src="/static/kiosk/radio.js?v=20260313e"></script>
   </head>
   <body class="kiosk">
     <header>
@@ -28,12 +28,41 @@
         <input id="radioCivAddressPage" type="text" placeholder="0xA4" />
         <label for="radioSatIdPage">Satellite ID</label>
         <input id="radioSatIdPage" type="text" placeholder="iss-zarya" />
+        <label for="radioVfoPage">Manual VFO</label>
+        <select id="radioVfoPage">
+          <option value="A">A</option>
+          <option value="B">B</option>
+          <option value="MAIN">MAIN</option>
+          <option value="SUB">SUB</option>
+        </select>
+        <label for="radioFreqHzPage">Manual Frequency (Hz)</label>
+        <input id="radioFreqHzPage" type="number" min="1000" step="1" />
+        <label for="radioUplinkHzPage">Pair Uplink (Hz)</label>
+        <input id="radioUplinkHzPage" type="number" min="1000" step="1" />
+        <label for="radioUplinkModePage">Pair Uplink Mode</label>
+        <select id="radioUplinkModePage">
+          <option value="FM">FM</option>
+          <option value="USB">USB</option>
+          <option value="AM">AM</option>
+          <option value="D-STAR">D-STAR</option>
+        </select>
+        <label for="radioDownlinkHzPage">Pair Downlink (Hz)</label>
+        <input id="radioDownlinkHzPage" type="number" min="1000" step="1" />
+        <label for="radioDownlinkModePage">Pair Downlink Mode</label>
+        <select id="radioDownlinkModePage">
+          <option value="FM">FM</option>
+          <option value="USB">USB</option>
+          <option value="AM">AM</option>
+          <option value="D-STAR">D-STAR</option>
+        </select>
         <div class="controls">
           <button id="saveRadioPage" type="button">Save Settings</button>
           <button id="connectRadioPage" type="button">Connect</button>
           <button id="pollRadioPage" type="button">Poll Rig</button>
           <button id="disconnectRadioPage" type="button">Disconnect</button>
           <button id="applyRadioPage" type="button">Apply Current Sat</button>
+          <button id="setFreqRadioPage" type="button">Set Manual Frequency</button>
+          <button id="setPairRadioPage" type="button">Apply Manual Pair</button>
         </div>
       </section>
 

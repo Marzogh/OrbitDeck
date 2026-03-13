@@ -5,14 +5,20 @@ from threading import Event, Thread
 from typing import Callable
 
 from app.models import (
+    CorrectionSide,
     FrequencyRecommendation,
+    FrequencyGuideMode,
+    GuidePassPhase,
     LocationSourceMode,
     PassEvent,
     RadioApplyRequest,
     RadioControlMode,
+    RadioFrequencySetRequest,
+    RadioPairSetRequest,
     RadioRigModel,
     RadioRuntimeState,
     RadioSettings,
+    DopplerDirection,
 )
 from app.radio.civ import parse_civ_address
 from app.radio.controllers.base import BaseIcomController
@@ -177,3 +183,51 @@ class RigControlService:
         if self._runtime.control_mode == RadioControlMode.auto_tracking:
             self._runtime.control_mode = RadioControlMode.idle
         return self.runtime()
+
+    def set_frequency(self, payload: RadioFrequencySetRequest, settings: RadioSettings) -> tuple[RadioRuntimeState, dict[str, object]]:
+        if not self._runtime.connected or self._controller is None:
+            raise RuntimeError("radio is not connected")
+        state, result = self._controller.set_frequency(payload.vfo, payload.freq_hz)
+        self._runtime.connected = state.connected
+        self._runtime.rig_model = settings.rig_model
+        self._runtime.serial_device = settings.serial_device
+        self._runtime.last_error = state.last_error
+        self._runtime.last_poll_at = state.last_poll_at
+        self._runtime.targets = dict(state.targets)
+        self._runtime.raw_state = dict(state.raw_state)
+        return self.runtime(), result
+
+    def apply_manual_pair(self, payload: RadioPairSetRequest, settings: RadioSettings) -> tuple[RadioRuntimeState, FrequencyRecommendation, dict[str, object]]:
+        if not self._runtime.connected or self._controller is None:
+            raise RuntimeError("radio is not connected")
+        recommendation = FrequencyRecommendation(
+            sat_id="manual-pair",
+            mode=FrequencyGuideMode.fm,
+            phase=GuidePassPhase.mid,
+            label="Manual pair",
+            is_upcoming=False,
+            is_ongoing=True,
+            correction_side=CorrectionSide.full_duplex,
+            doppler_direction=DopplerDirection.high_to_low,
+            uplink_mhz=payload.uplink_hz / 1_000_000,
+            downlink_mhz=payload.downlink_hz / 1_000_000,
+            uplink_label="Uplink",
+            downlink_label="Downlink",
+            uplink_mode=(payload.uplink_mode or "FM").upper(),
+            downlink_mode=(payload.downlink_mode or "FM").upper(),
+        )
+        state, mapping = self._controller.apply_target(
+            recommendation,
+            settings.default_apply_mode_and_tone if payload.apply_mode_and_tone is None else payload.apply_mode_and_tone,
+        )
+        self._runtime.connected = state.connected
+        self._runtime.control_mode = RadioControlMode.manual_applied
+        self._runtime.rig_model = settings.rig_model
+        self._runtime.serial_device = settings.serial_device
+        self._runtime.last_error = state.last_error
+        self._runtime.last_poll_at = state.last_poll_at
+        self._runtime.active_sat_id = recommendation.sat_id
+        self._runtime.last_applied_recommendation = recommendation
+        self._runtime.targets = dict(state.targets)
+        self._runtime.raw_state = dict(state.raw_state)
+        return self.runtime(), recommendation, mapping

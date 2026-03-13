@@ -2,7 +2,9 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.models import IssDisplayMode, LiveTrack, PassEvent, RadioRigModel, Satellite
+from app.radio.civ import ACK, build_frame, freq_to_bcd
 from app.radio.controllers.base import BaseIcomController
+from app.radio.controllers.ic705 import Ic705Controller
 from app.radio.service import RigControlService
 from app.services import DataIngestionService, FrequencyGuideService, TrackingService
 from app.store import StateStore
@@ -40,6 +42,54 @@ class FakeRigController(BaseIcomController):
         self.state.raw_state["applied"] = True
         self.stamp_poll()
         return self.state, {"tx": "MAIN", "rx": "SUB"}
+
+    def set_frequency(self, vfo, freq_hz):
+        self.state.targets[f"{str(vfo).lower()}_freq_hz"] = int(freq_hz)
+        self.state.raw_state["last_set_vfo"] = str(vfo)
+        self.stamp_poll()
+        return self.state, {"vfo": str(vfo), "freq_hz": int(freq_hz)}
+
+
+class ScriptedIc705Transport:
+    def __init__(self, freq_a: int, freq_b: int) -> None:
+        self.freq_a = int(freq_a)
+        self.freq_b = int(freq_b)
+        self.selected_vfo = "A"
+        self.split_enabled = False
+        self.is_open = False
+
+    def open(self) -> None:
+        self.is_open = True
+
+    def close(self) -> None:
+        self.is_open = False
+
+    def transact(self, to_addr: int, command: int, payload: bytes = b"", expect_commands=None, timeout=None) -> bytes:
+        if command == Ic705Controller.C_SET_VFO:
+            self.selected_vfo = "A" if payload[:1] == bytes([Ic705Controller.S_VFOA]) else "B"
+            return build_frame(0xE0, ACK, b"", from_addr=to_addr)
+        if command == Ic705Controller.C_SET_FREQ:
+            freq_hz = 0
+            digits = 1
+            for byte in payload:
+                freq_hz += (byte & 0x0F) * digits
+                digits *= 10
+                freq_hz += ((byte >> 4) & 0x0F) * digits
+                digits *= 10
+            if self.selected_vfo == "A":
+                self.freq_a = freq_hz
+            else:
+                self.freq_b = freq_hz
+            return build_frame(0xE0, ACK, b"", from_addr=to_addr)
+        if command == Ic705Controller.C_SEL_FREQ:
+            selected = payload[:1] == b"\x00"
+            freq_hz = self.freq_a if (self.selected_vfo == "A") == selected else self.freq_b
+            selector = b"\x00" if selected else b"\x01"
+            return build_frame(to_addr=0xE0, command=Ic705Controller.C_SEL_FREQ, payload=selector + freq_to_bcd(freq_hz, 5), from_addr=to_addr)
+        if command == Ic705Controller.C_RD_SPLIT:
+            payload = b"\x01" if self.split_enabled else b"\x00"
+            return build_frame(to_addr=0xE0, command=Ic705Controller.C_RD_SPLIT, payload=payload, from_addr=to_addr)
+        raise AssertionError(f"Unexpected CI-V command: 0x{command:02X}")
 
 
 def test_set_and_get_iss_mode(tmp_path):
@@ -228,6 +278,52 @@ def test_radio_poll_endpoint_returns_runtime(tmp_path):
     payload = resp.json()
     assert payload["runtime"]["connected"] is True
     assert payload["settings"]["rig_model"] == "ic705"
+
+
+def test_radio_frequency_endpoint_updates_runtime(tmp_path):
+    client = make_client(tmp_path)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
+    )
+    client.post("/api/v1/settings/radio", json={"rig_model": "ic705", "civ_address": "0xA4"})
+    client.post("/api/v1/radio/connect")
+    resp = client.post("/api/v1/radio/frequency", json={"vfo": "A", "freq_hz": 145990000})
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["result"]["vfo"] == "A"
+    assert payload["result"]["freq_hz"] == 145990000
+
+
+def test_radio_pair_endpoint_returns_mapping(tmp_path):
+    client = make_client(tmp_path)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
+    )
+    client.post("/api/v1/settings/radio", json={"rig_model": "ic705", "civ_address": "0xA4"})
+    client.post("/api/v1/radio/connect")
+    resp = client.post("/api/v1/radio/pair", json={"uplink_hz": 145990000, "downlink_hz": 14100000})
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["recommendation"]["sat_id"] == "manual-pair"
+    assert payload["targetMapping"]["tx"] == "MAIN"
+    assert payload["recommendation"]["uplink_mode"] == "FM"
+    assert payload["recommendation"]["downlink_mode"] == "FM"
+
+
+def test_ic705_keeps_absolute_ab_identity_after_vfo_b_write():
+    transport = ScriptedIc705Transport(freq_a=145000000, freq_b=14100000)
+    controller = Ic705Controller(transport, 0xA4)
+
+    state = controller.connect()
+    assert state.targets["vfo_a_freq_hz"] == 145000000
+    assert state.targets["vfo_b_freq_hz"] == 14100000
+    assert state.raw_state["selected_vfo"] == "A"
+
+    state, result = controller.set_frequency("B", 14105000)
+    assert result == {"vfo": "B", "freq_hz": 14105000}
+    assert state.targets["vfo_a_freq_hz"] == 145000000
+    assert state.targets["vfo_b_freq_hz"] == 14105000
+    assert state.raw_state["selected_vfo"] == "A"
 
 
 def test_get_lite_settings_defaults(tmp_path):

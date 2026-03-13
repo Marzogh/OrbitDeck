@@ -424,3 +424,16 @@ class RadioApplyRequest(BaseModel):
 
 class RadioAutoTrackStartRequest(RadioApplyRequest):
     interval_ms: int | None = Field(default=None, ge=200, le=10000)
+
+
+class RadioFrequencySetRequest(BaseModel):
+    vfo: str = Field(min_length=1)
+    freq_hz: int = Field(ge=1000)
+
+
+class RadioPairSetRequest(BaseModel):
+    uplink_hz: int = Field(ge=1000)
+    downlink_hz: int = Field(ge=1000)
+    uplink_mode: str | None = None
+    downlink_mode: str | None = None
+    apply_mode_and_tone: bool | None = None

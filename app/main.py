@@ -28,6 +28,8 @@ from app.models import (
     PassProfileMode,
     RadioApplyRequest,
     RadioAutoTrackStartRequest,
+    RadioFrequencySetRequest,
+    RadioPairSetRequest,
     RadioRigModel,
     RadioSettings,
     RadioSettingsUpdate,
@@ -899,6 +901,32 @@ def poll_radio() -> dict:
     state = store.get()
     runtime = radio_control_service.poll(state.radio_settings)
     return {"settings": state.radio_settings, "runtime": runtime}
+
+
+@app.post("/api/v1/radio/frequency")
+def set_radio_frequency(payload: RadioFrequencySetRequest) -> dict:
+    state = store.get()
+    try:
+        runtime, result = radio_control_service.set_frequency(payload, state.radio_settings)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"settings": state.radio_settings, "runtime": runtime, "result": result}
+
+
+@app.post("/api/v1/radio/pair")
+def set_radio_pair(payload: RadioPairSetRequest) -> dict:
+    state = store.get()
+    try:
+        runtime, recommendation, mapping = radio_control_service.apply_manual_pair(payload, state.radio_settings)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "settings": state.radio_settings,
+        "runtime": runtime,
+        "recommendation": recommendation,
+        "targetMapping": mapping,
+        "appliedAt": datetime.now(UTC),
+    }
 
 
 @app.post("/api/v1/radio/apply")

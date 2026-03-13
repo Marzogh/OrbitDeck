@@ -1,7 +1,14 @@
 const api = {
   get: async (path) => {
     const res = await fetch(path);
-    if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
+    if (!res.ok) {
+      let detail = "";
+      try {
+        const payload = await res.json();
+        detail = payload?.detail ? `: ${payload.detail}` : "";
+      } catch {}
+      throw new Error(`GET ${path} failed: ${res.status}${detail}`);
+    }
     return res.json();
   },
   post: async (path, body) => {
@@ -10,7 +17,14 @@ const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+    if (!res.ok) {
+      let detail = "";
+      try {
+        const payload = await res.json();
+        detail = payload?.detail ? `: ${payload.detail}` : "";
+      } catch {}
+      throw new Error(`POST ${path} failed: ${res.status}${detail}`);
+    }
     return res.json();
   },
 };
