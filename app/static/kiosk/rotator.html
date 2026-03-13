@@ -4,11 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OrbitDeck Rotator</title>
-    <link rel="stylesheet" href="/static/common/styles.css?v=20260313c" />
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260314a" />
     <script defer src="/static/common/app.js?v=20260308al"></script>
     <script defer src="/static/common/hemisphere-land.js?v=20260309b"></script>
     <script defer src="/static/common/hemisphere.js?v=20260310b"></script>
-    <script defer src="/static/kiosk/rotator.js?v=20260313c"></script>
+    <script defer src="/static/kiosk/rotator.js?v=20260314a"></script>
   </head>
   <body class="kiosk rotator">
     <header class="rotator-topbar">
@@ -115,7 +115,46 @@
       <section id="sceneRadio" class="scene hidden">
         <div class="scene-title">Screen 9: Radio Ops</div>
         <div id="radioPrimary" class="scene-overlay mono"></div>
-        <div id="radioBoard" class="radio-board"></div>
+        <div class="radio-scene-layout">
+          <div id="radioVisuals" class="radio-visuals hidden">
+            <div class="compass">
+              <svg id="radioSkyplot" viewBox="0 0 300 300" class="skyplot" aria-label="Radio control sky plot">
+                <g class="plot-grid">
+                  <circle cx="150" cy="150" r="90" class="plot-band plot-band-minor"></circle>
+                  <circle cx="150" cy="150" r="72" class="plot-band plot-band-major"></circle>
+                  <circle cx="150" cy="150" r="54" class="plot-band plot-band-minor"></circle>
+                  <circle cx="150" cy="150" r="36" class="plot-band plot-band-major"></circle>
+                  <circle cx="150" cy="150" r="18" class="plot-band plot-band-minor"></circle>
+                  <g id="radioPlotTicks" class="plot-ticks"></g>
+                  <g id="radioPlotDegrees" class="plot-degree-labels"></g>
+                </g>
+                <circle cx="150" cy="150" r="108" class="plot-ring"></circle>
+                <line x1="150" y1="42" x2="150" y2="258" class="plot-axis"></line>
+                <line x1="42" y1="150" x2="258" y2="150" class="plot-axis"></line>
+                <path id="radioIssPathFaded" class="plot-pass-path plot-pass-path-faded" d=""></path>
+                <path id="radioIssPathPast" class="plot-pass-path plot-pass-path-past" d=""></path>
+                <path id="radioIssPathFuture" class="plot-pass-path plot-pass-path-future" d=""></path>
+                <g id="radioIssEventMarkers" class="plot-event-markers"></g>
+                <polyline id="radioIssTrail" class="plot-trail" points=""></polyline>
+                <line id="radioIssVector" x1="150" y1="150" x2="150" y2="150" class="plot-vector"></line>
+                <circle id="radioIssDotHalo" cx="150" cy="150" r="11" class="plot-dot-halo"></circle>
+                <circle id="radioIssDot" cx="150" cy="150" r="7" class="plot-dot"></circle>
+                <circle cx="150" cy="150" r="4" class="plot-center"></circle>
+                <text x="150" y="16" text-anchor="middle" class="plot-dir">N</text>
+                <text x="284" y="154" text-anchor="middle" class="plot-dir">E</text>
+                <text x="150" y="292" text-anchor="middle" class="plot-dir">S</text>
+                <text x="16" y="154" text-anchor="middle" class="plot-dir">W</text>
+                <g id="radioBodyLayer"></g>
+              </svg>
+            </div>
+            <div class="telemetry-left-meta">
+              <div id="radioBodyLegend" class="label"></div>
+              <div id="radioPathLegend" class="plot-term-legend label">AOS = rise · TCA = peak · LOS = set</div>
+            </div>
+            <div id="radioLeftAux"></div>
+          </div>
+          <div id="radioBoard" class="radio-board"></div>
+        </div>
       </section>
 
       <section id="radioConnectModal" class="rotator-modal hidden" aria-hidden="true">

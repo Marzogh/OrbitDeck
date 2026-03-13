@@ -333,11 +333,22 @@ function radioSessionPassState(session, nowMs = Date.now()) {
 
 function findSessionPass(passes, session) {
   if (!session?.selected_sat_id || !session?.selected_pass_aos || !session?.selected_pass_los) return null;
-  return (passes || []).find((pass) =>
+  const matched = (passes || []).find((pass) =>
     pass.sat_id === session.selected_sat_id
     && pass.aos === session.selected_pass_aos
     && pass.los === session.selected_pass_los
   ) || null;
+  if (matched) return matched;
+  return {
+    sat_id: session.selected_sat_id,
+    name: session.selected_sat_name || session.selected_sat_id,
+    aos: session.selected_pass_aos,
+    los: session.selected_pass_los,
+    tca: session.selected_pass_aos,
+    max_el_deg: Number(session.selected_max_el_deg || 0),
+    frequencyRecommendation: null,
+    frequencyMatrix: null,
+  };
 }
 
 function passPhase(pass, nowMs = Date.now()) {
@@ -367,6 +378,37 @@ function nearestPathPoint(items, iso) {
     if (!best || delta < best.delta) best = { item, delta };
   }
   return best && best.delta <= 120000 ? best.item : null;
+}
+
+function plotRefs(prefix = "telemetry") {
+  if (prefix === "radio") {
+    return {
+      dot: "radioIssDot",
+      halo: "radioIssDotHalo",
+      trail: "radioIssTrail",
+      bodyLayer: "radioBodyLayer",
+      fadedPath: "radioIssPathFaded",
+      pastPath: "radioIssPathPast",
+      futurePath: "radioIssPathFuture",
+      eventMarkers: "radioIssEventMarkers",
+      bodyLegend: "radioBodyLegend",
+      plotTicks: "radioPlotTicks",
+      plotDegrees: "radioPlotDegrees",
+    };
+  }
+  return {
+    dot: "issDot",
+    halo: "issDotHalo",
+    trail: "issTrail",
+    bodyLayer: "bodyLayer",
+    fadedPath: "issPathFaded",
+    pastPath: "issPathPast",
+    futurePath: "issPathFuture",
+    eventMarkers: "issEventMarkers",
+    bodyLegend: "bodyLegend",
+    plotTicks: "plotTicks",
+    plotDegrees: "plotDegrees",
+  };
 }
 
 function ensurePlotTicks(elId = "plotTicks", degreeId = "plotDegrees") {
@@ -413,17 +455,20 @@ function normalizeFreqToken(text) {
   });
 }
 
-function renderSkyplot(track, bodies, pass = null, pathItems = []) {
+function renderSkyplot(track, bodies, pass = null, pathItems = [], prefix = "telemetry") {
   if (!track) return;
-  ensurePlotTicks();
-  const dot = trackerById("issDot");
-  const halo = trackerById("issDotHalo");
-  const trail = trackerById("issTrail");
-  const bodyLayer = trackerById("bodyLayer");
-  const fadedPath = trackerById("issPathFaded");
-  const pastPath = trackerById("issPathPast");
-  const futurePath = trackerById("issPathFuture");
-  const eventMarkers = trackerById("issEventMarkers");
+  const refs = plotRefs(prefix);
+  ensurePlotTicks(refs.plotTicks, refs.plotDegrees);
+  const dot = trackerById(refs.dot);
+  const halo = trackerById(refs.halo);
+  const trail = trackerById(refs.trail);
+  const bodyLayer = trackerById(refs.bodyLayer);
+  const fadedPath = trackerById(refs.fadedPath);
+  const pastPath = trackerById(refs.pastPath);
+  const futurePath = trackerById(refs.futurePath);
+  const eventMarkers = trackerById(refs.eventMarkers);
+  const bodyLegend = trackerById(refs.bodyLegend);
+  if (!dot || !halo || !trail || !bodyLayer || !fadedPath || !pastPath || !futurePath || !eventMarkers || !bodyLegend) return;
   const p = azElToXY(track.az_deg, track.el_deg);
   const phase = passPhase(pass);
   if (phase === "ongoing" || phase === "none") {
@@ -491,7 +536,7 @@ function renderSkyplot(track, bodies, pass = null, pathItems = []) {
     const q = azElToXY(b.az_deg, b.el_deg);
     bodyLayer.insertAdjacentHTML("beforeend", `<g><circle cx="${q.x.toFixed(2)}" cy="${q.y.toFixed(2)}" r="6.2" fill="${b.color}" class="plot-body"></circle><text x="${q.x.toFixed(2)}" y="${(q.y + 2.8).toFixed(2)}" text-anchor="middle" class="plot-body-icon">${bodySymbol(b.name)}</text></g>`);
   });
-  trackerById("bodyLegend").innerHTML = visible.length
+  bodyLegend.innerHTML = visible.length
     ? visible.map((b) => bodyLegendChip(b)).join("")
     : '<span class="label">Bodies: none above horizon</span>';
 }
@@ -1491,18 +1536,45 @@ function renderPinnedRadioControl(session, pass, runtime) {
         <button id="radioSessionStartBtn" type="button"${((inActive || inArmed) || (connected && eligible && passState !== "ended")) ? "" : " disabled"}${passState === "above horizon" && eligible && !inActive && !inArmed ? ' class="radio-session-go-live"' : ""}>${escapeHtml(startLabel)}</button>
         ${showBack ? '<button id="radioSessionBackBtn" type="button">Back to Rotator</button>' : ""}
       </div>
-      <div class="radio-band-line">Note: CI-V control can take up to 15 seconds to stabilize. Please wait for session-state feedback and do not click the button multiple times.</div>
+      <div class="radio-band-line">Note: CI-V control can take up to 60 seconds to stabilize. Please wait for session-state feedback and do not click the button multiple times.</div>
     </article>
   `;
 }
 
-function renderRadioScene(passes) {
+async function renderRadioScene(passes) {
   setSceneVisible("sceneRadio");
   const session = activeRadioSession();
   if (isPinnedRadioControl(session)) {
-    renderPinnedRadioControl(session, findSessionPass(passes, session), state.system?.radioRuntime || null);
+    const pass = findSessionPass(passes, session);
+    renderPinnedRadioControl(session, pass, state.system?.radioRuntime || null);
+    const visuals = trackerById("radioVisuals");
+    const aux = trackerById("radioLeftAux");
+    const sys = state.system || {};
+    const track = (sys.tracks || []).find((t) => t.sat_id === session?.selected_sat_id)
+      || (sys.activeTrack?.sat_id === session?.selected_sat_id ? sys.activeTrack : null)
+      || (sys.issTrack?.sat_id === session?.selected_sat_id ? sys.issTrack : null)
+      || null;
+    if (visuals) visuals.classList.toggle("hidden", !track || !pass);
+    if (track && pass) {
+      const pathItems = await ensurePathForDisplayedPass(sys, pass);
+      renderSkyplot(track, sys.bodies || [], pass, pathItems, "radio");
+      aux.innerHTML = `
+        ${renderUpcomingVisualAux({
+          track,
+          pass,
+          pathItems,
+          observerLocation: sys.location,
+        })}
+      `;
+    } else if (aux) {
+      aux.innerHTML = '<section class="telemetry-visual-card"><div class="telemetry-section-title">Track preview unavailable</div><div class="telemetry-visual-meta mono">Waiting for live track data for the selected satellite.</div></section>';
+    }
     return;
   }
+  const visuals = trackerById("radioVisuals");
+  const aux = trackerById("radioLeftAux");
+  if (visuals) visuals.classList.add("hidden");
+  if (aux) aux.innerHTML = "";
   const upcoming = [];
   const seenSatIds = new Set();
   for (const pass of filterConsolePasses(passes)) {

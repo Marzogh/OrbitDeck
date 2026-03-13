@@ -2175,6 +2175,78 @@ body.kiosk .radio-board {
   align-items: start;
 }
 
+body.kiosk .radio-scene-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.62fr) minmax(0, 1.38fr);
+  gap: 10px 10px;
+  align-items: start;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body.kiosk .radio-visuals {
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  align-content: start;
+  order: 2;
+  justify-items: center;
+  width: 100%;
+  padding-top: 4px;
+}
+
+body.kiosk .radio-visuals.hidden {
+  display: none;
+}
+
+body.kiosk .radio-visuals .compass {
+  width: min(100%, 430px);
+  height: auto;
+  aspect-ratio: 1 / 1;
+  box-shadow: none;
+}
+
+body.kiosk .radio-visuals .telemetry-left-meta {
+  gap: 0;
+}
+
+body.kiosk #radioLeftAux {
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  width: 100%;
+  justify-items: center;
+}
+
+body.kiosk #radioLeftAux:empty {
+  display: none;
+}
+
+body.kiosk .radio-visuals .telemetry-visual-card,
+body.kiosk .radio-visuals .telemetry-visual-aux {
+  min-height: auto;
+}
+
+body.kiosk .radio-visuals .telemetry-visual-aux {
+  width: min(100%, 560px);
+  padding: 4px 8px 6px;
+}
+
+body.kiosk .radio-visuals .telemetry-visual-meta {
+  font-size: 0.78rem;
+}
+
+body.kiosk .radio-visuals .telemetry-visual-aux .hemisphere-map {
+  height: min(38vh, 360px);
+  width: min(100%, 560px);
+}
+
+body.kiosk .radio-board {
+  order: 1;
+  display: block;
+  width: min(100%, 460px);
+}
+
 body.kiosk .radio-primary-card,
 body.kiosk .radio-sat-card {
   position: relative;
@@ -2205,30 +2277,36 @@ body.kiosk .radio-session-card {
   border-color: rgba(63, 224, 197, 0.24);
 }
 
+body.kiosk .radio-scene-layout .radio-session-card {
+  grid-row: auto;
+  min-height: auto;
+  padding: 12px 14px 14px;
+}
+
 body.kiosk .radio-card-label {
   color: #ffb36f;
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
 body.kiosk .radio-sat-name {
   color: #fff6ef;
-  font-size: 1.15rem;
+  font-size: 1.02rem;
   font-weight: 700;
-  margin: 6px 0 10px;
+  margin: 4px 0 8px;
 }
 
 body.kiosk .radio-pass-time {
   color: #e6cab3;
-  font-size: 0.86rem;
-  margin-bottom: 12px;
+  font-size: 0.8rem;
+  margin-bottom: 8px;
 }
 
 body.kiosk .radio-channel {
   display: grid;
-  gap: 6px;
-  padding: 10px 0;
+  gap: 4px;
+  padding: 8px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -2238,12 +2316,18 @@ body.kiosk .radio-channel:first-of-type {
 }
 
 body.kiosk .radio-session-actions {
-  margin-top: 8px;
+  margin-top: 6px;
+  gap: 6px;
 }
 
 body.kiosk .radio-session-go-live {
   box-shadow: 0 0 0 1px rgba(63, 224, 197, 0.4), 0 0 24px rgba(63, 224, 197, 0.18);
   background: linear-gradient(135deg, rgba(11, 93, 77, 0.94), rgba(26, 55, 49, 0.92));
+}
+
+body.kiosk .radio-session-actions button {
+  padding: 7px 10px;
+  font-size: 0.92rem;
 }
 
 body.kiosk .radio-channel-mode {
@@ -2260,7 +2344,7 @@ body.kiosk .radio-pair {
 
 body.kiosk .radio-pair-label {
   color: #ffb36f;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -2271,7 +2355,8 @@ body.kiosk .radio-pair-value {
 
 body.kiosk .radio-band-line {
   color: #3fe0c5;
-  font-size: 0.82rem;
+  font-size: 0.76rem;
+  line-height: 1.35;
 }
 
 body.kiosk .radio-empty {
