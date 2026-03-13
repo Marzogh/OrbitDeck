@@ -132,6 +132,46 @@ function saveVideoSources() {
   localStorage.setItem(VIDEO_SOURCES_KEY, JSON.stringify(sources));
 }
 
+async function loadRadioState() {
+  try {
+    const resp = await trackerApi.get("/api/v1/radio/state");
+    const settings = resp.settings || {};
+    const runtime = resp.runtime || {};
+    trackerById("radioRigModel").value = settings.rig_model || "id5100";
+    trackerById("radioSerialDevice").value = settings.serial_device || "";
+    trackerById("radioBaudRate").value = settings.baud_rate || 19200;
+    trackerById("radioCivAddress").value = settings.civ_address || "0x8C";
+    trackerById("radioPollInterval").value = settings.poll_interval_ms || 1000;
+    trackerById("radioAutoTrackInterval").value = settings.auto_track_interval_ms || 1500;
+    trackerById("radioEnabled").checked = !!settings.enabled;
+    trackerById("radioAutoConnect").checked = !!settings.auto_connect;
+    trackerById("radioApplyModeTone").checked = settings.default_apply_mode_and_tone !== false;
+    trackerById("radioSafeTxGuard").checked = settings.safe_tx_guard_enabled !== false;
+    trackerById("radioStatus").textContent =
+      `Rig: ${settings.rig_model || "--"} | ${runtime.connected ? "Connected" : "Disconnected"}`
+      + (runtime.last_error ? ` | ${runtime.last_error}` : "");
+  } catch (err) {
+    trackerById("radioStatus").textContent = `Rig: unavailable | ${err?.message || err}`;
+  }
+}
+
+async function saveRadioSettings() {
+  const payload = {
+    enabled: trackerById("radioEnabled").checked,
+    rig_model: trackerById("radioRigModel").value,
+    serial_device: trackerById("radioSerialDevice").value,
+    baud_rate: Number(trackerById("radioBaudRate").value),
+    civ_address: trackerById("radioCivAddress").value,
+    poll_interval_ms: Number(trackerById("radioPollInterval").value),
+    auto_connect: trackerById("radioAutoConnect").checked,
+    auto_track_interval_ms: Number(trackerById("radioAutoTrackInterval").value),
+    default_apply_mode_and_tone: trackerById("radioApplyModeTone").checked,
+    safe_tx_guard_enabled: trackerById("radioSafeTxGuard").checked,
+  };
+  await trackerApi.post("/api/v1/settings/radio", payload);
+  await loadRadioState();
+}
+
 async function saveTimezone() {
   const picked = trackerById("displayTimezone").value;
   const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -166,6 +206,7 @@ async function loadState() {
   syncPassProfileUi();
   syncLocationModeUi();
   syncDeveloperOverridesUi();
+  await loadRadioState();
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
@@ -234,6 +275,26 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   trackerById("saveVideoSources").addEventListener("click", () => {
     saveVideoSources();
+  });
+
+  trackerById("radioRigModel").addEventListener("change", () => {
+    const model = trackerById("radioRigModel").value;
+    trackerById("radioBaudRate").value = 19200;
+    trackerById("radioCivAddress").value = model === "ic705" ? "0xA4" : "0x8C";
+  });
+
+  trackerById("saveRadioSettings").addEventListener("click", async () => {
+    await saveRadioSettings();
+  });
+
+  trackerById("connectRadio").addEventListener("click", async () => {
+    await trackerApi.post("/api/v1/radio/connect", {});
+    await loadRadioState();
+  });
+
+  trackerById("disconnectRadio").addEventListener("click", async () => {
+    await trackerApi.post("/api/v1/radio/disconnect", {});
+    await loadRadioState();
   });
 
   trackerById("devOverridesEnabled").addEventListener("change", () => {

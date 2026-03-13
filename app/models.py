@@ -53,6 +53,36 @@ class DeveloperPassPhase(str, Enum):
     near_los = "near-los"
 
 
+class RadioRigModel(str, Enum):
+    id5100 = "id5100"
+    ic705 = "ic705"
+
+
+class RadioControlMode(str, Enum):
+    idle = "idle"
+    manual_applied = "manual_applied"
+    auto_tracking = "auto_tracking"
+
+
+class RadioControlScreenState(str, Enum):
+    idle = "idle"
+    test = "test"
+    armed = "armed"
+    active = "active"
+    released = "released"
+    completed = "completed"
+
+
+class RadioSessionControlState(str, Enum):
+    not_connected = "not_connected"
+    connected_idle = "connected_idle"
+    test_applied = "test_applied"
+    armed_waiting_aos = "armed_waiting_aos"
+    tracking_active = "tracking_active"
+    released = "released"
+    ended = "ended"
+
+
 class GeoPoint(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
@@ -96,6 +126,19 @@ class CachePolicy(BaseModel):
     retention_days: int = Field(default=30, ge=1, le=365)
     max_storage_mb: int = Field(default=512, ge=32, le=10240)
     stale_after_hours: int = Field(default=24, ge=1, le=720)
+
+
+class RadioSettings(BaseModel):
+    enabled: bool = False
+    rig_model: RadioRigModel = RadioRigModel.id5100
+    serial_device: str = "/dev/ttyUSB0"
+    baud_rate: int = Field(default=19200, ge=4800, le=19200)
+    civ_address: str = "0x8C"
+    poll_interval_ms: int = Field(default=1000, ge=100, le=10000)
+    auto_connect: bool = False
+    auto_track_interval_ms: int = Field(default=1500, ge=200, le=10000)
+    default_apply_mode_and_tone: bool = True
+    safe_tx_guard_enabled: bool = True
 
 
 class LiteSettings(BaseModel):
@@ -349,11 +392,92 @@ class FrequencyGuideMatrix(BaseModel):
     active_phase: GuidePassPhase | None = None
 
 
+class RadioRuntimeState(BaseModel):
+    connected: bool = False
+    control_mode: RadioControlMode = RadioControlMode.idle
+    rig_model: RadioRigModel | None = None
+    serial_device: str | None = None
+    last_error: str | None = None
+    last_poll_at: datetime | None = None
+    active_sat_id: str | None = None
+    active_pass_aos: datetime | None = None
+    active_pass_los: datetime | None = None
+    selected_column_index: int | None = None
+    last_applied_recommendation: FrequencyRecommendation | None = None
+    targets: dict[str, int | float | str | bool | None] = Field(default_factory=dict)
+    raw_state: dict[str, object] = Field(default_factory=dict)
+
+
+class RadioControlSessionState(BaseModel):
+    active: bool = False
+    selected_sat_id: str | None = None
+    selected_sat_name: str | None = None
+    selected_pass_aos: datetime | None = None
+    selected_pass_los: datetime | None = None
+    selected_max_el_deg: float | None = None
+    screen_state: RadioControlScreenState = RadioControlScreenState.idle
+    control_state: RadioSessionControlState = RadioSessionControlState.not_connected
+    return_to_rotator_on_end: bool = True
+    is_eligible: bool = False
+    eligibility_reason: str | None = None
+    has_test_pair: bool = False
+    test_pair_reason: str | None = None
+    test_pair: FrequencyRecommendation | None = None
+
+
 class PersistedState(BaseModel):
     settings: AppSettings = Field(default_factory=AppSettings)
     location: LocationState = Field(default_factory=LocationState)
     network: NetworkState = Field(default_factory=NetworkState)
     gps_settings: GpsSettings = Field(default_factory=GpsSettings)
+    radio_settings: RadioSettings = Field(default_factory=RadioSettings)
     cache_policy: CachePolicy = Field(default_factory=CachePolicy)
     lite_settings: LiteSettings = Field(default_factory=LiteSettings)
     snapshots: list[DatasetSnapshot] = Field(default_factory=list)
+
+
+class RadioSettingsUpdate(BaseModel):
+    enabled: bool | None = None
+    rig_model: RadioRigModel | None = None
+    serial_device: str | None = None
+    baud_rate: int | None = Field(default=None, ge=4800, le=19200)
+    civ_address: str | None = None
+    poll_interval_ms: int | None = Field(default=None, ge=100, le=10000)
+    auto_connect: bool | None = None
+    auto_track_interval_ms: int | None = Field(default=None, ge=200, le=10000)
+    default_apply_mode_and_tone: bool | None = None
+    safe_tx_guard_enabled: bool | None = None
+
+
+class RadioApplyRequest(BaseModel):
+    sat_id: str = Field(min_length=1)
+    pass_aos: datetime | None = None
+    pass_los: datetime | None = None
+    selected_column_index: int | None = None
+    location_source: LocationSourceMode | None = None
+    apply_mode_and_tone: bool | None = None
+
+
+class RadioAutoTrackStartRequest(RadioApplyRequest):
+    interval_ms: int | None = Field(default=None, ge=200, le=10000)
+
+
+class RadioFrequencySetRequest(BaseModel):
+    vfo: str = Field(min_length=1)
+    freq_hz: int = Field(ge=1000)
+
+
+class RadioPairSetRequest(BaseModel):
+    uplink_hz: int = Field(ge=1000)
+    downlink_hz: int = Field(ge=1000)
+    uplink_mode: str | None = None
+    downlink_mode: str | None = None
+    apply_mode_and_tone: bool | None = None
+
+
+class RadioControlSessionSelectRequest(BaseModel):
+    sat_id: str = Field(min_length=1)
+    sat_name: str | None = None
+    pass_aos: datetime
+    pass_los: datetime
+    max_el_deg: float | None = Field(default=None, ge=0.0, le=90.0)

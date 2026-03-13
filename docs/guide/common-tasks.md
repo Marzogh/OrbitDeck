@@ -39,6 +39,71 @@ AMSAT summaries are grouped as:
 2. Use the focused layout to follow the active or upcoming pass.
 3. Read the hemisphere view and frequency guidance together.
 
+## Connect a rig and confirm CI-V readback
+
+1. Open `/radio`.
+2. Save the rig model, serial device, baud rate, and CI-V address.
+3. Connect the rig.
+4. Poll the rig.
+5. Confirm that the runtime payload shows `connected: true` and current VFO state.
+
+Important detail:
+
+- a successful connect means OrbitDeck opened the device
+- a successful poll means OrbitDeck exchanged usable CI-V state with the rig
+
+## Write a direct VFO frequency
+
+Use `/radio` when you want to test a direct frequency write without selecting a pass.
+
+1. Connect the rig.
+2. Choose the target VFO.
+3. Enter the frequency in Hz.
+4. Use `Set Manual Frequency`.
+5. Poll again if you want a fresh confirmed readback.
+
+Relevant API:
+
+- `POST /api/v1/radio/frequency`
+
+## Apply a manual uplink/downlink pair
+
+Use this when you want to validate split control without relying on a live pass.
+
+1. Open `/radio`.
+2. Enter `Pair Uplink (Hz)` and `Pair Downlink (Hz)`.
+3. Optionally change the default `FM` modes.
+4. Use `Apply Manual Pair`.
+5. Confirm the returned `targetMapping`, recommendation payload, and runtime targets.
+
+Relevant API:
+
+- `POST /api/v1/radio/pair`
+
+Current IC-705 behavior:
+
+- OrbitDeck writes the uplink to `VFO A`
+- OrbitDeck writes the downlink to `VFO B`
+- omitted pair modes default to `FM`
+
+## Use the rotator radio-control workflow
+
+1. Open `/kiosk-rotator`.
+2. Select a pass with `Go to Radio Control`.
+3. Connect the rig if needed.
+4. Run the default-pair test for that selected pass.
+5. If the rig state is correct, confirm the test.
+6. Start or arm control for the pass.
+7. Stop control manually or let the session end after LOS.
+
+Session APIs:
+
+- `POST /api/v1/radio/session/select`
+- `POST /api/v1/radio/session/test`
+- `POST /api/v1/radio/session/test/confirm`
+- `POST /api/v1/radio/session/start`
+- `POST /api/v1/radio/session/stop`
+
 ## Change the observer location
 
 ### Common options
@@ -95,6 +160,20 @@ curl "http://127.0.0.1:8000/api/v1/frequency-guides/recommendation?sat_id=iss-za
 ```
 
 Use this endpoint when you want the raw recommendation payload instead of the UI presentation.
+
+## Check whether a pass is radio-control eligible
+
+The rotator radio workflow currently accepts recommendations inside:
+
+- VHF `144.000 MHz` to `148.000 MHz`
+- UHF `420.000 MHz` to `450.000 MHz`
+
+Receive-only downlink recommendations remain eligible when the downlink is inside the supported range.
+
+The quickest way to inspect that state is:
+
+- `POST /api/v1/radio/session/select`
+- then read `is_eligible` and `eligibility_reason`
 
 ## Record a dataset snapshot
 

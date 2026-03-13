@@ -19,6 +19,7 @@ Open:
 - Kiosk UI: <http://127.0.0.1:8000/kiosk>
 - Lite UI: <http://127.0.0.1:8000/lite>
 - Lite settings UI: <http://127.0.0.1:8000/lite/settings>
+- Radio control UI: <http://127.0.0.1:8000/radio>
 - Rotator UI: <http://127.0.0.1:8000/kiosk-rotator>
 - Settings UI: <http://127.0.0.1:8000/settings>
 - API docs: <http://127.0.0.1:8000/docs>
@@ -44,6 +45,7 @@ Open from another device:
 - Kiosk UI: `http://<pi-ip>:8000/kiosk`
 - Lite UI: `http://<pi-ip>:8000/lite`
 - Lite settings UI: `http://<pi-ip>:8000/lite/settings`
+- Radio control UI: `http://<pi-ip>:8000/radio`
 - Rotator UI: `http://<pi-ip>:8000/kiosk-rotator`
 - Settings UI: `http://<pi-ip>:8000/settings`
 - API docs: `http://<pi-ip>:8000/docs`

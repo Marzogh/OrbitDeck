@@ -68,6 +68,80 @@ That can be normal.
 
 OrbitDeck intentionally guards AMSAT refreshes to a minimum 12-hour interval. A manual refresh may still leave AMSAT data unchanged if the guard window has not expired.
 
+## `/radio` connects, but `Poll Rig` fails
+
+Treat this as a CI-V readback problem, not just a UI problem.
+
+Check:
+
+1. the serial device path is correct
+2. the configured `civ_address` matches the rig
+3. the configured baud rate matches the rig
+4. the rig is actually exposing the CI-V port you selected
+
+Important distinction:
+
+- a successful connect only proves that OrbitDeck opened the serial device
+- a successful poll proves that OrbitDeck exchanged usable CI-V state with the rig
+
+## `timeout waiting for CI-V response to 0x25`
+
+This can occur after a manual write on the IC-705 path.
+
+Known behavior:
+
+- the rig may still have applied the write successfully
+- OrbitDeck may keep the last known good VFO targets in runtime
+- a later poll can still recover normal readback
+
+If this appears:
+
+1. verify the rig front panel changed as expected
+2. poll again
+3. reconnect if the controller state no longer looks trustworthy
+
+## The rig writes the pair, but the runtime still looks stale
+
+Check:
+
+1. poll again after the write
+2. reload `/radio` if the page is showing cached frontend code
+3. confirm the response payload for the write actually came from the endpoint you used
+
+The `/radio` page now reports the exact endpoint and response body so the request path can be verified without guessing.
+
+## The selected pass says it is not eligible for radio control
+
+The rotator radio workflow currently only accepts:
+
+- VHF `144.000 MHz` to `148.000 MHz`
+- UHF `420.000 MHz` to `450.000 MHz`
+
+If both sides fall outside that range, OrbitDeck marks the session ineligible and returns `eligibility_reason`.
+
+## A test session ends, but the rig does not return to the earlier state
+
+OrbitDeck attempts to restore a previously captured snapshot when a test session is confirmed, stopped, or ends after LOS.
+
+If restore fails:
+
+- the request still completes
+- the session moves to a released state
+- the failure is recorded in `runtime.last_error`
+
+This is intentional so the UI does not crash just because restore failed.
+
+## The rotator is pinned on radio control when you expected normal scene rotation
+
+That means a radio-control session is still active or released-but-pinned.
+
+Use:
+
+- `Back to Rotator` in the rotator UI
+- or `POST /api/v1/radio/session/clear`
+
+to clear the selected session and return to the normal rotator flow.
+
 ## `ModuleNotFoundError: No module named 'app'`
 
 If this happens when launching from the repo root, you are probably not running the repo’s intended launcher path or interpreter.

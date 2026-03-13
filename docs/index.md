@@ -1,6 +1,6 @@
 # OrbitDeck
 
-OrbitDeck is a cross-platform dashboard for amateur radio satellites. It provides pass timing, tracking, frequency guidance, and multiple web surfaces backed by one FastAPI service.
+OrbitDeck is a cross-platform dashboard for amateur radio satellites. It provides pass timing, tracking, frequency guidance, AMSAT status comparison, and radio-control surfaces backed by one FastAPI service.
 
 This documentation set covers:
 

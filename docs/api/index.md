@@ -10,6 +10,6 @@ For installation and operating workflow, start with [Quick Start](../guide/quick
 
 - health and system state
 - satellites, live tracks, passes, and lite snapshots
-- location, timezone, pass-filter, lite, and GPS settings
-- frequency guidance and dataset refresh
-- technical reference pages for frequency guidance, lite snapshot behavior, AMSAT enrichment, and Pi Zero/device gating
+- location, timezone, pass-filter, lite, GPS, and radio settings
+- frequency guidance, radio control, and dataset refresh
+- technical reference pages for radio control, frequency guidance, lite snapshot behavior, AMSAT enrichment, and Pi Zero/device gating

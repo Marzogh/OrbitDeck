@@ -18,6 +18,7 @@ Replace that host and port as needed.
 - [`GET /kiosk`](http://127.0.0.1:8000/kiosk)
 - [`GET /lite`](http://127.0.0.1:8000/lite)
 - [`GET /lite/settings`](http://127.0.0.1:8000/lite/settings)
+- [`GET /radio`](http://127.0.0.1:8000/radio)
 - [`GET /settings`](http://127.0.0.1:8000/settings)
 - [`GET /kiosk-rotator`](http://127.0.0.1:8000/kiosk-rotator)
 
@@ -104,6 +105,22 @@ Representative response:
     "mode": "linear",
     "selected_column_index": 5,
     "active_phase": "mid"
+  },
+  "radioSettings": {
+    "rig_model": "ic705",
+    "serial_device": "/dev/cu.usbmodem113201",
+    "civ_address": "0xA4"
+  },
+  "radioRuntime": {
+    "connected": true,
+    "control_mode": "manual_applied",
+    "active_sat_id": "fo29"
+  },
+  "radioControlSession": {
+    "active": true,
+    "screen_state": "active",
+    "control_state": "tracking_active",
+    "is_eligible": true
   }
 }
 ```
@@ -113,6 +130,7 @@ Interpretation:
 - `activeTrack` is the main live track chosen for the current screen state
 - `activePass` is the matching current or next pass for that track
 - `frequencyRecommendation` and `frequencyMatrix` are described in [Frequency Guidance](frequency-guidance-model.md)
+- `radioSettings`, `radioRuntime`, and `radioControlSession` are the live radio-control summary blocks reused by the rotator UI
 - `bodies` may also be present when ephemeris and Skyfield body-position support are available
 
 ## Satellites
@@ -514,6 +532,445 @@ Interpretation:
 - duplicate IDs are removed during validation
 - the request fails with HTTP 400 if more than 8 tracked IDs are supplied
 - the saved list drives lite snapshot computation
+
+## Radio settings
+
+### `GET /api/v1/settings/radio`
+
+Example:
+
+- [Open `/api/v1/settings/radio`](http://127.0.0.1:8000/api/v1/settings/radio)
+
+Representative response:
+
+```json
+{
+  "state": {
+    "enabled": true,
+    "rig_model": "ic705",
+    "serial_device": "/dev/cu.usbmodem113201",
+    "baud_rate": 19200,
+    "civ_address": "0xA4",
+    "poll_interval_ms": 1000,
+    "auto_connect": false,
+    "auto_track_interval_ms": 1500,
+    "default_apply_mode_and_tone": true,
+    "safe_tx_guard_enabled": true
+  }
+}
+```
+
+### `POST /api/v1/settings/radio`
+
+Example request:
+
+```json
+{
+  "enabled": true,
+  "rig_model": "ic705",
+  "serial_device": "/dev/cu.usbmodem113201",
+  "baud_rate": 19200,
+  "civ_address": "0xA4"
+}
+```
+
+Interpretation:
+
+- `rig_model`, `serial_device`, `baud_rate`, and `civ_address` are the minimum fields needed for a basic CI-V test session
+- `poll_interval_ms` and `auto_track_interval_ms` tune controller timing rather than frontend refresh cadence
+
+## Radio state
+
+### `GET /api/v1/radio/state`
+
+Example:
+
+- [Open `/api/v1/radio/state`](http://127.0.0.1:8000/api/v1/radio/state)
+
+Representative response:
+
+```json
+{
+  "settings": {
+    "rig_model": "ic705",
+    "serial_device": "/dev/cu.usbmodem113201",
+    "civ_address": "0xA4"
+  },
+  "runtime": {
+    "connected": true,
+    "control_mode": "manual_applied",
+    "last_poll_at": "2026-03-13T02:16:00Z",
+    "last_error": null,
+    "targets": {
+      "vfo_a_freq_hz": 145990000,
+      "vfo_b_freq_hz": 437795000,
+      "vfo_a_mode": "FM",
+      "vfo_b_mode": "FM"
+    },
+    "raw_state": {
+      "selected_vfo": "A",
+      "split_enabled": true,
+      "scope_enabled": true
+    }
+  },
+  "session": {
+    "active": false,
+    "screen_state": "idle",
+    "control_state": "connected_idle"
+  }
+}
+```
+
+Interpretation:
+
+- `runtime.targets` is the normalized rig-facing state OrbitDeck wants the UI to display
+- `runtime.raw_state` is lower-level controller readback such as split state, selected VFO identity, and scope status
+- `session` is always present, even when no pass is selected
+
+### `GET /api/v1/radio/ports`
+
+Example:
+
+- [Open `/api/v1/radio/ports`](http://127.0.0.1:8000/api/v1/radio/ports)
+
+Representative response:
+
+```json
+{
+  "items": [
+    {
+      "device": "/dev/cu.usbmodem113201",
+      "description": "IC-705 USB CI-V",
+      "hwid": "USB VID:PID=0000:0000"
+    }
+  ]
+}
+```
+
+Interpretation:
+
+- this route is best-effort serial-port discovery
+- an empty list does not prove CI-V cannot work; it only means pyserial did not enumerate a matching port
+
+### `POST /api/v1/radio/connect`
+
+Representative response:
+
+```json
+{
+  "settings": {
+    "rig_model": "ic705"
+  },
+  "runtime": {
+    "connected": true,
+    "control_mode": "idle"
+  },
+  "session": {
+    "active": false
+  }
+}
+```
+
+Interpretation:
+
+- `connected: true` means the serial/controller path was opened successfully
+- use `POST /api/v1/radio/poll` to confirm readback from the rig
+
+### `POST /api/v1/radio/disconnect`
+
+Representative response:
+
+```json
+{
+  "runtime": {
+    "connected": false,
+    "control_mode": "idle",
+    "last_error": null
+  }
+}
+```
+
+### `POST /api/v1/radio/poll`
+
+Representative response:
+
+```json
+{
+  "settings": {
+    "rig_model": "ic705"
+  },
+  "runtime": {
+    "connected": true,
+    "targets": {
+      "vfo_a_freq_hz": 438050000,
+      "vfo_b_freq_hz": 121000000
+    },
+    "raw_state": {
+      "split_enabled": false,
+      "selected_vfo": "A"
+    }
+  }
+}
+```
+
+Interpretation:
+
+- a successful poll proves OrbitDeck received usable CI-V state back from the rig
+- on IC-705, the controller maps selected and unselected CI-V reads back into absolute `VFO A` and `VFO B`
+
+### `POST /api/v1/radio/frequency`
+
+Example request:
+
+```json
+{
+  "vfo": "A",
+  "freq_hz": 145990000
+}
+```
+
+Representative response:
+
+```json
+{
+  "runtime": {
+    "connected": true
+  },
+  "result": {
+    "vfo": "A",
+    "freq_hz": 145990000
+  }
+}
+```
+
+Interpretation:
+
+- this is a direct VFO write, not a pass-aware action
+- it is the simplest endpoint for validating live writeback on a connected rig
+
+### `POST /api/v1/radio/pair`
+
+Example request:
+
+```json
+{
+  "uplink_hz": 145990000,
+  "downlink_hz": 437795000,
+  "uplink_mode": "FM",
+  "downlink_mode": "FM"
+}
+```
+
+Representative response:
+
+```json
+{
+  "runtime": {
+    "connected": true,
+    "control_mode": "manual_applied"
+  },
+  "recommendation": {
+    "sat_id": "manual-pair",
+    "mode": "fm",
+    "uplink_mhz": 145.99,
+    "downlink_mhz": 437.795,
+    "uplink_mode": "FM",
+    "downlink_mode": "FM"
+  },
+  "targetMapping": {
+    "tx": "MAIN",
+    "rx": "SUB"
+  }
+}
+```
+
+Interpretation:
+
+- this route builds a complete recommendation object around the manual pair so the controller path can reuse the same target-application logic as the shared frequency-guidance flow
+- omitted pair modes default to `FM`
+- out-of-range pairs fail with HTTP 400 and an eligibility message
+
+## Radio session control
+
+### `GET /api/v1/radio/session`
+
+Representative response:
+
+```json
+{
+  "session": {
+    "active": true,
+    "selected_sat_id": "iss-zarya",
+    "screen_state": "idle",
+    "control_state": "connected_idle",
+    "is_eligible": true,
+    "has_test_pair": true
+  },
+  "runtime": {
+    "connected": true
+  }
+}
+```
+
+### `POST /api/v1/radio/session/select`
+
+Example request:
+
+```json
+{
+  "sat_id": "iss-zarya",
+  "sat_name": "ISS (ZARYA)",
+  "pass_aos": "2026-03-13T02:20:00Z",
+  "pass_los": "2026-03-13T02:30:00Z",
+  "max_el_deg": 52.0
+}
+```
+
+Representative response:
+
+```json
+{
+  "session": {
+    "active": true,
+    "selected_sat_id": "iss-zarya",
+    "screen_state": "idle",
+    "control_state": "connected_idle",
+    "is_eligible": true,
+    "has_test_pair": true
+  }
+}
+```
+
+Interpretation:
+
+- selecting a session resolves the default test pair from the existing frequency-guide data
+- `is_eligible` and `eligibility_reason` are computed immediately from the supported VHF/UHF rule
+
+### `POST /api/v1/radio/session/test`
+
+Representative response:
+
+```json
+{
+  "session": {
+    "screen_state": "test",
+    "control_state": "test_applied"
+  },
+  "runtime": {
+    "control_mode": "manual_applied"
+  },
+  "recommendation": {
+    "sat_id": "iss-zarya"
+  }
+}
+```
+
+Interpretation:
+
+- this applies the default pair for the selected pass
+- OrbitDeck captures a restore snapshot before the test if the controller supports it
+
+### `POST /api/v1/radio/session/test/confirm`
+
+Representative response:
+
+```json
+{
+  "session": {
+    "screen_state": "released",
+    "control_state": "released"
+  },
+  "runtime": {
+    "control_mode": "idle"
+  }
+}
+```
+
+Interpretation:
+
+- this releases OrbitDeck control while keeping the session pinned in the rotator UI
+- the previous rig snapshot is restored when possible
+
+### `POST /api/v1/radio/session/start`
+
+Representative response before AOS:
+
+```json
+{
+  "session": {
+    "screen_state": "armed",
+    "control_state": "armed_waiting_aos"
+  }
+}
+```
+
+Representative response during an ongoing pass:
+
+```json
+{
+  "session": {
+    "screen_state": "active",
+    "control_state": "tracking_active"
+  },
+  "runtime": {
+    "control_mode": "auto_tracking"
+  }
+}
+```
+
+Interpretation:
+
+- if the pass has not started yet, OrbitDeck arms the session and waits for AOS
+- if the pass is already underway, OrbitDeck starts applying recommendation-driven tracking immediately
+
+### `POST /api/v1/radio/session/stop`
+
+Representative response:
+
+```json
+{
+  "session": {
+    "screen_state": "released",
+    "control_state": "released"
+  },
+  "runtime": {
+    "control_mode": "idle"
+  }
+}
+```
+
+### `POST /api/v1/radio/apply`
+
+Example request:
+
+```json
+{
+  "sat_id": "iss-zarya"
+}
+```
+
+Interpretation:
+
+- this resolves the current shared frequency recommendation for the selected satellite and applies it immediately
+- it is recommendation-driven, unlike `POST /api/v1/radio/pair`, which is entirely manual
+
+### `POST /api/v1/radio/auto-track/start`
+
+Example request:
+
+```json
+{
+  "sat_id": "iss-zarya",
+  "interval_ms": 1500
+}
+```
+
+### `POST /api/v1/radio/auto-track/stop`
+
+Interpretation:
+
+- these endpoints control the background recommendation-reapply loop outside the rotator session model
+- use them when you want recommendation-driven retuning without pinning a selected pass in the rotator UI
 
 ## Developer overrides
 

@@ -68,6 +68,39 @@
       </section>
 
       <section class="card controls">
+        <h2>Radio Control</h2>
+        <label for="radioRigModel">Rig Model</label>
+        <select id="radioRigModel">
+          <option value="id5100">Icom ID-5100</option>
+          <option value="ic705">Icom IC-705</option>
+        </select>
+        <label for="radioSerialDevice">Serial Device</label>
+        <input id="radioSerialDevice" type="text" placeholder="/dev/ttyUSB0" />
+        <label for="radioBaudRate">Baud Rate</label>
+        <input id="radioBaudRate" type="number" min="4800" max="19200" step="1" />
+        <label for="radioCivAddress">CI-V Address</label>
+        <input id="radioCivAddress" type="text" placeholder="0x8C" />
+        <label for="radioPollInterval">Poll Interval (ms)</label>
+        <input id="radioPollInterval" type="number" min="100" max="10000" step="100" />
+        <label for="radioAutoTrackInterval">Auto-Track Interval (ms)</label>
+        <input id="radioAutoTrackInterval" type="number" min="200" max="10000" step="100" />
+        <label for="radioEnabled">Radio Enabled</label>
+        <input id="radioEnabled" type="checkbox" />
+        <label for="radioAutoConnect">Auto Connect</label>
+        <input id="radioAutoConnect" type="checkbox" />
+        <label for="radioApplyModeTone">Apply Mode and Tone</label>
+        <input id="radioApplyModeTone" type="checkbox" />
+        <label for="radioSafeTxGuard">Safe TX Guard</label>
+        <input id="radioSafeTxGuard" type="checkbox" />
+        <div class="controls">
+          <button id="saveRadioSettings">Save Radio Settings</button>
+          <button id="connectRadio">Connect Radio</button>
+          <button id="disconnectRadio">Disconnect Radio</button>
+        </div>
+        <div id="radioStatus" class="label">Rig: --</div>
+      </section>
+
+      <section class="card controls">
         <label for="devOverridesEnabled">Developer Overrides</label>
         <input id="devOverridesEnabled" type="checkbox" />
         <div id="devOverridesPanel" class="inline-editor hidden">
