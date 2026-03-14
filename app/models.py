@@ -153,6 +153,7 @@ class AprsSettings(BaseModel):
     listen_only: bool = False
     operating_mode: AprsOperatingMode = AprsOperatingMode.terrestrial
     rig_model: RadioRigModel = RadioRigModel.ic705
+    hamlib_model_id: int | None = 3085
     serial_device: str = "/dev/ttyUSB0"
     baud_rate: int = Field(default=19200, ge=4800, le=19200)
     civ_address: str = "0xA4"
@@ -498,6 +499,12 @@ class AprsTargetState(BaseModel):
     pass_active: bool = False
     pass_aos: datetime | None = None
     pass_los: datetime | None = None
+    corrected_frequency_hz: int | None = None
+    corrected_uplink_hz: int | None = None
+    corrected_downlink_hz: int | None = None
+    correction_side: CorrectionSide | None = None
+    active_phase: GuidePassPhase | None = None
+    retune_active: bool = False
     can_transmit: bool = True
     tx_block_reason: str | None = None
     reason: str | None = None
@@ -577,6 +584,7 @@ class AprsSettingsUpdate(BaseModel):
     listen_only: bool | None = None
     operating_mode: AprsOperatingMode | None = None
     rig_model: RadioRigModel | None = None
+    hamlib_model_id: int | None = None
     serial_device: str | None = None
     baud_rate: int | None = Field(default=None, ge=4800, le=19200)
     civ_address: str | None = None

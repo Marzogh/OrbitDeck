@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OrbitDeck APRS</title>
     <link rel="stylesheet" href="/static/common/styles.css?v=20260314a" />
-    <script defer src="/static/common/app.js?v=20260313e"></script>
-    <script defer src="/static/kiosk/aprs.js?v=20260314a"></script>
+    <script defer src="/static/common/app.js?v=20260314a"></script>
+    <script defer src="/static/kiosk/aprs.js?v=20260314g"></script>
   </head>
   <body class="kiosk">
     <header>
@@ -37,15 +37,20 @@
           <div id="aprsRegionHintPage" class="label">Loading APRS region…</div>
         </div>
         <label for="aprsSerialDevicePage">Serial Device</label>
-        <input id="aprsSerialDevicePage" type="text" placeholder="/dev/ttyUSB0" />
+        <select id="aprsSerialDevicePage"></select>
+        <label for="aprsHamlibModelPage">Hamlib Rig</label>
+        <select id="aprsHamlibModelPage">
+          <option value="3085">Icom IC-705 (3085)</option>
+          <option value="3071">Icom ID-5100 (3071)</option>
+        </select>
         <label for="aprsBaudRatePage">Baud Rate</label>
         <input id="aprsBaudRatePage" type="number" min="4800" max="19200" step="1" />
         <label for="aprsCivAddressPage">CI-V Address</label>
         <input id="aprsCivAddressPage" type="text" placeholder="0xA4" />
         <label for="aprsAudioInputPage">Audio Input</label>
-        <input id="aprsAudioInputPage" type="text" placeholder="default" />
+        <select id="aprsAudioInputPage"></select>
         <label for="aprsAudioOutputPage">Audio Output</label>
-        <input id="aprsAudioOutputPage" type="text" placeholder="default" />
+        <select id="aprsAudioOutputPage"></select>
         <label for="aprsListenOnlyPage">Listen Only</label>
         <input id="aprsListenOnlyPage" type="checkbox" />
         <div id="aprsTerrestrialSettingsGroup">
@@ -66,6 +71,7 @@
           <button id="selectAprsTargetPage" type="button">Select Target</button>
           <button id="connectAprsPage" type="button">Connect</button>
           <button id="disconnectAprsPage" type="button">Disconnect</button>
+          <button id="panicUnkeyAprsPage" type="button">Panic Unkey</button>
           <a href="/settings">Back to Settings</a>
           <a href="/radio">Radio Page</a>
         </div>
@@ -92,6 +98,49 @@
         <h2>Runtime</h2>
         <div id="aprsTxStatusPage" class="label">Loading TX status…</div>
         <pre id="aprsRuntimePage" class="mono">Loading…</pre>
+      </section>
+
+      <section id="direwolfInstallCard" class="card controls hidden">
+        <h2>Dire Wolf</h2>
+        <div id="direwolfInstallStatus" class="label">Dire Wolf status unknown.</div>
+        <div class="controls">
+          <button id="installDirewolfBtn" type="button">Install Dire Wolf</button>
+          <button id="refreshDirewolfStatusBtn" type="button">Refresh Status</button>
+        </div>
+      </section>
+
+      <section id="aprsConnectModal" class="rotator-modal hidden" aria-hidden="true">
+        <div class="rotator-modal-panel">
+          <div class="rotator-modal-head">
+            <div>
+              <div class="rotator-modal-kicker mono">APRS Connection</div>
+              <h2 class="rotator-modal-title">Choose rig and USB port</h2>
+            </div>
+            <button id="aprsConnectModalCloseBtn" type="button" class="rotator-modal-close">Close</button>
+          </div>
+          <div class="rotator-modal-grid">
+            <label class="rotator-modal-field">
+              <span>Radio Type</span>
+              <select id="aprsConnectRigModel">
+                <option value="ic705">Icom IC-705</option>
+                <option value="id5100">Icom ID-5100</option>
+              </select>
+            </label>
+            <label class="rotator-modal-field">
+              <span>USB Port</span>
+              <select id="aprsConnectPortSelect"></select>
+            </label>
+          </div>
+          <label class="rotator-modal-field">
+            <span>Manual Port Override</span>
+            <input id="aprsConnectPortManual" type="text" placeholder="/dev/cu.usbmodem..." />
+          </label>
+          <div id="aprsConnectModalStatus" class="rotator-modal-status mono">Loading available USB ports...</div>
+          <div class="controls rotator-modal-actions">
+            <button id="aprsConnectRefreshPortsBtn" type="button">Refresh Ports</button>
+            <button id="aprsConnectConfirmBtn" type="button">Save And Connect</button>
+          </div>
+        </div>
       </section>
     </main>
   </body>

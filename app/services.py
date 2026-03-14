@@ -619,6 +619,86 @@ class CacheService:
         return next_state
 
 
+class PassPredictionCacheService:
+    def __init__(self, cache_path: str = "data/snapshots/pass_predictions_cache.json") -> None:
+        self.cache_path = Path(cache_path)
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._entries: dict[str, dict[str, Any]] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if not self.cache_path.exists():
+            self._entries = {}
+            return
+        try:
+            with self.cache_path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            raw_entries = data.get("entries", {})
+            self._entries = raw_entries if isinstance(raw_entries, dict) else {}
+        except Exception:
+            self._entries = {}
+
+    def _save(self) -> None:
+        with self.cache_path.open("w", encoding="utf-8") as handle:
+            json.dump({"entries": self._entries}, handle, indent=2, default=str)
+
+    def get(self, key: str, ttl: timedelta, retention: timedelta) -> dict[str, Any] | None:
+        entry = self._entries.get(key)
+        if not isinstance(entry, dict):
+            return None
+        created_at_raw = entry.get("created_at")
+        try:
+            created_at = datetime.fromisoformat(str(created_at_raw))
+        except Exception:
+            self._entries.pop(key, None)
+            self._save()
+            return None
+        now = datetime.now(UTC)
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
+        age = now - created_at.astimezone(UTC)
+        if age > retention:
+            self._entries.pop(key, None)
+            self._save()
+            return None
+        if age > ttl:
+            return None
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            return None
+        return payload
+
+    def put(self, key: str, payload: dict[str, Any], retention: timedelta) -> None:
+        self.prune(retention)
+        self._entries[key] = {
+            "created_at": datetime.now(UTC).isoformat(),
+            "payload": payload,
+        }
+        self._save()
+
+    def clear(self) -> None:
+        self._entries = {}
+        self._save()
+
+    def prune(self, retention: timedelta) -> None:
+        now = datetime.now(UTC)
+        changed = False
+        for key, entry in list(self._entries.items()):
+            try:
+                created_at = datetime.fromisoformat(str(entry.get("created_at")))
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=UTC)
+            except Exception:
+                self._entries.pop(key, None)
+                changed = True
+                continue
+            if now - created_at.astimezone(UTC) > retention:
+                self._entries.pop(key, None)
+                changed = True
+        if changed:
+            self._save()
+
+
 class FrequencyGuideService:
     SPEED_OF_LIGHT_M_S = 299_792_458.0
     PHASE_PROGRESS: dict[GuidePassPhase, float] = {

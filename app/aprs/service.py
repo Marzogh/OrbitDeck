@@ -63,7 +63,14 @@ class AprsService:
     def _aprs_channels(self, sat: Satellite) -> list[SatelliteRadioChannel]:
         return [channel for channel in (sat.radio_channels or []) if channel.kind == "aprs" and (channel.downlink_hz or channel.uplink_hz)]
 
-    def resolve_target(self, settings: AprsSettings, satellites: list[Satellite], location, pass_event=None) -> AprsTargetState:
+    def resolve_target(
+        self,
+        settings: AprsSettings,
+        satellites: list[Satellite],
+        location,
+        pass_event=None,
+        developer_force_enable: bool = False,
+    ) -> AprsTargetState:
         if settings.operating_mode == AprsOperatingMode.satellite:
             sat = next((item for item in satellites if item.sat_id == settings.selected_satellite_id), None)
             if sat is None:
@@ -77,7 +84,12 @@ class AprsService:
             frequency_hz = int(channel.downlink_hz or channel.uplink_hz or 0)
             now = datetime.now(UTC)
             pass_active = bool(pass_event and pass_event.aos <= now <= pass_event.los)
-            can_transmit = not channel.requires_pass or pass_active
+            can_transmit = developer_force_enable or not channel.requires_pass or pass_active
+            force_reason = (
+                "Developer override active: satellite APRS TX/RX forced enabled outside pass"
+                if developer_force_enable and channel.requires_pass and not pass_active
+                else None
+            )
             return AprsTargetState(
                 operating_mode=AprsOperatingMode.satellite,
                 label=f"{sat.name} | {channel.label}",
@@ -97,7 +109,7 @@ class AprsService:
                 pass_los=pass_event.los if pass_event else None,
                 can_transmit=can_transmit,
                 tx_block_reason=None if can_transmit else "Satellite APRS transmit is only enabled during an active pass",
-                reason=channel.status,
+                reason=force_reason or channel.status,
             )
         if settings.terrestrial_manual_frequency_hz:
             label = settings.terrestrial_region_label or "Manual terrestrial APRS"
@@ -164,9 +176,16 @@ class AprsService:
             }
         return {"satellites": satellite_targets, "terrestrial": terrestrial}
 
-    def connect(self, settings: AprsSettings, target: AprsTargetState) -> AprsRuntimeState:
+    def connect(
+        self,
+        settings: AprsSettings,
+        target: AprsTargetState,
+        retune_resolver: Callable[[], AprsTargetState] | None = None,
+        interval_s: float = 1.0,
+    ) -> AprsRuntimeState:
         self.disconnect()
-        self._tune_radio(settings, target.frequency_hz)
+        tune_hz = int(target.corrected_frequency_hz or target.frequency_hz)
+        self._tune_radio(settings, tune_hz)
         self._sidecar = self._sidecar_factory()
         self._sidecar.start(settings, target)
         self._wait_for_socket(settings.kiss_host, settings.kiss_port, 5.0)

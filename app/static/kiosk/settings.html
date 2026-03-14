@@ -6,7 +6,7 @@
     <title>ISS Tracker Settings</title>
     <link rel="stylesheet" href="/static/common/styles.css?v=20260310d" />
     <script defer src="/static/common/app.js?v=20260308aj"></script>
-    <script defer src="/static/kiosk/settings.js?v=20260311a"></script>
+    <script defer src="/static/kiosk/settings.js?v=20260314a"></script>
   </head>
   <body class="kiosk">
     <header>
@@ -129,6 +129,8 @@
       </section>
 
       <section class="card controls">
+        <div id="passCacheStatus" class="label">Pass cache: --</div>
+        <button id="refreshPassCache">Refresh Pass Cache</button>
         <button id="refreshNow">Refresh Now</button>
         <button id="returnKiosk">Apply + Return To Kiosk</button>
         <button id="returnRotator">Return To Kiosk Rotator</button>

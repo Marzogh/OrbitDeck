@@ -2355,6 +2355,58 @@ body.kiosk .radio-session-actions button {
   font-size: 0.92rem;
 }
 
+body.kiosk #pinnedViewWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+body.kiosk #pinnedViewWrap select {
+  min-width: 100px;
+}
+
+body.kiosk .aprs-session-card {
+  display: grid;
+  gap: 14px;
+}
+
+body.kiosk .aprs-packet-feed {
+  display: grid;
+  gap: 10px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+body.kiosk .aprs-packet-row {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(8, 18, 32, 0.58);
+}
+
+body.kiosk .aprs-packet-row-new {
+  border-color: rgba(127, 224, 255, 0.7);
+  box-shadow: 0 0 0 1px rgba(127, 224, 255, 0.28);
+}
+
+body.kiosk .aprs-packet-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+body.kiosk .aprs-packet-meta {
+  margin-top: 4px;
+  color: rgba(224, 233, 255, 0.72);
+  font-size: 0.82rem;
+}
+
+body.kiosk .aprs-packet-text {
+  margin-top: 6px;
+  color: rgba(244, 247, 255, 0.94);
+  line-height: 1.45;
+}
+
 body.kiosk .radio-channel-mode {
   color: #fff1db;
   font-weight: 650;

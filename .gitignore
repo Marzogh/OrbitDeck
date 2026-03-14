@@ -10,3 +10,4 @@ data/snapshots/*.json
 docs/*proposal*.md
 docs/*review-log.md
 docs/*redesign-log.md
+docs/aprs-rotator-log.md

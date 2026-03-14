@@ -196,7 +196,7 @@ async function saveTimezone() {
 }
 
 async function loadState() {
-  const [mode, sats, locationState, passFilter, timezone, timezones, system] = await Promise.all([
+  const [mode, sats, locationState, passFilter, timezone, timezones, system, cachePolicy] = await Promise.all([
     trackerApi.get("/api/v1/settings/iss-display-mode"),
     trackerApi.get("/api/v1/satellites"),
     trackerApi.get("/api/v1/location"),
@@ -204,6 +204,7 @@ async function loadState() {
     trackerApi.get("/api/v1/settings/timezone"),
     fetchTimezones(),
     trackerApi.get("/api/v1/system/state"),
+    trackerApi.get("/api/v1/cache-policy"),
   ]);
   trackerById("issMode").value = mode.mode;
   selectedPassProfile = passFilter.profile || "IssOnly";
@@ -219,6 +220,8 @@ async function loadState() {
   if (trackerRenderStationBadge) {
     trackerRenderStationBadge("stationBadge", system.stationIdentity, system.aprsSettings);
   }
+  const staleAfter = cachePolicy?.state?.stale_after_hours;
+  trackerById("passCacheStatus").textContent = `Pass cache: stored locally | stale after ${staleAfter || "--"}h | use Refresh Pass Cache to rebuild`;
   ensureTrackSelector(sats.items);
   ensurePassSatSelector(sats.items);
   ensureTimezoneSelector();
@@ -332,6 +335,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   trackerById("refreshNow").addEventListener("click", loadState);
+  trackerById("refreshPassCache").addEventListener("click", async () => {
+    trackerById("passCacheStatus").textContent = "Pass cache: clearing cached pass data...";
+    await trackerApi.post("/api/v1/passes/cache/refresh", {});
+    await loadState();
+  });
   trackerById("returnKiosk").addEventListener("click", () => {
     window.location.href = "/";
   });

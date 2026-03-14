@@ -56,6 +56,7 @@ class Ic705Controller(BaseIcomController):
         0x17: "DSTAR",
     }
     WRITE_SETTLE_SECONDS = 0.2
+    OPEN_SETTLE_SECONDS = 0.35
 
     def __init__(self, transport, civ_address: int) -> None:
         super().__init__(transport, civ_address)
@@ -63,6 +64,7 @@ class Ic705Controller(BaseIcomController):
 
     def connect(self):
         self.transport.open()
+        sleep(self.OPEN_SETTLE_SECONDS)
         self.state.connected = True
         self.state.last_error = None
         self._set_active_vfo("A")

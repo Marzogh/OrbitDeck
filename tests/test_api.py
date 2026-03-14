@@ -1,13 +1,20 @@
+import json
 from datetime import UTC, datetime, timedelta
+import shutil
+import subprocess
+from time import sleep
 from types import MethodType
 
 from fastapi.testclient import TestClient
 
 import app.main as main
 from app.aprs.codec import decode_ui_frame, encode_ui_frame
+from app.aprs.direwolf import DireWolfProcess
 from app.aprs.service import AprsService
 from app.models import (
     AprsOperatingMode,
+    AprsSettings,
+    AprsTargetState,
     CorrectionSide,
     DopplerDirection,
     FrequencyGuideMode,
@@ -24,6 +31,7 @@ from app.radio.controllers.base import BaseIcomController
 from app.radio.controllers.ic705 import Ic705Controller
 from app.radio.service import RigControlService
 from app.services import DataIngestionService, FrequencyGuideService, TrackingService
+from app.services import PassPredictionCacheService
 from app.store import StateStore
 
 
@@ -33,6 +41,7 @@ def make_client(tmp_path):
     main.ingestion_service = DataIngestionService()
     main.radio_control_service = RigControlService()
     main.aprs_service = AprsService()
+    main.pass_cache_service = PassPredictionCacheService(str(tmp_path / "pass_predictions_cache.json"))
     return TestClient(main.app)
 
 
@@ -206,17 +215,29 @@ class ScriptedIc705Transport:
             return build_frame(0xE0, ACK, b"", from_addr=to_addr)
         if command == Ic705Controller.C_RD_MODE:
             mode_name = self.mode_a if self.selected_vfo == "A" else self.mode_b
-            mode_code = Ic705Controller.MODE_MAP[mode_name]
+            mode_code = Ic705Controller.MODE_MAP[str(mode_name).replace("-D", "")]
             return build_frame(to_addr=0xE0, command=Ic705Controller.C_RD_MODE, payload=bytes([mode_code, 0x01]), from_addr=to_addr)
         if command == Ic705Controller.C_SEL_MODE:
+            if len(payload) >= 4:
+                selected = payload[:1] == b"\x00"
+                mode_name = next((name for name, code in Ic705Controller.MODE_MAP.items() if code == payload[1]), None) or "UNKNOWN"
+                if payload[2] == 0x01 and mode_name not in {"DSTAR", "D-STAR"}:
+                    mode_name = f"{mode_name}-D"
+                target_a = (self.selected_vfo == "A") == selected
+                if target_a:
+                    self.mode_a = mode_name
+                else:
+                    self.mode_b = mode_name
+                return build_frame(0xE0, ACK, b"", from_addr=to_addr)
             selected = payload[:1] == b"\x00"
             if self.force_bad_readback:
                 selector = b"\x00" if selected else b"\x01"
                 return build_frame(to_addr=0xE0, command=Ic705Controller.C_SEL_MODE, payload=selector + bytes([0x00, 0x00, 0x00, 0x00]), from_addr=to_addr)
             mode_name = self.mode_a if (self.selected_vfo == "A") == selected else self.mode_b
-            mode_code = Ic705Controller.MODE_MAP[mode_name]
+            mode_code = Ic705Controller.MODE_MAP[str(mode_name).replace("-D", "")]
             selector = b"\x00" if selected else b"\x01"
-            return build_frame(to_addr=0xE0, command=Ic705Controller.C_SEL_MODE, payload=selector + bytes([mode_code, 0x00, 0x00, 0x01]), from_addr=to_addr)
+            data_on = 0x01 if str(mode_name).endswith("-D") else 0x00
+            return build_frame(to_addr=0xE0, command=Ic705Controller.C_SEL_MODE, payload=selector + bytes([mode_code, data_on, 0x01]), from_addr=to_addr)
         if command == Ic705Controller.C_SEL_FREQ:
             if self.force_bad_readback:
                 selector = b"\x00" if payload[:1] == b"\x00" else b"\x01"
@@ -898,6 +919,42 @@ def test_ic705_apply_target_supports_receive_only_downlink():
     assert state.raw_state["selected_vfo"] == "B"
 
 
+def test_aprs_panic_unkey_disconnects_runtime(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_service = FakeAprsService()
+
+    client.post(
+        "/api/v1/location",
+        json={
+            "source_mode": "manual",
+            "add_profile": {
+                "id": "brisbane",
+                "name": "Brisbane",
+                "point": {"lat": -27.4698, "lon": 153.0251, "alt_m": 25},
+            },
+            "selected_profile_id": "brisbane",
+        },
+    )
+    client.post(
+        "/api/v1/settings/aprs",
+        json={
+            "enabled": True,
+            "callsign": "VK4ABC",
+            "ssid": 10,
+            "operating_mode": "terrestrial",
+            "serial_device": "/dev/ttyUSB0",
+        },
+    )
+    client.post("/api/v1/aprs/connect")
+
+    resp = client.post("/api/v1/aprs/panic-unkey")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["ok"] is True
+    assert payload["runtime"]["connected"] is False
+    assert payload["runtime"]["session_active"] is False
+
+
 def test_ic705_snapshot_and_restore_restores_prior_state():
     transport = ScriptedIc705Transport(freq_a=145500000, freq_b=435000000)
     transport.mode_a = "USB"
@@ -1427,6 +1484,76 @@ def test_passes_endpoint_enriches_items_with_frequency_guides(tmp_path):
         main.tracking_service = old_tracking
 
 
+def test_passes_endpoint_uses_cache_and_refresh_invalidates(tmp_path):
+    client = make_client(tmp_path)
+    calls = {"pass_predictions": 0}
+
+    class FakeTracking(TrackingService):
+        def live_tracks(self, now, location, sat_ids=None):
+            return [
+                LiveTrack(
+                    sat_id="iss-zarya",
+                    name="ISS (ZARYA)",
+                    timestamp=now,
+                    az_deg=45.0,
+                    el_deg=12.0,
+                    range_km=1200.0,
+                    range_rate_km_s=-7.0,
+                    sunlit=True,
+                )
+            ]
+
+        def pass_predictions(self, now, hours, location=None, sat_ids=None, include_ongoing=False):
+            calls["pass_predictions"] += 1
+            return [
+                PassEvent(
+                    sat_id="iss-zarya",
+                    name="ISS (ZARYA)",
+                    aos=now + timedelta(minutes=8),
+                    tca=now + timedelta(minutes=12),
+                    los=now + timedelta(minutes=17),
+                    max_el_deg=48.0,
+                )
+            ]
+
+        def track_path(self, now, minutes, location, sat_id, step_seconds=45, start_time=None):
+            return [
+                LiveTrack(
+                    sat_id=sat_id,
+                    name="ISS (ZARYA)",
+                    timestamp=start_time or now,
+                    az_deg=45.0,
+                    el_deg=2.0,
+                    range_km=1200.0,
+                    range_rate_km_s=-7.0,
+                    sunlit=True,
+                )
+            ]
+
+    old_tracking = main.tracking_service
+    try:
+        main.tracking_service = FakeTracking(str(tmp_path / "latest_catalog.json"))
+        first = client.get("/api/v1/passes?include_all_sats=true&include_ongoing=true")
+        assert first.status_code == 200
+        assert first.json()["cache"]["source"] == "generated"
+        assert calls["pass_predictions"] == 1
+
+        second = client.get("/api/v1/passes?include_all_sats=true&include_ongoing=true")
+        assert second.status_code == 200
+        assert second.json()["cache"]["source"] == "cache"
+        assert calls["pass_predictions"] == 1
+
+        refresh = client.post("/api/v1/passes/cache/refresh")
+        assert refresh.status_code == 200
+
+        third = client.get("/api/v1/passes?include_all_sats=true&include_ongoing=true")
+        assert third.status_code == 200
+        assert third.json()["cache"]["source"] == "generated"
+        assert calls["pass_predictions"] == 2
+    finally:
+        main.tracking_service = old_tracking
+
+
 def test_set_and_get_developer_overrides(tmp_path):
     client = make_client(tmp_path)
 
@@ -1772,6 +1899,304 @@ def test_aprs_connect_requires_station_callsign(tmp_path):
     assert "callsign" in resp.json()["detail"].lower()
 
 
+def test_aprs_connect_surfaces_serial_error_as_bad_request(tmp_path):
+    client = make_client(tmp_path)
+
+    class FailingAprsService(FakeAprsService):
+        def connect(self, settings, target, retune_resolver=None, interval_s=1.0):
+            raise OSError("[Errno 2] could not open port /dev/cu.fake: No such file or directory")
+
+    main.aprs_service = FailingAprsService()
+
+    client.post("/api/v1/settings/aprs", json={"callsign": "VK4ABC"})
+    client.post(
+        "/api/v1/location",
+        json={
+            "source_mode": "manual",
+            "add_profile": {
+                "id": "brisbane",
+                "name": "Brisbane",
+                "point": {"lat": -27.4698, "lon": 153.0251, "alt_m": 25},
+            },
+            "selected_profile_id": "brisbane",
+        },
+    )
+    client.post(
+        "/api/v1/aprs/session/select",
+        json={"operating_mode": "terrestrial"},
+    )
+
+    resp = client.post("/api/v1/aprs/connect")
+    assert resp.status_code == 400
+    assert "could not open port" in resp.json()["detail"].lower()
+
+
+def test_aprs_connect_reuses_connected_radio_settings(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_service = FakeAprsService()
+    client.post("/api/v1/settings/aprs", json={"callsign": "VK4ABC", "serial_device": "/dev/ttyUSB0"})
+    client.post(
+        "/api/v1/settings/radio",
+        json={
+            "enabled": True,
+            "rig_model": "ic705",
+            "serial_device": "/dev/cu.usbmodem114201",
+            "baud_rate": 19200,
+            "civ_address": "0xA4",
+        },
+    )
+    main.radio_control_service._runtime.connected = True
+    client.post(
+        "/api/v1/location",
+        json={
+            "source_mode": "manual",
+            "add_profile": {
+                "id": "brisbane",
+                "name": "Brisbane",
+                "point": {"lat": -27.4698, "lon": 153.0251, "alt_m": 25},
+            },
+            "selected_profile_id": "brisbane",
+        },
+    )
+    client.post("/api/v1/aprs/session/select", json={"operating_mode": "terrestrial"})
+
+    resp = client.post("/api/v1/aprs/connect")
+    assert resp.status_code == 200
+    assert resp.json()["settings"]["serial_device"] == "/dev/cu.usbmodem114201"
+
+
+def test_aprs_direwolf_status_reports_missing_binary(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    monkeypatch.setattr(main.shutil, "which", lambda name: "/opt/homebrew/bin/brew" if name == "brew" else None)
+
+    resp = client.get("/api/v1/aprs/direwolf/status")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["installed"] is False
+    assert payload["canInstall"] is True
+    assert payload["installer"] == "brew"
+
+
+def test_aprs_direwolf_install_updates_configured_binary(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+
+    def fake_which(name):
+      if name == "brew":
+        return "/opt/homebrew/bin/brew"
+      if name in {"direwolf", "/opt/homebrew/bin/direwolf"}:
+        return "/opt/homebrew/bin/direwolf"
+      return None
+
+    monkeypatch.setattr(main.shutil, "which", fake_which)
+    monkeypatch.setattr(
+        main.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout="installed", stderr=""),
+    )
+
+    resp = client.post("/api/v1/aprs/direwolf/install")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["ok"] is True
+    assert payload["status"]["installed"] is True
+    assert payload["status"]["resolvedBinary"] == "/opt/homebrew/bin/direwolf"
+
+    settings = client.get("/api/v1/settings/aprs").json()["state"]
+    assert settings["direwolf_binary"] == "/opt/homebrew/bin/direwolf"
+
+
+def test_aprs_direwolf_install_terminal_launches_osascript(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    calls = {"cmd": None}
+
+    def fake_which(name):
+        if name == "brew":
+            return "/opt/homebrew/bin/brew"
+        if name == "osascript":
+            return "/usr/bin/osascript"
+        return None
+
+    def fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(main.shutil, "which", fake_which)
+    monkeypatch.setattr(main.subprocess, "run", fake_run)
+
+    resp = client.post("/api/v1/aprs/direwolf/install-terminal")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["ok"] is True
+    assert payload["launched"] is True
+    assert calls["cmd"][0] == "/usr/bin/osascript"
+
+
+def test_aprs_audio_devices_endpoint_parses_macos_devices(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    monkeypatch.setattr(main.platform, "system", lambda: "Darwin")
+    sample = {
+        "SPAudioDataType": [
+            {
+                "_items": [
+                    {"_name": "USB Audio CODEC", "coreaudio_device_input": 2},
+                    {"_name": "USB Audio CODEC", "coreaudio_device_output": 2},
+                    {"_name": "MacBook Pro Microphone", "coreaudio_device_input": 1},
+                    {"_name": "MacBook Pro Speakers", "coreaudio_device_output": 2},
+                ]
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        main.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout=json.dumps(sample), stderr=""),
+    )
+
+    resp = client.get("/api/v1/aprs/audio-devices")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert any(item["name"] == "USB Audio CODEC" for item in payload["inputs"])
+    assert any(item["name"] == "USB Audio CODEC" for item in payload["outputs"])
+
+
+def test_aprs_audio_devices_endpoint_prefers_direwolf_portaudio_ids(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    client.post("/api/v1/settings/aprs", json={"direwolf_binary": "/opt/homebrew/bin/direwolf"})
+    monkeypatch.setattr(main, "_resolve_direwolf_binary_path", lambda binary: "/opt/homebrew/bin/direwolf")
+    monkeypatch.setattr(
+        main.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0],
+            1,
+            stdout=(
+                "Number of devices = 2\n"
+                "--------------------------------------- device #0\n"
+                'Name        = "USB Audio CODEC"\n'
+                "Max inputs  = 0\n"
+                "Max outputs = 2\n"
+                "--------------------------------------- device #1\n"
+                'Name        = "USB Audio CODEC"\n'
+                "Max inputs  = 2\n"
+                "Max outputs = 0\n"
+            ),
+            stderr="",
+        ),
+    )
+
+    resp = client.get("/api/v1/aprs/audio-devices")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["inputs"][0]["value"] == "USB Audio CODEC:1"
+    assert payload["outputs"][0]["value"] == "USB Audio CODEC:0"
+
+
+def test_direwolf_config_omits_default_adevice():
+    process = DireWolfProcess(workdir="data/aprs-test")
+    settings = AprsSettings(
+        callsign="VK4ABC",
+        audio_input_device="default",
+        audio_output_device="default",
+    )
+    target = AprsTargetState(
+        operating_mode=AprsOperatingMode.terrestrial,
+        label="Terrestrial APRS",
+        frequency_hz=144390000,
+    )
+
+    config = process.build_config(settings, target)
+    assert "ADEVICE default default" not in config
+    assert "CHANNEL 0" in config
+
+
+def test_direwolf_config_quotes_audio_device_names_with_spaces():
+    process = DireWolfProcess(workdir="data/aprs-test")
+    settings = AprsSettings(
+        callsign="VK4ABC",
+        audio_input_device="USB Audio CODEC",
+        audio_output_device="USB Audio CODEC",
+    )
+    target = AprsTargetState(
+        operating_mode=AprsOperatingMode.terrestrial,
+        label="Terrestrial APRS",
+        frequency_hz=144390000,
+    )
+
+    config = process.build_config(settings, target)
+    assert 'ADEVICE "USB Audio CODEC" "USB Audio CODEC"' in config
+
+
+def test_direwolf_config_uses_selected_hamlib_model():
+    process = DireWolfProcess(workdir="data/aprs-test")
+    settings = AprsSettings(
+        callsign="VK4ABC",
+        hamlib_model_id=3071,
+        serial_device="/dev/cu.usbmodem114201",
+        baud_rate=19200,
+    )
+    target = AprsTargetState(
+        operating_mode=AprsOperatingMode.terrestrial,
+        label="Terrestrial APRS",
+        frequency_hz=144390000,
+    )
+
+    config = process.build_config(settings, target)
+    assert "PTT RIG 3071 /dev/cu.usbmodem114201 19200" in config
+    assert "PTT RIG AUTO" not in config
+
+
+def test_direwolf_start_uses_absolute_config_path(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeStream:
+        def readline(self):
+            return ""
+
+    class FakePopen:
+        def __init__(self, command, cwd=None, stdout=None, stderr=None, text=None):
+            captured["command"] = command
+            captured["cwd"] = cwd
+            self.stdout = FakeStream()
+            self.stderr = FakeStream()
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            return None
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", FakePopen)
+    process = DireWolfProcess(workdir=str(tmp_path / "aprs-sidecar"))
+    settings = AprsSettings(callsign="VK4ABC", direwolf_binary="/opt/homebrew/bin/direwolf")
+    target = AprsTargetState(
+        operating_mode=AprsOperatingMode.terrestrial,
+        label="Terrestrial APRS",
+        frequency_hz=144390000,
+    )
+
+    command, _ = process.start(settings, target)
+
+    assert command[0] == "/opt/homebrew/bin/direwolf"
+    assert command[1] == "-c"
+    assert command[2] == str((tmp_path / "aprs-sidecar" / "direwolf.conf").resolve())
+    assert captured["cwd"] == str(tmp_path / "aprs-sidecar")
+
+
+def test_aprs_settings_model_change_updates_hamlib_model(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.post("/api/v1/settings/aprs", json={"rig_model": "id5100"})
+    assert resp.status_code == 200
+    assert resp.json()["state"]["hamlib_model_id"] == 3071
+
+    resp = client.post("/api/v1/settings/aprs", json={"rig_model": "ic705"})
+    assert resp.status_code == 200
+    assert resp.json()["state"]["hamlib_model_id"] == 3085
+
+
 def test_system_state_reports_station_identity(tmp_path):
     client = make_client(tmp_path)
 
@@ -1786,3 +2211,223 @@ def test_system_state_reports_station_identity(tmp_path):
     identity = updated.json()["stationIdentity"]
     assert identity["configured"] is True
     assert identity["callsign"] == "VK4ABC"
+
+
+def test_direwolf_start_terminates_conflicting_listener(monkeypatch, tmp_path):
+    captured = {"kill": []}
+
+    class FakeCompleted:
+        def __init__(self, stdout=""):
+            self.stdout = stdout
+            self.stderr = ""
+
+    def fake_run(command, capture_output=True, text=True, check=False):
+        if command[:2] == ["lsof", "-nP"] and "-Fpct" in command:
+            return FakeCompleted("p4242\ncdirewolf\ntIPv4\n")
+        if command[:2] == ["lsof", "-nP"] and "-t" in command:
+            return FakeCompleted("")
+        if command[:1] == ["kill"]:
+            captured["kill"].append(command[1])
+            return FakeCompleted("")
+        return FakeCompleted("")
+
+    class FakeStream:
+        def readline(self):
+            return ""
+
+    class FakePopen:
+        def __init__(self, command, cwd=None, stdout=None, stderr=None, text=None):
+            self.stdout = FakeStream()
+            self.stderr = FakeStream()
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            return None
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "Popen", FakePopen)
+    process = DireWolfProcess(workdir=str(tmp_path / "aprs-sidecar"))
+    settings = AprsSettings(callsign="VK4ABC", direwolf_binary="/opt/homebrew/bin/direwolf")
+    target = AprsTargetState(
+        operating_mode=AprsOperatingMode.terrestrial,
+        label="Terrestrial APRS",
+        frequency_hz=144390000,
+    )
+
+    process.start(settings, target)
+
+    assert captured["kill"] == ["4242"]
+
+
+def test_aprs_session_select_route_returns_preview_target(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.post("/api/v1/aprs/session/select", json={"operating_mode": "satellite", "sat_id": "iss-zarya", "channel_id": "iss-zarya:seed:1"})
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["state"]["selected_satellite_id"] == "iss-zarya"
+    assert payload["state"]["selected_channel_id"] == "iss-zarya:seed:1"
+    assert payload["previewTarget"]["sat_id"] == "iss-zarya"
+
+
+def test_system_state_exposes_aprs_preview_target(tmp_path):
+    client = make_client(tmp_path)
+    client.post("/api/v1/settings/aprs", json={"operating_mode": "satellite", "selected_satellite_id": "iss-zarya", "selected_channel_id": "iss-zarya:seed:1"})
+
+    resp = client.get("/api/v1/system/state")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["aprsPreviewTarget"]["sat_id"] == "iss-zarya"
+    assert payload["aprsPreviewTarget"]["frequency_hz"] == 437800000
+
+
+def test_aprs_uhf_target_reports_corrected_frequency(tmp_path):
+    client = make_client(tmp_path)
+    original_live_tracks = main.tracking_service.live_tracks
+    original_pass_predictions = main.tracking_service.pass_predictions
+
+    def fake_live_tracks(self, now, location):
+        return [
+            LiveTrack(
+                sat_id="iss-zarya",
+                name="ISS (ZARYA)",
+                timestamp=now,
+                az_deg=122.0,
+                el_deg=41.0,
+                range_km=822.0,
+                range_rate_km_s=6.7,
+                sunlit=True,
+            )
+        ]
+
+    def active_pass_predictions(self, start_time, hours, location, sat_ids=None, include_ongoing=False):
+        return [
+            PassEvent(
+                sat_id="iss-zarya",
+                name="ISS (ZARYA)",
+                aos=start_time - timedelta(minutes=1),
+                tca=start_time,
+                los=start_time + timedelta(minutes=8),
+                max_el_deg=52.0,
+            )
+        ]
+
+    main.tracking_service.live_tracks = MethodType(fake_live_tracks, main.tracking_service)
+    main.tracking_service.pass_predictions = MethodType(active_pass_predictions, main.tracking_service)
+    try:
+        resp = client.post("/api/v1/aprs/session/select", json={"operating_mode": "satellite", "sat_id": "iss-zarya", "channel_id": "iss-zarya:seed:1"})
+        assert resp.status_code == 200
+        target = resp.json()["previewTarget"]
+        assert target["correction_side"] == "uhf_only"
+        assert target["corrected_frequency_hz"] is not None
+    finally:
+        main.tracking_service.live_tracks = original_live_tracks
+        main.tracking_service.pass_predictions = original_pass_predictions
+
+
+def test_aprs_developer_override_allows_satellite_tx_outside_pass(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_service = FakeAprsService()
+    original_pass_predictions = main.tracking_service.pass_predictions
+
+    client.post("/api/v1/settings/aprs", json={"callsign": "VK4ABC"})
+    client.post(
+        "/api/v1/settings/developer-overrides",
+        json={
+            "enabled": True,
+            "force_scene": "auto",
+            "simulate_pass_phase": "real-time",
+            "show_debug_badge": True,
+        },
+    )
+
+    def future_pass_predictions(self, start_time, hours, location, sat_ids=None, include_ongoing=False):
+        return [
+            PassEvent(
+                sat_id="iss-zarya",
+                name="ISS (ZARYA)",
+                aos=start_time + timedelta(minutes=20),
+                tca=start_time + timedelta(minutes=24),
+                los=start_time + timedelta(minutes=29),
+                max_el_deg=41.0,
+            )
+        ]
+
+    main.tracking_service.pass_predictions = MethodType(future_pass_predictions, main.tracking_service)
+    try:
+        select = client.post(
+            "/api/v1/aprs/session/select",
+            json={"operating_mode": "satellite", "sat_id": "iss-zarya", "channel_id": "iss-zarya:seed:1"},
+        )
+        assert select.status_code == 200
+        target = select.json()["previewTarget"]
+        assert target["can_transmit"] is True
+        assert "Developer override" in target["reason"]
+
+        connect = client.post("/api/v1/aprs/connect")
+        assert connect.status_code == 200
+        send = client.post("/api/v1/aprs/send/status", json={"text": "DEV OVERRIDE"})
+        assert send.status_code == 200
+    finally:
+        main.tracking_service.pass_predictions = original_pass_predictions
+
+
+def test_aprs_connect_reapplies_uhf_doppler_tuning(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_service = FakeAprsService()
+    original_live_tracks = main.tracking_service.live_tracks
+    original_pass_predictions = main.tracking_service.pass_predictions
+    calls = {"count": 0}
+
+    client.post("/api/v1/settings/aprs", json={"callsign": "VK4ABC"})
+
+    def fake_live_tracks(self, now, location):
+        calls["count"] += 1
+        range_rate = {1: 0.0, 2: -7.2}.get(calls["count"], 7.2)
+        return [
+            LiveTrack(
+                sat_id="iss-zarya",
+                name="ISS (ZARYA)",
+                timestamp=now,
+                az_deg=122.0,
+                el_deg=41.0,
+                range_km=822.0,
+                range_rate_km_s=range_rate,
+                sunlit=True,
+            )
+        ]
+
+    def active_pass_predictions(self, start_time, hours, location, sat_ids=None, include_ongoing=False):
+        return [
+            PassEvent(
+                sat_id="iss-zarya",
+                name="ISS (ZARYA)",
+                aos=start_time - timedelta(minutes=1),
+                tca=start_time,
+                los=start_time + timedelta(minutes=8),
+                max_el_deg=52.0,
+            )
+        ]
+
+    main.tracking_service.live_tracks = MethodType(fake_live_tracks, main.tracking_service)
+    main.tracking_service.pass_predictions = MethodType(active_pass_predictions, main.tracking_service)
+    try:
+        client.post("/api/v1/aprs/session/select", json={"operating_mode": "satellite", "sat_id": "iss-zarya", "channel_id": "iss-zarya:seed:1"})
+        connect = client.post("/api/v1/aprs/connect")
+        assert connect.status_code == 200
+        first_tune = main.aprs_service.last_tuned_frequency
+        assert first_tune is not None
+        sleep(1.2)
+        assert main.aprs_service.last_tuned_frequency != first_tune
+        client.post("/api/v1/aprs/disconnect")
+        last_tune = main.aprs_service.last_tuned_frequency
+        sleep(1.2)
+        assert main.aprs_service.last_tuned_frequency == last_tune
+    finally:
+        main.tracking_service.live_tracks = original_live_tracks
+        main.tracking_service.pass_predictions = original_pass_predictions

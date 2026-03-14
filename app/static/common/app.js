@@ -54,6 +54,136 @@ function renderStationBadge(targetOrId, identity, aprsSettings = null) {
   el.title = identity?.reason || el.textContent;
 }
 
+function rigModelDefaults(model) {
+  if (model === "ic705") return { baud_rate: 19200, civ_address: "0xA4" };
+  return { baud_rate: 19200, civ_address: "0x8C" };
+}
+
+function createRigConnectController(config) {
+  const {
+    modalId,
+    statusId,
+    rigModelId,
+    portSelectId,
+    manualId,
+    loadCurrent,
+    saveSelection,
+    onConnected,
+    loadingMessage = "Loading available USB ports...",
+    readyMessage = "Select the rig and USB port to connect",
+    emptyMessage = "No USB ports detected automatically. Use manual override if needed.",
+    connectingMessage = (rigModel) => `Saving ${rigModel} settings and connecting...`,
+  } = config;
+
+  const setVisible = (active) => {
+    const modal = byId(modalId);
+    if (!modal) return;
+    modal.classList.toggle("hidden", !active);
+    modal.setAttribute("aria-hidden", active ? "false" : "true");
+  };
+
+  const setStatus = (message) => {
+    const el = byId(statusId);
+    if (el) el.textContent = message;
+  };
+
+  const markManualDirty = (active) => {
+    const input = byId(manualId);
+    if (input) input.dataset.dirty = active ? "1" : "0";
+  };
+
+  const populatePortOptions = (items, selectedValue = "") => {
+    const select = byId(portSelectId);
+    if (!select) return;
+    const options = [];
+    const seen = new Set();
+    for (const item of items || []) {
+      const device = String(item?.device || "").trim();
+      if (!device || seen.has(device)) continue;
+      seen.add(device);
+      const desc = String(item?.description || "").trim();
+      options.push(`<option value="${device}">${desc ? `${device} · ${desc}` : device}</option>`);
+    }
+    if (selectedValue && !seen.has(selectedValue)) {
+      options.unshift(`<option value="${selectedValue}">${selectedValue} · current</option>`);
+    }
+    if (!options.length) {
+      options.push('<option value="">No USB ports detected</option>');
+    }
+    select.innerHTML = options.join("");
+    if (selectedValue) select.value = selectedValue;
+  };
+
+  const bind = () => {
+    const portSelect = byId(portSelectId);
+    const manualInput = byId(manualId);
+    if (portSelect && manualInput && !portSelect.dataset.bound) {
+      portSelect.dataset.bound = "1";
+      portSelect.addEventListener("change", () => {
+        manualInput.value = portSelect.value || "";
+        markManualDirty(false);
+      });
+      manualInput.addEventListener("input", () => {
+        markManualDirty(true);
+      });
+    }
+  };
+
+  const open = async () => {
+    bind();
+    setVisible(true);
+    setStatus(loadingMessage);
+    try {
+      const [current, portsResp] = await Promise.all([
+        loadCurrent(),
+        api.get("/api/v1/radio/ports"),
+      ]);
+      const selectedDevice = String(current?.selectedDevice || "").trim();
+      const rigModel = String(current?.rigModel || "ic705").trim() || "ic705";
+      const rigModelSelect = byId(rigModelId);
+      const manualInput = byId(manualId);
+      if (rigModelSelect) rigModelSelect.value = rigModel;
+      if (manualInput) manualInput.value = selectedDevice;
+      markManualDirty(false);
+      populatePortOptions(portsResp.items || [], selectedDevice);
+      setStatus((portsResp.items || []).length ? readyMessage : emptyMessage);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const close = () => setVisible(false);
+
+  const submit = async () => {
+    const rigModel = byId(rigModelId)?.value || "ic705";
+    const selectedPort = byId(portSelectId)?.value || "";
+    const manualInput = byId(manualId);
+    const manualPort = manualInput?.value?.trim() || "";
+    const manualDirty = manualInput?.dataset?.dirty === "1";
+    const serialDevice = manualDirty ? (manualPort || selectedPort) : (selectedPort || manualPort);
+    if (!serialDevice) {
+      setStatus("Choose a USB port or enter a manual device path");
+      return;
+    }
+    setStatus(connectingMessage(rigModel));
+    try {
+      await saveSelection({
+        rigModel,
+        serialDevice,
+        defaults: rigModelDefaults(rigModel),
+      });
+      close();
+      if (typeof onConnected === "function") {
+        await onConnected();
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  return { open, close, submit, bind, setStatus };
+}
+
 async function setBrowserLocation() {
   if (!navigator.geolocation) {
     throw new Error("Browser geolocation not supported");
@@ -81,4 +211,13 @@ async function setBrowserLocation() {
   });
 }
 
-window.issTracker = { api, fmtUtc, byId, setBrowserLocation, renderStationBadge, formatStationIdentity };
+window.issTracker = {
+  api,
+  fmtUtc,
+  byId,
+  setBrowserLocation,
+  renderStationBadge,
+  formatStationIdentity,
+  rigModelDefaults,
+  createRigConnectController,
+};
