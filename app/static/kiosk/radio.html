@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OrbitDeck Radio Control</title>
     <link rel="stylesheet" href="/static/common/styles.css?v=20260313a" />
-    <script defer src="/static/common/app.js?v=20260313e"></script>
-    <script defer src="/static/kiosk/radio.js?v=20260313e"></script>
+    <script defer src="/static/common/app.js?v=20260315a"></script>
+    <script defer src="/static/kiosk/radio.js?v=20260315a"></script>
   </head>
   <body class="kiosk">
     <header>
       <h1>OrbitDeck Radio Control</h1>
+      <div id="stationBadge" class="label mono">Station: --</div>
       <div class="label">Dedicated rig test page for ID-5100 and IC-705 validation.</div>
     </header>
     <main>
@@ -20,8 +21,25 @@
           <option value="id5100">Icom ID-5100</option>
           <option value="ic705">Icom IC-705</option>
         </select>
-        <label for="radioSerialDevicePage">Serial Device</label>
-        <input id="radioSerialDevicePage" type="text" placeholder="/dev/cu.usbmodem113201" />
+        <label for="radioTransportModePage">Transport</label>
+        <select id="radioTransportModePage">
+          <option value="usb">USB</option>
+          <option value="wifi">Wi-Fi</option>
+        </select>
+        <div id="radioUsbFields">
+          <label for="radioSerialDevicePage">Serial Device</label>
+          <input id="radioSerialDevicePage" type="text" placeholder="/dev/cu.usbmodem113201" />
+        </div>
+        <div id="radioWifiFields" hidden>
+          <label for="radioWifiHostPage">Wi-Fi Host</label>
+          <input id="radioWifiHostPage" type="text" placeholder="192.168.2.70" />
+          <label for="radioWifiUsernamePage">Wi-Fi Username</label>
+          <input id="radioWifiUsernamePage" type="text" placeholder="demo-user" />
+          <label for="radioWifiPasswordPage">Wi-Fi Password</label>
+          <input id="radioWifiPasswordPage" type="password" />
+          <label for="radioWifiControlPortPage">Wi-Fi Control Port</label>
+          <input id="radioWifiControlPortPage" type="number" min="1" max="65535" step="1" />
+        </div>
         <label for="radioBaudRatePage">Baud Rate</label>
         <input id="radioBaudRatePage" type="number" min="4800" max="19200" step="1" />
         <label for="radioCivAddressPage">CI-V Address</label>

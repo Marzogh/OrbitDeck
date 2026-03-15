@@ -20,6 +20,23 @@ class SerialLike(Protocol):
     def close(self) -> None: ...
 
 
+class CivTransport(Protocol):
+    connected: bool
+
+    def open(self) -> None: ...
+    def close(self) -> None: ...
+    def write_frame(self, to_addr: int, command: int, payload: bytes = b"") -> None: ...
+    def read_frames(self, chunk_size: int = 256) -> list[bytes]: ...
+    def transact(
+        self,
+        to_addr: int,
+        command: int,
+        payload: bytes = b"",
+        expect_commands: set[int] | None = None,
+        timeout: float | None = None,
+    ) -> bytes: ...
+
+
 class SerialTransport:
     def __init__(self, device: str, baud_rate: int, timeout: float = 1.0, port_factory=None) -> None:
         self.device = device

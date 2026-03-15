@@ -5,15 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OrbitDeck Rotator</title>
     <link rel="stylesheet" href="/static/common/styles.css?v=20260314a" />
-    <script defer src="/static/common/app.js?v=20260308al"></script>
+    <script defer src="/static/common/app.js?v=20260314a"></script>
     <script defer src="/static/common/hemisphere-land.js?v=20260309b"></script>
     <script defer src="/static/common/hemisphere.js?v=20260310b"></script>
-    <script defer src="/static/kiosk/rotator.js?v=20260314a"></script>
+    <script defer src="/static/kiosk/rotator.js?v=20260314g"></script>
   </head>
   <body class="kiosk rotator">
     <header class="rotator-topbar">
       <h1>ISS + Amateur Satellite Tracker</h1>
       <div class="rotator-meta">
+        <span id="stationBadge" class="mono">Station: --</span>
+        <span id="pinnedViewWrap" class="mono hidden">
+          Pinned View:
+          <select id="pinnedViewSelect">
+            <option value="radio">Radio</option>
+            <option value="aprs">APRS</option>
+          </select>
+        </span>
         <span id="rotatorTracked" class="mono">Tracked: --</span>
         <span id="rotatorLocation" class="mono">Loc: --</span>
         <span id="clockUtc" class="mono">UTC: --</span>
@@ -154,6 +162,17 @@
             <div id="radioLeftAux"></div>
           </div>
           <div id="radioBoard" class="radio-board"></div>
+        </div>
+      </section>
+
+      <section id="sceneAprs" class="scene hidden">
+        <div class="scene-title">APRS Ops</div>
+        <div id="aprsPrimary" class="scene-overlay mono"></div>
+        <div class="radio-scene-layout">
+          <div class="radio-visuals hidden" id="aprsVisuals">
+            <div id="aprsLeftAux"></div>
+          </div>
+          <div id="aprsBoard" class="radio-board"></div>
         </div>
       </section>
 

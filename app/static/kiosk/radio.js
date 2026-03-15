@@ -1,5 +1,6 @@
 let trackerApi;
 let trackerById;
+let trackerRenderStationBadge;
 
 function pretty(value) {
   return JSON.stringify(value, null, 2);
@@ -30,12 +31,29 @@ function defaultsForModel(model) {
     : { baud_rate: 19200, civ_address: "0x8C" };
 }
 
+function syncTransportFields() {
+  const mode = trackerById("radioTransportModePage").value || "usb";
+  trackerById("radioUsbFields").hidden = mode !== "usb";
+  trackerById("radioWifiFields").hidden = mode !== "wifi";
+}
+
 async function loadRadioPage() {
-  const resp = await trackerApi.get("/api/v1/radio/state");
+  const [resp, system] = await Promise.all([
+    trackerApi.get("/api/v1/radio/state"),
+    trackerApi.get("/api/v1/system/state"),
+  ]);
   const settings = resp.settings || {};
   const runtime = resp.runtime || {};
+  if (trackerRenderStationBadge) {
+    trackerRenderStationBadge("stationBadge", system.stationIdentity, system.aprsSettings);
+  }
   trackerById("radioRigModelPage").value = settings.rig_model || "id5100";
+  trackerById("radioTransportModePage").value = settings.transport_mode || "usb";
   trackerById("radioSerialDevicePage").value = settings.serial_device || "";
+  trackerById("radioWifiHostPage").value = settings.wifi_host || "";
+  trackerById("radioWifiUsernamePage").value = settings.wifi_username || "";
+  trackerById("radioWifiPasswordPage").value = settings.wifi_password || "";
+  trackerById("radioWifiControlPortPage").value = settings.wifi_control_port || 50001;
   trackerById("radioBaudRatePage").value = settings.baud_rate || 19200;
   trackerById("radioCivAddressPage").value = settings.civ_address || "0x8C";
   trackerById("radioSatIdPage").value = trackerById("radioSatIdPage").value || "iss-zarya";
@@ -45,6 +63,7 @@ async function loadRadioPage() {
   trackerById("radioDownlinkHzPage").value = runtime.targets?.vfo_b_freq_hz || runtime.targets?.sub_freq_hz || "";
   trackerById("radioUplinkModePage").value = runtime.targets?.vfo_a_mode || runtime.targets?.main_mode || "FM";
   trackerById("radioDownlinkModePage").value = runtime.targets?.vfo_b_mode || runtime.targets?.sub_mode || "FM";
+  syncTransportFields();
   setRuntime("loadRadioPage", { status: "ok", response: resp });
 }
 
@@ -52,7 +71,12 @@ async function saveRadioSettingsPage() {
   const payload = {
     enabled: true,
     rig_model: trackerById("radioRigModelPage").value,
+    transport_mode: trackerById("radioTransportModePage").value,
     serial_device: trackerById("radioSerialDevicePage").value,
+    wifi_host: trackerById("radioWifiHostPage").value,
+    wifi_username: trackerById("radioWifiUsernamePage").value,
+    wifi_password: trackerById("radioWifiPasswordPage").value,
+    wifi_control_port: Number(trackerById("radioWifiControlPortPage").value || 50001),
     baud_rate: Number(trackerById("radioBaudRatePage").value),
     civ_address: trackerById("radioCivAddressPage").value,
   };
@@ -60,14 +84,19 @@ async function saveRadioSettingsPage() {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
-  ({ api: trackerApi, byId: trackerById } = window.issTracker);
+  ({ api: trackerApi, byId: trackerById, renderStationBadge: trackerRenderStationBadge } = window.issTracker);
   trackerById("radioRigModelPage").addEventListener("change", () => {
     const model = trackerById("radioRigModelPage").value;
     const defaults = defaultsForModel(model);
     trackerById("radioBaudRatePage").value = defaults.baud_rate;
     trackerById("radioCivAddressPage").value = defaults.civ_address;
     trackerById("radioVfoPage").value = model === "ic705" ? "A" : "MAIN";
+    if (model !== "ic705" && trackerById("radioTransportModePage").value === "wifi") {
+      trackerById("radioTransportModePage").value = "usb";
+    }
+    syncTransportFields();
   });
+  trackerById("radioTransportModePage").addEventListener("change", syncTransportFields);
   trackerById("saveRadioPage").addEventListener("click", async () => {
     await saveRadioSettingsPage();
     await loadRadioPage();

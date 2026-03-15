@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
+import subprocess
+import shutil
+import platform
+import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from contextlib import suppress
@@ -13,12 +19,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.aprs.service import AprsService
 from app.device import lite_only_ui
 from app.models import (
+    AprsOperatingMode,
+    AprsSendMessageRequest,
+    AprsSendPositionRequest,
+    AprsSendStatusRequest,
+    AprsSettings,
+    AprsSettingsUpdate,
+    AprsTargetSelectRequest,
     CachePolicyUpdate,
+    CorrectionSide,
     DeveloperOverridesUpdate,
     DatasetSnapshot,
     GpsSettingsUpdate,
+    GuidePassPhase,
     IssDisplayMode,
     LiteSettingsUpdate,
     LocationSourceMode,
@@ -46,6 +62,7 @@ from app.services import (
     IssService,
     LocationService,
     NetworkService,
+    PassPredictionCacheService,
     TrackingService,
 )
 from app.store import StateStore
@@ -61,11 +78,161 @@ tracking_service = TrackingService()
 iss_service = IssService()
 network_service = NetworkService()
 cache_service = CacheService()
+pass_cache_service = PassPredictionCacheService()
 ingestion_service = DataIngestionService()
 frequency_guide_service = FrequencyGuideService()
 radio_control_service = RigControlService()
+aprs_service = AprsService()
 _refresh_task: asyncio.Task | None = None
 _lite_snapshot_cache: dict[tuple, tuple[datetime, dict]] = {}
+_CALLSIGN_PATTERN = re.compile(r"^[A-Z0-9]{3,10}$")
+
+
+def _pass_cache_retention(state) -> timedelta:
+    return timedelta(days=state.cache_policy.retention_days)
+
+
+def _pass_cache_ttl(state) -> timedelta:
+    return timedelta(hours=state.cache_policy.stale_after_hours)
+
+
+def _invalidate_pass_cache() -> None:
+    pass_cache_service.clear()
+
+
+def _resolve_direwolf_binary_path(binary: str | None) -> str | None:
+    candidate = str(binary or "").strip()
+    if not candidate:
+        return None
+    if "/" in candidate:
+        return candidate if shutil.which(candidate) else None
+    return shutil.which(candidate)
+
+
+def _direwolf_install_status() -> dict[str, object]:
+    state = store.get()
+    configured = state.aprs_settings.direwolf_binary
+    resolved = _resolve_direwolf_binary_path(configured)
+    brew_path = shutil.which("brew")
+    osascript_path = shutil.which("osascript")
+    return {
+        "configuredBinary": configured,
+        "resolvedBinary": resolved,
+        "installed": bool(resolved),
+        "canInstall": bool(brew_path),
+        "installer": "brew" if brew_path else None,
+        "brewPath": brew_path,
+        "canLaunchTerminal": bool(brew_path and osascript_path),
+    }
+
+
+def _aprs_audio_devices() -> dict[str, list[dict[str, object]]]:
+    system = platform.system()
+    resolved_direwolf = _resolve_direwolf_binary_path(store.get().aprs_settings.direwolf_binary)
+    if resolved_direwolf:
+        with tempfile.NamedTemporaryFile("w", suffix=".conf", delete=True) as handle:
+            handle.write("CHANNEL 0\nMYCALL N0CALL\nKISSPORT 8001\n")
+            handle.flush()
+            result = subprocess.run(
+                [resolved_direwolf, "-c", handle.name, "-t", "0"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        text = "\n".join(part for part in [result.stdout, result.stderr] if part)
+        if "Number of devices" in text:
+            inputs: list[dict[str, object]] = []
+            outputs: list[dict[str, object]] = []
+            current: dict[str, object] | None = None
+
+            def append_current() -> None:
+                nonlocal current
+                if current is None:
+                    return
+                name = str(current.get("name") or "").strip()
+                index = int(current.get("index") or 0)
+                in_channels = int(current.get("inputs") or 0)
+                out_channels = int(current.get("outputs") or 0)
+                value = f"{name}:{index}" if name else str(index)
+                if name and in_channels > 0:
+                    inputs.append({"name": name, "value": value, "channels": in_channels, "index": index})
+                if name and out_channels > 0:
+                    outputs.append({"name": name, "value": value, "channels": out_channels, "index": index})
+
+            for raw_line in text.splitlines():
+                line = raw_line.strip()
+                if line.startswith("--------------------------------------- device #"):
+                    append_current()
+                    marker = line.split("#", 1)[-1]
+                    digits = "".join(ch for ch in marker if ch.isdigit())
+                    current = {"index": int(digits or "0")}
+                    continue
+                if current is None:
+                    continue
+                if line.startswith("Name"):
+                    current["name"] = line.split("=", 1)[-1].strip().strip('"')
+                elif line.startswith("Max inputs"):
+                    current["inputs"] = int(line.split("=", 1)[-1].strip() or "0")
+                elif line.startswith("Max outputs"):
+                    current["outputs"] = int(line.split("=", 1)[-1].strip() or "0")
+            append_current()
+            if inputs or outputs:
+                return {"inputs": inputs, "outputs": outputs}
+    if system == "Darwin":
+        result = subprocess.run(
+            ["system_profiler", "SPAudioDataType", "-json"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout or "Unable to enumerate audio devices").strip())
+        payload = json.loads(result.stdout or "{}")
+        groups = payload.get("SPAudioDataType", [])
+        items = []
+        for group in groups:
+            items.extend(group.get("_items", []))
+        inputs: list[dict[str, object]] = []
+        outputs: list[dict[str, object]] = []
+        seen_inputs: set[str] = set()
+        seen_outputs: set[str] = set()
+        for item in items:
+            name = str(item.get("_name") or "").strip()
+            if not name:
+                continue
+            if int(item.get("coreaudio_device_input") or 0) > 0 and name not in seen_inputs:
+                seen_inputs.add(name)
+                inputs.append({"name": name, "channels": int(item.get("coreaudio_device_input") or 0)})
+            if int(item.get("coreaudio_device_output") or 0) > 0 and name not in seen_outputs:
+                seen_outputs.add(name)
+                outputs.append({"name": name, "channels": int(item.get("coreaudio_device_output") or 0)})
+        return {"inputs": inputs, "outputs": outputs}
+    return {"inputs": [], "outputs": []}
+
+
+def _pass_cache_key(
+    *,
+    hours: int,
+    resolved_location,
+    sat_ids: set[str] | None,
+    min_max_el: float,
+    include_all_sats: bool,
+    include_ongoing: bool,
+) -> str:
+    sat_fragment = ",".join(sorted(sat_ids or [])) if sat_ids is not None else "*"
+    return "|".join(
+        [
+            f"h={hours}",
+            f"src={resolved_location.source}",
+            f"lat={resolved_location.lat:.4f}",
+            f"lon={resolved_location.lon:.4f}",
+            f"alt={resolved_location.alt_m:.1f}",
+            f"min={min_max_el:.1f}",
+            f"all={int(include_all_sats)}",
+            f"ongoing={int(include_ongoing)}",
+            f"sats={sat_fragment}",
+        ]
+    )
 
 
 def _resolve_location(source_override: LocationSourceMode | None = None):
@@ -156,6 +323,12 @@ def _radio_defaults_for_model(model: RadioRigModel) -> tuple[int, str]:
     return 19200, "0x8C"
 
 
+def _hamlib_model_for_radio(model: RadioRigModel) -> int:
+    if model == RadioRigModel.ic705:
+        return 3085
+    return 3071
+
+
 def _apply_radio_settings_update(current: RadioSettings, payload: RadioSettingsUpdate) -> RadioSettings:
     next_settings = current.model_copy(deep=True)
     previous_model = next_settings.rig_model
@@ -163,12 +336,22 @@ def _apply_radio_settings_update(current: RadioSettings, payload: RadioSettingsU
         next_settings.enabled = payload.enabled
     if payload.rig_model is not None:
         next_settings.rig_model = payload.rig_model
+    if payload.transport_mode is not None:
+        next_settings.transport_mode = payload.transport_mode
     if payload.serial_device is not None:
         next_settings.serial_device = payload.serial_device.strip()
     if payload.baud_rate is not None:
         next_settings.baud_rate = payload.baud_rate
     if payload.civ_address is not None:
         next_settings.civ_address = normalize_civ_address(payload.civ_address.strip())
+    if payload.wifi_host is not None:
+        next_settings.wifi_host = payload.wifi_host.strip()
+    if payload.wifi_username is not None:
+        next_settings.wifi_username = payload.wifi_username.strip()
+    if payload.wifi_password is not None:
+        next_settings.wifi_password = payload.wifi_password
+    if payload.wifi_control_port is not None:
+        next_settings.wifi_control_port = payload.wifi_control_port
     if payload.poll_interval_ms is not None:
         next_settings.poll_interval_ms = payload.poll_interval_ms
     if payload.auto_connect is not None:
@@ -187,7 +370,254 @@ def _apply_radio_settings_update(current: RadioSettings, payload: RadioSettingsU
             next_settings.civ_address = civ
     else:
         next_settings.civ_address = normalize_civ_address(next_settings.civ_address)
+    if next_settings.transport_mode.value == "wifi":
+        if next_settings.rig_model != RadioRigModel.ic705:
+            raise ValueError("Wi-Fi transport is currently supported only for the IC-705")
+        if not next_settings.wifi_host:
+            raise ValueError("Wi-Fi host is required for IC-705 Wi-Fi transport")
+        if not next_settings.wifi_username:
+            raise ValueError("Wi-Fi username is required for IC-705 Wi-Fi transport")
     return next_settings
+
+
+def _apply_aprs_settings_update(current: AprsSettings, payload: AprsSettingsUpdate) -> AprsSettings:
+    next_settings = current.model_copy(deep=True)
+    previous_model = next_settings.rig_model
+    for field in (
+        "enabled",
+        "listen_only",
+        "operating_mode",
+        "rig_model",
+        "ptt_via_cat",
+        "start_on_boot",
+        "selected_satellite_id",
+        "selected_channel_id",
+        "terrestrial_auto_region",
+        "terrestrial_region_label",
+    ):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(next_settings, field, value)
+    for field in (
+        "callsign",
+        "serial_device",
+        "civ_address",
+        "audio_input_device",
+        "audio_output_device",
+        "kiss_host",
+        "direwolf_binary",
+        "beacon_comment",
+        "terrestrial_beacon_comment",
+        "satellite_beacon_comment",
+        "symbol_table",
+        "symbol_code",
+        "terrestrial_path",
+        "satellite_path",
+    ):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(next_settings, field, str(value).strip())
+    if payload.beacon_comment is not None:
+        legacy = str(payload.beacon_comment).strip()
+        next_settings.beacon_comment = legacy
+        if payload.terrestrial_beacon_comment is None:
+            next_settings.terrestrial_beacon_comment = legacy
+        if payload.satellite_beacon_comment is None:
+            next_settings.satellite_beacon_comment = legacy
+    if payload.ssid is not None:
+        next_settings.ssid = payload.ssid
+    if payload.hamlib_model_id is not None:
+        next_settings.hamlib_model_id = payload.hamlib_model_id
+    if payload.baud_rate is not None:
+        next_settings.baud_rate = payload.baud_rate
+    if payload.kiss_port is not None:
+        next_settings.kiss_port = payload.kiss_port
+    if payload.tx_path is not None:
+        next_settings.tx_path = [str(item).strip().upper() for item in payload.tx_path if str(item).strip()]
+    if payload.terrestrial_manual_frequency_hz is not None:
+        next_settings.terrestrial_manual_frequency_hz = payload.terrestrial_manual_frequency_hz
+    if payload.terrestrial_last_suggested_frequency_hz is not None:
+        next_settings.terrestrial_last_suggested_frequency_hz = payload.terrestrial_last_suggested_frequency_hz
+    if payload.rig_model is not None and payload.rig_model != previous_model and payload.hamlib_model_id is None:
+        next_settings.hamlib_model_id = _hamlib_model_for_radio(payload.rig_model)
+    return next_settings
+
+
+def _resolved_location_for_aprs():
+    state, location = _resolve_location()
+    return state, location
+
+
+def _effective_aprs_settings_for_connect(state) -> AprsSettings:
+    settings = state.aprs_settings.model_copy(deep=True)
+    radio_runtime = radio_control_service.runtime()
+    if radio_runtime.connected:
+        settings.rig_model = state.radio_settings.rig_model
+        settings.hamlib_model_id = _hamlib_model_for_radio(state.radio_settings.rig_model)
+        settings.civ_address = state.radio_settings.civ_address
+        if state.radio_settings.transport_mode != state.radio_settings.transport_mode.wifi:
+            settings.serial_device = state.radio_settings.serial_device
+            settings.baud_rate = state.radio_settings.baud_rate
+    elif settings.hamlib_model_id is None:
+        settings.hamlib_model_id = _hamlib_model_for_radio(settings.rig_model)
+    return settings
+
+
+def _aprs_pass_for_satellite(location, sat_id: str | None):
+    if not sat_id:
+        return None
+    now = datetime.now(UTC)
+    passes = tracking_service.pass_predictions(
+        now,
+        24,
+        location,
+        sat_ids={sat_id},
+        include_ongoing=True,
+    )
+    return _pick_focus_pass(passes, sat_id)
+
+
+def _aprs_pass_map(location, satellites) -> dict[str, object]:
+    sat_ids = [sat.sat_id for sat in satellites if sat.radio_channels]
+    out: dict[str, object] = {}
+    now = datetime.now(UTC)
+    if not sat_ids:
+        return out
+    passes = tracking_service.pass_predictions(
+        now,
+        24,
+        location,
+        sat_ids=set(sat_ids),
+        include_ongoing=True,
+    )
+    for sat_id in sat_ids:
+        event = _pick_focus_pass([item for item in passes if item.sat_id == sat_id], sat_id)
+        if event is not None:
+            out[sat_id] = event
+    return out
+
+
+def _aprs_targets_payload(state, location) -> dict:
+    satellites = tracking_service.satellites()
+    pass_map = _aprs_pass_map(location, satellites)
+    return aprs_service.available_targets(state.aprs_settings, satellites, location, pass_by_sat_id=pass_map)
+
+
+def _aprs_current_track(location, sat_id: str | None):
+    if not sat_id:
+        return None
+    now = datetime.now(UTC)
+    tracks = tracking_service.live_tracks(now, location)
+    return next((track for track in tracks if track.sat_id == sat_id), None)
+
+
+def _aprs_enrich_target_with_doppler(target, current_track, pass_event):
+    if target is None:
+        return None
+    corrected_frequency_hz = target.frequency_hz
+    corrected_uplink_hz = target.uplink_hz
+    corrected_downlink_hz = target.downlink_hz
+    correction_side = None
+    active_phase = None
+    retune_active = False
+    freqs = [target.uplink_hz, target.downlink_hz, target.frequency_hz]
+    if (
+        target.operating_mode == AprsOperatingMode.satellite
+        and any(freq is not None and int(freq) >= 400_000_000 for freq in freqs)
+    ):
+        correction_side = CorrectionSide.uhf_only
+        active_phase = frequency_guide_service.resolve_phase(datetime.now(UTC), pass_event)
+        range_rate = current_track.range_rate_km_s if current_track is not None else 0.0
+
+        def corrected_uplink(freq_hz: int | None) -> int | None:
+            if freq_hz is None:
+                return None
+            mhz = freq_hz / 1_000_000.0
+            corrected = (
+                frequency_guide_service.corrected_uplink_mhz(mhz, range_rate, 1000)
+                if mhz >= 400.0
+                else frequency_guide_service.quantize_mhz(mhz, 1000)
+            )
+            return int(round(corrected * 1_000_000)) if corrected is not None else None
+
+        def corrected_downlink(freq_hz: int | None) -> int | None:
+            if freq_hz is None:
+                return None
+            mhz = freq_hz / 1_000_000.0
+            corrected = (
+                frequency_guide_service.corrected_downlink_mhz(mhz, range_rate, 5000)
+                if mhz >= 400.0
+                else frequency_guide_service.quantize_mhz(mhz, 5000)
+            )
+            return int(round(corrected * 1_000_000)) if corrected is not None else None
+
+        corrected_uplink_hz = corrected_uplink(target.uplink_hz)
+        corrected_downlink_hz = corrected_downlink(target.downlink_hz)
+        corrected_frequency_hz = corrected_downlink_hz or corrected_uplink_hz or target.frequency_hz
+        retune_active = bool(target.pass_active and corrected_frequency_hz and corrected_frequency_hz != target.frequency_hz)
+
+    return target.model_copy(
+        update={
+            "corrected_frequency_hz": corrected_frequency_hz,
+            "corrected_uplink_hz": corrected_uplink_hz,
+            "corrected_downlink_hz": corrected_downlink_hz,
+            "correction_side": correction_side,
+            "active_phase": active_phase,
+            "retune_active": retune_active,
+        }
+    )
+
+
+def _resolve_aprs_target(settings: AprsSettings, location):
+    developer_force_enable = bool(store.get().settings.developer_overrides.enabled)
+    pass_event = _aprs_pass_for_satellite(location, settings.selected_satellite_id)
+    current_track = _aprs_current_track(location, settings.selected_satellite_id)
+    target = aprs_service.resolve_target(
+        settings,
+        tracking_service.satellites(),
+        location,
+        pass_event=pass_event,
+        developer_force_enable=developer_force_enable,
+    )
+    return _aprs_enrich_target_with_doppler(target, current_track, pass_event)
+
+
+def _ensure_radio_available_for_manual_control() -> None:
+    runtime = aprs_service.runtime()
+    if runtime.session_active:
+        raise HTTPException(status_code=409, detail="APRS owns radio session")
+
+
+def _normalized_station_callsign(value: str | None) -> str:
+    return str(value or "").strip().upper()
+
+
+def _station_identity_ready(settings: AprsSettings) -> bool:
+    callsign = _normalized_station_callsign(settings.callsign)
+    return bool(callsign and callsign != "N0CALL" and _CALLSIGN_PATTERN.fullmatch(callsign))
+
+
+def _station_identity_status(settings: AprsSettings) -> dict[str, object]:
+    callsign = _normalized_station_callsign(settings.callsign)
+    ready = _station_identity_ready(settings)
+    if ready:
+        reason = None
+    elif not callsign or callsign == "N0CALL":
+        reason = "Set your amateur radio callsign to enable radio control."
+    else:
+        reason = "Callsign must be 3-10 letters or numbers."
+    return {
+        "configured": ready,
+        "callsign": callsign,
+        "reason": reason,
+    }
+
+
+def _ensure_station_identity_ready() -> None:
+    state = store.get()
+    identity = _station_identity_status(state.aprs_settings)
+    if not identity["configured"]:
+        raise HTTPException(status_code=403, detail=str(identity["reason"]))
 
 
 def _pick_focus_pass(passes, sat_id: str | None):
@@ -503,9 +933,21 @@ def settings_index() -> FileResponse:
     return FileResponse("app/static/kiosk/settings.html")
 
 
+@app.get("/settings-v2")
+def settings_v2_index() -> FileResponse:
+    if lite_only_ui():
+        return FileResponse("app/static/lite/settings.html")
+    return FileResponse("app/static/kiosk/settings-v2.html")
+
+
 @app.get("/radio")
 def radio_index() -> FileResponse:
     return FileResponse("app/static/kiosk/radio.html")
+
+
+@app.get("/aprs")
+def aprs_index() -> FileResponse:
+    return FileResponse("app/static/kiosk/aprs.html")
 
 
 @app.get("/kiosk-rotator")
@@ -530,6 +972,7 @@ def get_satellites(refresh_from_sources: bool = Query(default=False)) -> dict:
             satellites, _ = ingestion_service.refresh_catalog()
             tracking_service.replace_catalog(satellites)
             _lite_snapshot_cache.clear()
+            _invalidate_pass_cache()
             with suppress(Exception):
                 ingestion_service.refresh_ephemeris(timeout_seconds=8.0)
                 ephemeris_refreshed = True
@@ -599,10 +1042,30 @@ def get_passes(
     min_max_el: float = Query(default=0.0, ge=0.0, le=90.0),
     include_all_sats: bool = Query(default=False),
     include_ongoing: bool = Query(default=False),
+    force_refresh: bool = Query(default=False),
 ) -> dict:
     state, location = _resolve_location(location_source)
     now = datetime.now(UTC)
     sat_ids = None if include_all_sats else _pass_sat_ids(state.settings)
+    cache_key = _pass_cache_key(
+        hours=hours,
+        resolved_location=location,
+        sat_ids=sat_ids,
+        min_max_el=min_max_el,
+        include_all_sats=include_all_sats,
+        include_ongoing=include_ongoing,
+    )
+    if not force_refresh:
+        cached = pass_cache_service.get(
+            cache_key,
+            ttl=_pass_cache_ttl(state),
+            retention=_pass_cache_retention(state),
+        )
+        if cached is not None:
+            return {
+                **cached,
+                "cache": {"source": "cache", "force_refresh": False},
+            }
     passes = tracking_service.pass_predictions(
         now,
         hours,
@@ -616,14 +1079,21 @@ def get_passes(
     tracks = tracking_service.live_tracks(now, location, sat_ids=track_sat_ids) if track_sat_ids else []
     tracks_by_sat = {track.sat_id: track for track in tracks}
     items = _serialize_passes_with_frequency(location, now, passes, tracks_by_sat)
-    return {
+    payload = {
         "timestamp": now,
         "location": location.__dict__,
         "hours": hours,
         "min_max_el": min_max_el,
         "count": len(items),
         "items": items,
+        "cache": {"source": "generated", "force_refresh": force_refresh},
     }
+    pass_cache_service.put(
+        cache_key,
+        payload,
+        retention=_pass_cache_retention(state),
+    )
+    return payload
 
 
 @app.get("/api/v1/settings/iss-display-mode")
@@ -697,6 +1167,7 @@ def set_pass_filter(payload: PassFilterUpdate) -> dict:
         state.settings.pass_sat_ids = ["iss-zarya"]
     store.save(state)
     _lite_snapshot_cache.clear()
+    _invalidate_pass_cache()
     return {"profile": state.settings.pass_profile, "satIds": state.settings.pass_sat_ids}
 
 
@@ -712,6 +1183,7 @@ def post_lite_settings(payload: LiteSettingsUpdate) -> dict:
     state = _apply_lite_settings_update(state, payload)
     store.save(state)
     _lite_snapshot_cache.clear()
+    _invalidate_pass_cache()
     return {"state": state.lite_settings}
 
 
@@ -749,6 +1221,7 @@ def post_location(payload: LocationUpdate) -> dict:
     state.location = location_service.apply_update(state.location, payload)
     store.save(state)
     _lite_snapshot_cache.clear()
+    _invalidate_pass_cache()
     resolved = location_service.resolve(state.location)
     return {"state": state.location, "resolved": resolved.__dict__}
 
@@ -791,6 +1264,7 @@ def post_gps_settings(payload: GpsSettingsUpdate) -> dict:
     state.gps_settings = next_settings
     store.save(state)
     _lite_snapshot_cache.clear()
+    _invalidate_pass_cache()
     return {"state": state.gps_settings}
 
 
@@ -811,6 +1285,20 @@ def post_radio_settings(payload: RadioSettingsUpdate) -> dict:
     return {"state": state.radio_settings}
 
 
+@app.get("/api/v1/settings/aprs")
+def get_aprs_settings() -> dict:
+    state = store.get()
+    return {"state": state.aprs_settings}
+
+
+@app.post("/api/v1/settings/aprs")
+def post_aprs_settings(payload: AprsSettingsUpdate) -> dict:
+    state = store.get()
+    state.aprs_settings = _apply_aprs_settings_update(state.aprs_settings, payload)
+    store.save(state)
+    return {"state": state.aprs_settings}
+
+
 @app.get("/api/v1/cache-policy")
 def get_cache_policy() -> dict:
     state = store.get()
@@ -822,7 +1310,14 @@ def post_cache_policy(payload: CachePolicyUpdate) -> dict:
     state = store.get()
     state.cache_policy = cache_service.apply_policy(state.cache_policy, payload)
     store.save(state)
+    _invalidate_pass_cache()
     return {"state": state.cache_policy}
+
+
+@app.post("/api/v1/passes/cache/refresh")
+def refresh_pass_cache() -> dict:
+    _invalidate_pass_cache()
+    return {"ok": True, "cache": {"source": "cleared"}}
 
 
 @app.post("/api/v1/snapshots/record")
@@ -895,6 +1390,227 @@ def get_frequency_guide_recommendation(
     }
 
 
+@app.get("/api/v1/aprs/state")
+def get_aprs_state() -> dict:
+    state = store.get()
+    _, location = _resolved_location_for_aprs()
+    preview = None
+    try:
+        preview = _resolve_aprs_target(state.aprs_settings, location)
+    except Exception:
+        preview = None
+    return {"settings": state.aprs_settings, "runtime": aprs_service.runtime(), "previewTarget": preview}
+
+
+@app.get("/api/v1/aprs/ports")
+def get_aprs_ports() -> dict:
+    return get_radio_ports()
+
+
+@app.get("/api/v1/aprs/audio-devices")
+def get_aprs_audio_devices() -> dict:
+    try:
+        return _aprs_audio_devices()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/aprs/direwolf/status")
+def get_aprs_direwolf_status() -> dict:
+    return _direwolf_install_status()
+
+
+@app.post("/api/v1/aprs/direwolf/install")
+def install_aprs_direwolf() -> dict:
+    status = _direwolf_install_status()
+    if status["installed"]:
+        state = store.get()
+        resolved = str(status["resolvedBinary"] or "").strip()
+        if resolved and state.aprs_settings.direwolf_binary != resolved:
+            state.aprs_settings.direwolf_binary = resolved
+            store.save(state)
+        return {"ok": True, "status": _direwolf_install_status()}
+    brew_path = status["brewPath"]
+    if not brew_path:
+        raise HTTPException(status_code=400, detail="No supported Dire Wolf installer is available on this system")
+    result = subprocess.run(
+        [brew_path, "install", "direwolf"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "brew install direwolf failed").strip()
+        raise HTTPException(status_code=400, detail=detail)
+    state = store.get()
+    resolved = _resolve_direwolf_binary_path(state.aprs_settings.direwolf_binary) or shutil.which("direwolf")
+    if resolved:
+        state.aprs_settings.direwolf_binary = resolved
+        store.save(state)
+    return {"ok": True, "status": _direwolf_install_status(), "stdout": (result.stdout or "").strip()}
+
+
+@app.post("/api/v1/aprs/direwolf/install-terminal")
+def launch_aprs_direwolf_install_terminal() -> dict:
+    status = _direwolf_install_status()
+    if status["installed"]:
+        return {"ok": True, "status": status, "launched": False}
+    brew_path = status["brewPath"]
+    osascript_path = shutil.which("osascript")
+    if not brew_path or not osascript_path:
+        raise HTTPException(status_code=400, detail="Terminal-based Dire Wolf install is not available on this system")
+    command = (
+        f"{brew_path} install direwolf; "
+        "echo; "
+        "echo 'Dire Wolf install finished. Press any key to close this window.'; "
+        "read -n 1"
+    )
+    escaped_command = command.replace("\\", "\\\\").replace('"', '\\"')
+    script = (
+        'tell application "Terminal"\n'
+        "activate\n"
+        f'do script "{escaped_command}"\n'
+        "end tell\n"
+    )
+    result = subprocess.run(
+        [osascript_path, "-e", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "Unable to launch Terminal for Dire Wolf install").strip()
+        raise HTTPException(status_code=400, detail=detail)
+    return {"ok": True, "status": _direwolf_install_status(), "launched": True}
+
+
+@app.get("/api/v1/aprs/targets")
+def get_aprs_targets() -> dict:
+    state, location = _resolved_location_for_aprs()
+    return {
+        "settings": state.aprs_settings,
+        "targets": _aprs_targets_payload(state, location),
+        "resolvedLocation": location.__dict__,
+    }
+
+
+def _select_aprs_target(payload: AprsTargetSelectRequest) -> dict:
+    state, location = _resolved_location_for_aprs()
+    next_settings = state.aprs_settings.model_copy(deep=True)
+    next_settings.operating_mode = payload.operating_mode
+    if payload.operating_mode == AprsOperatingMode.satellite:
+        sat = next((item for item in tracking_service.satellites() if item.sat_id == payload.sat_id), None)
+        if sat is None:
+            raise HTTPException(status_code=400, detail="Selected satellite does not support APRS")
+        if not any(item.kind == "aprs" for item in sat.radio_channels):
+            raise HTTPException(status_code=400, detail="Selected satellite does not support APRS")
+        channel = next((item for item in sat.radio_channels if item.channel_id == payload.channel_id and item.kind == "aprs"), None)
+        if channel is None:
+            raise HTTPException(status_code=400, detail="Selected APRS channel is unavailable")
+        next_settings.selected_satellite_id = sat.sat_id
+        next_settings.selected_channel_id = channel.channel_id
+        next_settings.terrestrial_region_label = None
+        next_settings.terrestrial_last_suggested_frequency_hz = None
+    else:
+        next_settings.selected_satellite_id = None
+        next_settings.selected_channel_id = None
+        if payload.terrestrial_frequency_hz is not None:
+            next_settings.terrestrial_manual_frequency_hz = payload.terrestrial_frequency_hz
+        if next_settings.terrestrial_auto_region and location is not None:
+            target = _resolve_aprs_target(next_settings, location)
+            next_settings.terrestrial_region_label = target.region_label
+            next_settings.terrestrial_last_suggested_frequency_hz = target.frequency_hz
+    state.aprs_settings = next_settings
+    store.save(state)
+    preview = None
+    try:
+        preview = _resolve_aprs_target(state.aprs_settings, location)
+    except Exception:
+        preview = None
+    return {"state": state.aprs_settings, "runtime": aprs_service.runtime(), "previewTarget": preview}
+
+
+@app.post("/api/v1/aprs/select-target")
+def select_aprs_target(payload: AprsTargetSelectRequest) -> dict:
+    return _select_aprs_target(payload)
+
+
+@app.post("/api/v1/aprs/session/select")
+def select_aprs_session(payload: AprsTargetSelectRequest) -> dict:
+    return _select_aprs_target(payload)
+
+
+@app.post("/api/v1/aprs/connect")
+def connect_aprs() -> dict:
+    _ensure_station_identity_ready()
+    state, location = _resolved_location_for_aprs()
+    try:
+        effective_settings = _effective_aprs_settings_for_connect(state)
+        target = _resolve_aprs_target(effective_settings, location)
+        if target.region_label is not None:
+            state.aprs_settings.terrestrial_region_label = target.region_label
+            state.aprs_settings.terrestrial_last_suggested_frequency_hz = target.frequency_hz
+        state.aprs_settings.rig_model = effective_settings.rig_model
+        state.aprs_settings.serial_device = effective_settings.serial_device
+        state.aprs_settings.baud_rate = effective_settings.baud_rate
+        state.aprs_settings.civ_address = effective_settings.civ_address
+        radio_control_service.disconnect()
+        runtime = aprs_service.connect(
+            effective_settings,
+            target,
+            radio_settings=state.radio_settings,
+            retune_resolver=(lambda: _resolve_aprs_target(_effective_aprs_settings_for_connect(store.get()), _resolve_location()[1])),
+        )
+        store.save(state)
+    except (RuntimeError, ValueError, TimeoutError, OSError, subprocess.SubprocessError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"settings": state.aprs_settings, "runtime": runtime, "target": target}
+
+
+@app.post("/api/v1/aprs/disconnect")
+def disconnect_aprs() -> dict:
+    return {"runtime": aprs_service.disconnect()}
+
+
+@app.post("/api/v1/aprs/panic-unkey")
+def panic_unkey_aprs() -> dict:
+    runtime = aprs_service.disconnect()
+    return {"ok": True, "runtime": runtime}
+
+
+@app.post("/api/v1/aprs/send/message")
+def send_aprs_message(payload: AprsSendMessageRequest) -> dict:
+    _ensure_station_identity_ready()
+    state = store.get()
+    try:
+        runtime = aprs_service.send_message(state.aprs_settings, payload)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"runtime": runtime}
+
+
+@app.post("/api/v1/aprs/send/status")
+def send_aprs_status(payload: AprsSendStatusRequest) -> dict:
+    _ensure_station_identity_ready()
+    state = store.get()
+    try:
+        runtime = aprs_service.send_status(state.aprs_settings, payload)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"runtime": runtime}
+
+
+@app.post("/api/v1/aprs/send/position")
+def send_aprs_position(payload: AprsSendPositionRequest) -> dict:
+    _ensure_station_identity_ready()
+    state, location = _resolved_location_for_aprs()
+    try:
+        runtime = aprs_service.send_position(state.aprs_settings, payload, location)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"runtime": runtime}
+
+
 @app.get("/api/v1/radio/state")
 def get_radio_state() -> dict:
     state = store.get()
@@ -930,6 +1646,8 @@ def get_radio_session() -> dict:
 
 @app.post("/api/v1/radio/session/select")
 def select_radio_session(payload: RadioControlSessionSelectRequest) -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     session = radio_control_service.select_session(payload, _resolve_default_test_pair_for_radio)
     return {"session": session, "runtime": radio_control_service.runtime()}
 
@@ -942,6 +1660,8 @@ def clear_radio_session() -> dict:
 
 @app.post("/api/v1/radio/connect")
 def connect_radio() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     runtime = radio_control_service.connect(state.radio_settings)
     return {"settings": state.radio_settings, "runtime": runtime, "session": radio_control_service.session_state()}
@@ -962,6 +1682,8 @@ def disconnect_radio() -> dict:
 
 @app.post("/api/v1/radio/poll")
 def poll_radio() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     runtime = radio_control_service.poll(state.radio_settings)
     return {"settings": state.radio_settings, "runtime": runtime, "session": radio_control_service.session_state()}
@@ -969,6 +1691,8 @@ def poll_radio() -> dict:
 
 @app.post("/api/v1/radio/frequency")
 def set_radio_frequency(payload: RadioFrequencySetRequest) -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     try:
         runtime, result = radio_control_service.set_frequency(payload, state.radio_settings)
@@ -979,6 +1703,8 @@ def set_radio_frequency(payload: RadioFrequencySetRequest) -> dict:
 
 @app.post("/api/v1/radio/pair")
 def set_radio_pair(payload: RadioPairSetRequest) -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     try:
         runtime, recommendation, mapping = radio_control_service.apply_manual_pair(payload, state.radio_settings)
@@ -996,6 +1722,8 @@ def set_radio_pair(payload: RadioPairSetRequest) -> dict:
 
 @app.post("/api/v1/radio/session/test")
 def run_radio_session_test() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     try:
         session, runtime, recommendation, mapping = radio_control_service.run_test_control(state.radio_settings)
@@ -1012,12 +1740,16 @@ def run_radio_session_test() -> dict:
 
 @app.post("/api/v1/radio/session/test/confirm")
 def confirm_radio_session_test() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     session, runtime = radio_control_service.confirm_test_success()
     return {"session": session, "runtime": runtime}
 
 
 @app.post("/api/v1/radio/session/start")
 def start_radio_session_control() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     try:
         session, runtime = radio_control_service.start_session_control(
@@ -1031,12 +1763,16 @@ def start_radio_session_control() -> dict:
 
 @app.post("/api/v1/radio/session/stop")
 def stop_radio_session_control() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     session, runtime = radio_control_service.stop_session_control()
     return {"session": session, "runtime": runtime}
 
 
 @app.post("/api/v1/radio/apply")
 def apply_radio_target(payload: RadioApplyRequest) -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     try:
         runtime, recommendation, mapping = radio_control_service.apply(
@@ -1056,6 +1792,8 @@ def apply_radio_target(payload: RadioApplyRequest) -> dict:
 
 @app.post("/api/v1/radio/auto-track/start")
 def start_radio_auto_track(payload: RadioAutoTrackStartRequest) -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     state = store.get()
     try:
         runtime = radio_control_service.start_auto_track(
@@ -1071,6 +1809,8 @@ def start_radio_auto_track(payload: RadioAutoTrackStartRequest) -> dict:
 
 @app.post("/api/v1/radio/auto-track/stop")
 def stop_radio_auto_track() -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
     return {"runtime": radio_control_service.stop_auto_track()}
 
 
@@ -1112,6 +1852,9 @@ def get_system_state(
     if hasattr(ingestion_service, "body_positions"):
         with suppress(Exception):
             bodies = ingestion_service.body_positions(now, location.lat, location.lon, location.alt_m)
+    aprs_preview_target = None
+    with suppress(Exception):
+        aprs_preview_target = _resolve_aprs_target(state.aprs_settings, location)
     return {
         "timestamp": now,
         "location": location.__dict__,
@@ -1119,6 +1862,10 @@ def get_system_state(
         "radioSettings": state.radio_settings,
         "radioRuntime": radio_control_service.runtime(),
         "radioControlSession": radio_control_service.session_state(),
+        "aprsSettings": state.aprs_settings,
+        "aprsRuntime": aprs_service.runtime(),
+        "aprsPreviewTarget": aprs_preview_target,
+        "stationIdentity": _station_identity_status(state.aprs_settings),
         "network": state.network,
         "cachePolicy": state.cache_policy,
         "iss": iss_state,
@@ -1140,6 +1887,7 @@ def refresh_datasets() -> dict:
         satellites, meta = ingestion_service.refresh_catalog()
         tracking_service.replace_catalog(satellites)
         _lite_snapshot_cache.clear()
+        _invalidate_pass_cache()
         ephem = {"ok": False}
         with suppress(Exception):
             ephem = ingestion_service.refresh_ephemeris()

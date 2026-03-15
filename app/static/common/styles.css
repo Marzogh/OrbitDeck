@@ -2224,6 +2224,278 @@ body.kiosk .radio-visuals.hidden {
   display: none;
 }
 
+.settings-v2-page {
+  min-height: 100vh;
+}
+
+.settings-v2-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.settings-v2-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.settings-v2-layout {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) minmax(300px, 360px);
+  align-items: start;
+}
+
+.settings-v2-nav,
+.settings-v2-runtime {
+  position: sticky;
+  top: 82px;
+}
+
+.settings-v2-nav {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-v2-nav-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-v2-section-picker {
+  display: none;
+}
+
+.settings-v2-nav-links {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-v2-nav-links a {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-v2-nav-links a.active,
+.settings-v2-nav-links a:hover {
+  color: var(--text);
+  border-color: rgba(69, 208, 255, 0.35);
+  background: rgba(69, 208, 255, 0.08);
+}
+
+.settings-v2-nav-footer {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-v2-main {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-v2-section {
+  scroll-margin-top: 92px;
+  overflow: hidden;
+}
+
+.settings-v2-section > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.settings-v2-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-v2-section > summary h2 {
+  margin: 0;
+  font-size: 1.08rem;
+}
+
+.settings-v2-summary-pill {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(69, 208, 255, 0.1);
+  color: var(--accent);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.settings-v2-section-body {
+  margin-top: 14px;
+  display: grid;
+  gap: 14px;
+}
+
+.settings-v2-form-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-v2-form-grid > label {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-v2-form-grid > label > span {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.settings-v2-span-2 {
+  grid-column: span 2;
+}
+
+.settings-v2-toggle-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.settings-v2-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.settings-v2-inline-note {
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.settings-v2-note-card {
+  padding: 12px;
+  border-radius: 12px;
+  background: linear-gradient(160deg, rgba(69, 208, 255, 0.09), rgba(255, 193, 101, 0.06));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.settings-v2-note-card strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.settings-v2-note-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.settings-v2-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-v2-runtime {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-v2-runtime-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-v2-runtime-head h2 {
+  margin: 0;
+  font-size: 1.08rem;
+}
+
+.settings-v2-runtime-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr;
+}
+
+.settings-v2-runtime-card {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.settings-v2-runtime-log {
+  min-height: 360px;
+  max-height: 65vh;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(4, 10, 19, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 1180px) {
+  .settings-v2-layout {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .settings-v2-runtime {
+    grid-column: 1 / -1;
+    position: static;
+  }
+}
+
+@media (max-width: 920px) {
+  .settings-v2-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-v2-nav {
+    position: static;
+  }
+
+  .settings-v2-section-picker {
+    display: block;
+  }
+
+  .settings-v2-nav-links {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .settings-v2-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-v2-span-2 {
+    grid-column: span 1;
+  }
+
+  .settings-v2-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .settings-v2-header-meta {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
 body.kiosk .radio-visuals .compass {
   width: min(100%, 390px);
   height: auto;
@@ -2353,6 +2625,58 @@ body.kiosk .radio-session-go-live {
 body.kiosk .radio-session-actions button {
   padding: 7px 10px;
   font-size: 0.92rem;
+}
+
+body.kiosk #pinnedViewWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+body.kiosk #pinnedViewWrap select {
+  min-width: 100px;
+}
+
+body.kiosk .aprs-session-card {
+  display: grid;
+  gap: 14px;
+}
+
+body.kiosk .aprs-packet-feed {
+  display: grid;
+  gap: 10px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+body.kiosk .aprs-packet-row {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(8, 18, 32, 0.58);
+}
+
+body.kiosk .aprs-packet-row-new {
+  border-color: rgba(127, 224, 255, 0.7);
+  box-shadow: 0 0 0 1px rgba(127, 224, 255, 0.28);
+}
+
+body.kiosk .aprs-packet-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+body.kiosk .aprs-packet-meta {
+  margin-top: 4px;
+  color: rgba(224, 233, 255, 0.72);
+  font-size: 0.82rem;
+}
+
+body.kiosk .aprs-packet-text {
+  margin-top: 6px;
+  color: rgba(244, 247, 255, 0.94);
+  line-height: 1.45;
 }
 
 body.kiosk .radio-channel-mode {
