@@ -933,6 +933,13 @@ def settings_index() -> FileResponse:
     return FileResponse("app/static/kiosk/settings.html")
 
 
+@app.get("/settings-v2")
+def settings_v2_index() -> FileResponse:
+    if lite_only_ui():
+        return FileResponse("app/static/lite/settings.html")
+    return FileResponse("app/static/kiosk/settings-v2.html")
+
+
 @app.get("/radio")
 def radio_index() -> FileResponse:
     return FileResponse("app/static/kiosk/radio.html")
