@@ -550,6 +550,12 @@ class AprsRuntimeState(BaseModel):
     session_active: bool = False
     sidecar_running: bool = False
     kiss_connected: bool = False
+    transport_mode: RadioTransportMode | None = None
+    control_endpoint: str | None = None
+    modem_state: str | None = None
+    audio_rx_active: bool = False
+    audio_tx_active: bool = False
+    capabilities: dict[str, bool] = Field(default_factory=dict)
     owned_resource: str | None = None
     last_error: str | None = None
     last_started_at: datetime | None = None

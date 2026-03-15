@@ -62,7 +62,14 @@ class DireWolfProcess:
             elif line.startswith("t") and line[1:] == "IPv4" and pid and command == "direwolf":
                 subprocess.run(["kill", pid], capture_output=True, text=True, check=False)
 
-    def build_config(self, settings: AprsSettings, target: AprsTargetState) -> str:
+    def build_config(
+        self,
+        settings: AprsSettings,
+        target: AprsTargetState,
+        *,
+        include_audio_devices: bool = True,
+        include_ptt: bool = True,
+    ) -> str:
         def quote_config_value(value: str) -> str:
             escaped = value.replace("\\", "\\\\").replace('"', '\\"')
             return f'"{escaped}"'
@@ -83,9 +90,9 @@ class DireWolfProcess:
             "MODEM 1200",
             f"KISSPORT {settings.kiss_port}",
         ]
-        if use_explicit_audio_devices:
+        if include_audio_devices and use_explicit_audio_devices:
             lines.insert(0, f"ADEVICE {quote_config_value(input_device)} {quote_config_value(output_device)}")
-        if settings.ptt_via_cat and not settings.listen_only:
+        if include_ptt and settings.ptt_via_cat and not settings.listen_only:
             rig_model = int(settings.hamlib_model_id or 3085)
             lines.append(f"PTT RIG {rig_model} {settings.serial_device} {settings.baud_rate}")
         comment = (settings.beacon_comment or "").strip()
@@ -104,6 +111,53 @@ class DireWolfProcess:
         self.config_path = self.workdir / "direwolf.conf"
         self.config_path.write_text(config_text, encoding="utf-8")
         self.command = [settings.direwolf_binary, "-c", str(self.config_path.resolve()), "-t", "0"]
+        self._kiss_port = int(settings.kiss_port)
+        self.output_tail.clear()
+        self.process = subprocess.Popen(
+            self.command,
+            cwd=str(self.workdir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self._stop.clear()
+        self._threads = []
+        for stream in (self.process.stdout, self.process.stderr):
+            if stream is None:
+                continue
+            thread = Thread(target=self._consume_stream, args=(stream,), daemon=True)
+            thread.start()
+            self._threads.append(thread)
+        return self.command, list(self.output_tail)
+
+    def start_network_decoder(
+        self,
+        settings: AprsSettings,
+        target: AprsTargetState,
+        *,
+        udp_port: int,
+        sample_rate: int = 48_000,
+    ) -> tuple[list[str], list[str]]:
+        self.stop()
+        self._terminate_conflicting_direwolf(settings.kiss_port)
+        self._wait_for_port_state(settings.kiss_port, in_use=False)
+        config_text = self.build_config(settings, target, include_audio_devices=False, include_ptt=False)
+        self.config_path = self.workdir / "direwolf.conf"
+        self.config_path.write_text(config_text, encoding="utf-8")
+        self.command = [
+            settings.direwolf_binary,
+            "-c",
+            str(self.config_path.resolve()),
+            "-r",
+            str(int(sample_rate)),
+            "-n",
+            "1",
+            "-b",
+            "16",
+            "-t",
+            "0",
+            f"UDP:{int(udp_port)}",
+        ]
         self._kiss_port = int(settings.kiss_port)
         self.output_tail.clear()
         self.process = subprocess.Popen(

@@ -442,6 +442,52 @@ class Ic705Controller(BaseIcomController):
             "receive_only": receive_only,
         }
 
+    def apply_aprs_packet_profile(self, freq_hz: int, mode: str = "FM"):
+        tune_hz = int(freq_hz)
+        mode_name = str(mode or "FM").strip().upper() or "FM"
+        self._set_active_vfo("A")
+        self._set_split_enabled(False)
+        self._set_selected_freq(tune_hz)
+        self._set_selected_mode(mode_name)
+        self._set_active_vfo("B")
+        self._set_selected_freq(tune_hz)
+        self._set_selected_mode(mode_name)
+        self._set_squelch_level(self.SQL_OPEN)
+        self._set_scope_enabled(True)
+        self._set_scope_mode(self.SCOPE_MODE_CENTER)
+        self._set_scope_span(self.MAX_SCOPE_SPAN_HZ)
+        self._set_active_vfo("A")
+        self.state.targets.update(
+            {
+                "vfo_a_label": "VFO A (TX)",
+                "vfo_b_label": "VFO B (RX)",
+                "vfo_a_freq_hz": tune_hz,
+                "vfo_b_freq_hz": tune_hz,
+                "vfo_a_mode": mode_name,
+                "vfo_b_mode": mode_name,
+                "squelch_level": self.SQL_OPEN,
+                "scope_enabled": True,
+                "scope_mode": "CENTER",
+                "scope_span_hz": self.MAX_SCOPE_SPAN_HZ,
+            }
+        )
+        self.state.raw_state.update(
+            {
+                "split_enabled": False,
+                "tx_vfo": "A",
+                "selected_vfo": "A",
+                "rx_vfo": "B",
+                "receive_only": False,
+                "transmit_only": False,
+                "squelch_level": self.SQL_OPEN,
+                "scope_enabled": True,
+                "scope_mode": "center",
+                "scope_span_hz": self.MAX_SCOPE_SPAN_HZ,
+            }
+        )
+        self.poll_state()
+        return self.state, {"vfo_a_freq_hz": tune_hz, "vfo_b_freq_hz": tune_hz, "mode": mode_name}
+
     def set_frequency(self, vfo: str, freq_hz: int):
         vfo_name = str(vfo or "").strip().upper()
         if vfo_name not in {"A", "B"}:

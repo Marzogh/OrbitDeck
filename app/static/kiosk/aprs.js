@@ -7,6 +7,7 @@ let latestPreviewTarget = null;
 let aprsConnectController = null;
 let latestAudioDevices = { inputs: [], outputs: [] };
 let latestAprsPorts = [];
+let latestRadioTransport = "usb";
 
 function hamlibDefaultsForRig(model) {
   if (String(model || "") === "ic705") return "3085";
@@ -90,6 +91,17 @@ function renderPreviewTarget(target) {
   trackerById("sendAprsMessagePage").disabled = disabled;
   trackerById("sendAprsStatusPage").disabled = disabled;
   trackerById("sendAprsPositionPage").disabled = disabled;
+}
+
+function updateTransportUi(systemState, aprsState) {
+  const radioSettings = systemState?.radioSettings || {};
+  const radioRuntime = systemState?.radioRuntime || {};
+  const runtime = aprsState?.runtime || {};
+  latestRadioTransport = String(radioRuntime.transport_mode || radioSettings.transport_mode || "usb");
+  const endpoint = runtime.control_endpoint || radioRuntime.endpoint || "--";
+  const modem = runtime.modem_state || (latestRadioTransport === "wifi" ? "native Wi-Fi APRS" : "Dire Wolf + local audio");
+  trackerById("aprsTransportHintPage").textContent =
+    `Transport: ${latestRadioTransport.toUpperCase()} | Endpoint: ${endpoint} | Modem: ${modem}`;
 }
 
 function renderTargets(targets, settings, previewTarget) {
@@ -256,6 +268,7 @@ async function loadAprsPage() {
   trackerById("aprsSatelliteCommentPage").value =
     settings.satellite_beacon_comment || settings.beacon_comment || "OrbitDeck Space APRS";
   renderTargets(targetResp.targets || {}, settings, stateResp.previewTarget || stateResp.runtime?.target || null);
+  updateTransportUi(systemResp, stateResp);
   syncModeUi();
   await refreshDirewolfStatus();
   setRuntime("loadAprsPage", { status: "ok", response: stateResp });
@@ -294,14 +307,23 @@ async function connectAprsPage() {
     trackerApi.get("/api/v1/radio/state"),
     trackerApi.get("/api/v1/settings/aprs"),
   ]);
+  const transportMode = String(radioState?.runtime?.transport_mode || radioState?.settings?.transport_mode || "").trim();
   if (radioState?.runtime?.connected) {
     const radioSettings = radioState.settings || {};
-    await runAction("POST /api/v1/settings/aprs", () => trackerApi.post("/api/v1/settings/aprs", {
+    const syncPayload = {
       rig_model: radioSettings.rig_model,
-      serial_device: radioSettings.serial_device,
-      baud_rate: radioSettings.baud_rate,
       civ_address: radioSettings.civ_address,
-    }));
+    };
+    if (transportMode !== "wifi") {
+      syncPayload.serial_device = radioSettings.serial_device;
+      syncPayload.baud_rate = radioSettings.baud_rate;
+    }
+    await runAction("POST /api/v1/settings/aprs", () => trackerApi.post("/api/v1/settings/aprs", syncPayload));
+    await runAction("POST /api/v1/aprs/connect", () => trackerApi.post("/api/v1/aprs/connect", {}));
+    await loadAprsPage();
+    return;
+  }
+  if (transportMode === "wifi") {
     await runAction("POST /api/v1/aprs/connect", () => trackerApi.post("/api/v1/aprs/connect", {}));
     await loadAprsPage();
     return;

@@ -454,9 +454,10 @@ def _effective_aprs_settings_for_connect(state) -> AprsSettings:
     if radio_runtime.connected:
         settings.rig_model = state.radio_settings.rig_model
         settings.hamlib_model_id = _hamlib_model_for_radio(state.radio_settings.rig_model)
-        settings.serial_device = state.radio_settings.serial_device
-        settings.baud_rate = state.radio_settings.baud_rate
         settings.civ_address = state.radio_settings.civ_address
+        if state.radio_settings.transport_mode != state.radio_settings.transport_mode.wifi:
+            settings.serial_device = state.radio_settings.serial_device
+            settings.baud_rate = state.radio_settings.baud_rate
     elif settings.hamlib_model_id is None:
         settings.hamlib_model_id = _hamlib_model_for_radio(settings.rig_model)
     return settings
@@ -1550,6 +1551,7 @@ def connect_aprs() -> dict:
         runtime = aprs_service.connect(
             effective_settings,
             target,
+            radio_settings=state.radio_settings,
             retune_resolver=(lambda: _resolve_aprs_target(_effective_aprs_settings_for_connect(store.get()), _resolve_location()[1])),
         )
         store.save(state)
