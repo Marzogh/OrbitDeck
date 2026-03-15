@@ -33,6 +33,7 @@ from app.models import (
     Satellite,
     SatelliteRadioChannel,
 )
+from app.radio.controllers.ic705 import Ic705Controller
 from app.radio.icom_lan_session import IcomLanRadioSession
 from app.radio.transport import SerialTransport
 from app.radio.civ import parse_civ_address
@@ -49,6 +50,7 @@ class AprsService:
     DATA1_MOD_INPUT_WLAN = 3
     WIFI_PROFILE_VERIFY_ATTEMPTS = 5
     WIFI_PROFILE_VERIFY_DELAY_S = 0.2
+    WIFI_STATE_KEY = "_orbitdeck_wifi_aprs"
 
     def __init__(
         self,
@@ -380,8 +382,14 @@ class AprsService:
         if self._wifi_radio is None:
             raise RuntimeError("APRS Wi-Fi session is not connected")
         snapshot = self._wifi_radio.snapshot_state()
+        snapshot[self.WIFI_STATE_KEY] = {
+            "vox": bool(self._wifi_radio.get_vox()),
+            "data_mode": bool(self._wifi_radio.get_data_mode()),
+            "data_off_mod_input": int(self._wifi_radio.get_data_off_mod_input()),
+            "data1_mod_input": int(self._wifi_radio.get_data1_mod_input()),
+        }
         self._wifi_snapshot = dict(snapshot)
-        if self._wifi_radio.get_vox():
+        if snapshot[self.WIFI_STATE_KEY]["vox"]:
             self._wifi_radio.set_vox(False)
         self._wifi_radio.select_vfo("A")
         self._wifi_radio.set_split_mode(False)
@@ -444,6 +452,16 @@ class AprsService:
         if self._wifi_radio is None:
             return
         self._wifi_radio.restore_state(snapshot)
+        extra = snapshot.get(self.WIFI_STATE_KEY)
+        if isinstance(extra, dict):
+            if "vox" in extra:
+                self._wifi_radio.set_vox(bool(extra["vox"]))
+            if "data_mode" in extra:
+                self._wifi_radio.set_data_mode(bool(extra["data_mode"]))
+            if "data_off_mod_input" in extra:
+                self._wifi_radio.set_data_off_mod_input(int(extra["data_off_mod_input"]))
+            if "data1_mod_input" in extra:
+                self._wifi_radio.set_data1_mod_input(int(extra["data1_mod_input"]))
 
     def _set_wifi_radio_frequency(self, tune_hz: int) -> None:
         if self._wifi_radio is None:
