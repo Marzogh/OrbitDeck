@@ -428,6 +428,10 @@ def _apply_aprs_settings_update(current: AprsSettings, payload: AprsSettingsUpda
         next_settings.ssid = payload.ssid
     if payload.hamlib_model_id is not None:
         next_settings.hamlib_model_id = payload.hamlib_model_id
+    if payload.position_fudge_lat_deg is not None:
+        next_settings.position_fudge_lat_deg = payload.position_fudge_lat_deg
+    if payload.position_fudge_lon_deg is not None:
+        next_settings.position_fudge_lon_deg = payload.position_fudge_lon_deg
     if payload.baud_rate is not None:
         next_settings.baud_rate = payload.baud_rate
     if payload.kiss_port is not None:
@@ -884,6 +888,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        with suppress(Exception):
+            aprs_service.disconnect()
+        with suppress(Exception):
+            radio_control_service.disconnect()
+        with suppress(Exception):
+            await asyncio.sleep(0.35)
         if _refresh_task is not None:
             _refresh_task.cancel()
             with suppress(asyncio.CancelledError):

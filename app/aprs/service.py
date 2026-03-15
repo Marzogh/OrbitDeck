@@ -298,6 +298,12 @@ class AprsService:
         lon = payload.longitude if payload.longitude is not None else getattr(location, "lon", None)
         if lat is None or lon is None:
             raise ValueError("Position send requires coordinates or a resolved location")
+        lat = max(-90.0, min(90.0, float(lat) + float(settings.position_fudge_lat_deg or 0.0)))
+        lon = max(-180.0, min(180.0, float(lon) + float(settings.position_fudge_lon_deg or 0.0)))
+        symbol_table = settings.symbol_table or "/"
+        symbol_code = settings.symbol_code or ">"
+        if settings.operating_mode == AprsOperatingMode.terrestrial and symbol_table == "/" and symbol_code == "[":
+            symbol_code = ">"
         default_comment = (
             settings.satellite_beacon_comment
             if settings.operating_mode == AprsOperatingMode.satellite
@@ -305,7 +311,7 @@ class AprsService:
         )
         self._send_frame(
             settings,
-            format_position_payload(lat, lon, settings.symbol_table, settings.symbol_code, payload.comment or default_comment or ""),
+            format_position_payload(lat, lon, symbol_table, symbol_code, payload.comment or default_comment or ""),
         )
         return self.runtime()
 
@@ -323,12 +329,17 @@ class AprsService:
             )
             path = [item.strip().upper() for item in str(path_text).split(",") if item.strip()]
         frame = encode_ui_frame(source, "APOD01", path, text)
+        sent_at = datetime.now(UTC)
         if self._runtime.transport_mode == RadioTransportMode.wifi:
             self._send_wifi_frame(frame)
         else:
             if self._kiss is None or not self._kiss.connected:
                 raise RuntimeError("APRS is not connected")
             self._kiss.send_data(frame)
+        self._runtime.last_tx_at = sent_at
+        self._runtime.last_tx_packet_type = self._packet_type_for_text(text)
+        self._runtime.last_tx_text = text
+        self._runtime.last_tx_raw_tnc2 = self._build_raw_tnc2(source, "APOD01", path, text)
         self._runtime.packets_tx += 1
 
     def _handle_frame(self, frame: bytes) -> None:
@@ -359,6 +370,22 @@ class AprsService:
     def _source_call(self, settings: AprsSettings) -> str:
         call = settings.callsign.strip().upper() or "N0CALL"
         return call if settings.ssid <= 0 else f"{call}-{settings.ssid}"
+
+    def _packet_type_for_text(self, text: str) -> str:
+        if text.startswith(":") and len(text) >= 11:
+            return "message"
+        if text.startswith(("!", "=")):
+            return "position"
+        if text.startswith(">"):
+            return "status"
+        return "raw"
+
+    def _build_raw_tnc2(self, source: str, destination: str, path: list[str], text: str) -> str:
+        raw_tnc2 = f"{source}>{destination}"
+        if path:
+            raw_tnc2 += "," + ",".join(path)
+        raw_tnc2 += f":{text}"
+        return raw_tnc2
 
     def _tune_radio(self, settings: AprsSettings, frequency_hz: int) -> None:
         if settings.rig_model != RadioRigModel.ic705:

@@ -38,10 +38,19 @@
           <input id="aprsTerrestrialFreqPage" type="number" min="1000" step="1" />
           <div id="aprsRegionHintPage" class="label">Loading APRS region…</div>
         </div>
-        <label for="aprsAudioInputPage">Audio Input</label>
-        <select id="aprsAudioInputPage"></select>
-        <label for="aprsAudioOutputPage">Audio Output</label>
-        <select id="aprsAudioOutputPage"></select>
+        <div id="aprsAudioInputField">
+          <label for="aprsAudioInputPage">Audio Input</label>
+          <select id="aprsAudioInputPage"></select>
+        </div>
+        <div id="aprsAudioOutputField">
+          <label for="aprsAudioOutputPage">Audio Output</label>
+          <select id="aprsAudioOutputPage"></select>
+        </div>
+        <div id="aprsAudioManagedNotePage" class="label hidden">Audio path: loading…</div>
+        <label for="aprsPositionFudgeLatPage">Position Fudge Latitude (deg)</label>
+        <input id="aprsPositionFudgeLatPage" type="number" min="-0.02" max="0.02" step="0.01" />
+        <label for="aprsPositionFudgeLonPage">Position Fudge Longitude (deg)</label>
+        <input id="aprsPositionFudgeLonPage" type="number" min="-0.02" max="0.02" step="0.01" />
         <label for="aprsListenOnlyPage">Listen Only</label>
         <input id="aprsListenOnlyPage" type="checkbox" />
         <div id="aprsTerrestrialSettingsGroup">

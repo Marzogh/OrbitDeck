@@ -261,6 +261,19 @@ function updateRadioContextNote() {
       : ` | ${radioSettings.serial_device || "--"}`);
 }
 
+function syncAprsAudioUi() {
+  const radioSettings = stateCache.radio.settings || {};
+  const wifiManaged = radioSettings.rig_model === "ic705" && radioSettings.transport_mode === "wifi";
+  trackerById("v2AprsAudioInputField").classList.toggle("hidden", wifiManaged);
+  trackerById("v2AprsAudioOutputField").classList.toggle("hidden", wifiManaged);
+  const note = trackerById("v2AprsAudioManagedNote");
+  note.classList.toggle("hidden", !wifiManaged);
+  if (wifiManaged) {
+    note.textContent =
+      `Audio is managed automatically by the IC-705 Wi-Fi transport | RX: IC-705 WLAN audio stream -> Dire Wolf | TX: OrbitDeck AFSK -> IC-705 WLAN audio`;
+  }
+}
+
 function applyHashState() {
   const hash = window.location.hash || "#radio-connection";
   const section = document.querySelector(hash);
@@ -405,6 +418,8 @@ async function refreshState() {
     aprsSettings.terrestrial_beacon_comment || aprsSettings.beacon_comment || "OrbitDeck APRS";
   trackerById("v2AprsSatelliteComment").value =
     aprsSettings.satellite_beacon_comment || aprsSettings.beacon_comment || "OrbitDeck Space APRS";
+  trackerById("v2AprsPositionFudgeLat").value = Number(aprsSettings.position_fudge_lat_deg || 0).toFixed(2);
+  trackerById("v2AprsPositionFudgeLon").value = Number(aprsSettings.position_fudge_lon_deg || 0).toFixed(2);
   populateAudioSelect("v2AprsAudioInput", stateCache.audioDevices.inputs || [], aprsSettings.audio_input_device || "");
   populateAudioSelect("v2AprsAudioOutput", stateCache.audioDevices.outputs || [], aprsSettings.audio_output_device || "");
   renderTargetOptions();
@@ -417,6 +432,7 @@ async function refreshState() {
   updateSectionSummaries();
   updateRuntimePane();
   updateRadioContextNote();
+  syncAprsAudioUi();
 }
 
 async function saveRadioSection() {
@@ -505,13 +521,17 @@ async function saveAprsSection() {
     serial_device: radioSettings.serial_device || "",
     baud_rate: Number(radioSettings.baud_rate || 19200),
     civ_address: radioSettings.civ_address || (rigModel === "ic705" ? "0xA4" : "0x8C"),
-    audio_input_device: trackerById("v2AprsAudioInput").value,
-    audio_output_device: trackerById("v2AprsAudioOutput").value,
+    position_fudge_lat_deg: Number(trackerById("v2AprsPositionFudgeLat").value || 0),
+    position_fudge_lon_deg: Number(trackerById("v2AprsPositionFudgeLon").value || 0),
     terrestrial_path: trackerById("v2AprsTerrestrialPath").value,
     satellite_path: trackerById("v2AprsSatellitePath").value,
     terrestrial_beacon_comment: trackerById("v2AprsTerrestrialComment").value,
     satellite_beacon_comment: trackerById("v2AprsSatelliteComment").value,
   };
+  if (!(radioSettings.rig_model === "ic705" && radioSettings.transport_mode === "wifi")) {
+    payload.audio_input_device = trackerById("v2AprsAudioInput").value;
+    payload.audio_output_device = trackerById("v2AprsAudioOutput").value;
+  }
   if (payload.operating_mode === "satellite") {
     payload.selected_satellite_id = trackerById("v2AprsSatellite").value || null;
     payload.selected_channel_id = trackerById("v2AprsChannel").value || null;

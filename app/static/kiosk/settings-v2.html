@@ -283,11 +283,11 @@
                 <span>Terrestrial Frequency (Hz)</span>
                 <input id="v2AprsTerrestrialFreq" type="number" min="1000" step="1" />
               </label>
-              <label>
+              <label id="v2AprsAudioInputField">
                 <span>Audio Input</span>
                 <select id="v2AprsAudioInput"></select>
               </label>
-              <label>
+              <label id="v2AprsAudioOutputField">
                 <span>Audio Output</span>
                 <select id="v2AprsAudioOutput"></select>
               </label>
@@ -307,8 +307,18 @@
                 <span>Satellite Comment</span>
                 <input id="v2AprsSatelliteComment" type="text" placeholder="OrbitDeck Space APRS" />
               </label>
+              <label>
+                <span>Position Fudge Latitude (deg)</span>
+                <input id="v2AprsPositionFudgeLat" type="number" min="-0.02" max="0.02" step="0.01" />
+              </label>
+              <label>
+                <span>Position Fudge Longitude (deg)</span>
+                <input id="v2AprsPositionFudgeLon" type="number" min="-0.02" max="0.02" step="0.01" />
+              </label>
             </div>
             <div id="v2AprsRegionHint" class="settings-v2-inline-note">Loading APRS target profile…</div>
+            <div id="v2AprsAudioManagedNote" class="settings-v2-inline-note hidden">Audio path: loading…</div>
+            <div class="settings-v2-inline-note">APRS-only transmit offset. Each axis can be nudged by up to plus or minus 0.02 degrees in 0.01 degree steps.</div>
             <div class="settings-v2-note-card">
               <strong>IC-705 Wi-Fi operator note</strong>
               <p>Placeholder: expand this with saved-profile guidance, Wi-Fi data-mode prerequisites, and APRS workflow notes once the final operator playbook is settled.</p>

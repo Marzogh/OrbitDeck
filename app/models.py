@@ -182,6 +182,8 @@ class AprsSettings(BaseModel):
     satellite_beacon_comment: str = "OrbitDeck Space APRS"
     symbol_table: str = "/"
     symbol_code: str = "["
+    position_fudge_lat_deg: float = Field(default=0.0, ge=-0.02, le=0.02, multiple_of=0.01)
+    position_fudge_lon_deg: float = Field(default=0.0, ge=-0.02, le=0.02, multiple_of=0.01)
     selected_satellite_id: str | None = None
     selected_channel_id: str | None = None
     terrestrial_auto_region: bool = True
@@ -560,6 +562,10 @@ class AprsRuntimeState(BaseModel):
     last_error: str | None = None
     last_started_at: datetime | None = None
     last_packet_at: datetime | None = None
+    last_tx_at: datetime | None = None
+    last_tx_packet_type: str | None = None
+    last_tx_text: str | None = None
+    last_tx_raw_tnc2: str | None = None
     packets_rx: int = 0
     packets_tx: int = 0
     heard_count: int = 0
@@ -624,6 +630,8 @@ class AprsSettingsUpdate(BaseModel):
     satellite_beacon_comment: str | None = None
     symbol_table: str | None = None
     symbol_code: str | None = None
+    position_fudge_lat_deg: float | None = Field(default=None, ge=-0.02, le=0.02, multiple_of=0.01)
+    position_fudge_lon_deg: float | None = Field(default=None, ge=-0.02, le=0.02, multiple_of=0.01)
     selected_satellite_id: str | None = None
     selected_channel_id: str | None = None
     terrestrial_path: str | None = None

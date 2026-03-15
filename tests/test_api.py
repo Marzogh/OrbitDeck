@@ -1980,6 +1980,28 @@ def test_aprs_settings_store_separate_space_and_terrestrial_comments(tmp_path):
     assert state["satellite_beacon_comment"] == "OrbitDeck space"
 
 
+def test_set_and_get_aprs_position_fudge_settings(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.post(
+        "/api/v1/settings/aprs",
+        json={
+            "position_fudge_lat_deg": 0.02,
+            "position_fudge_lon_deg": -0.01,
+        },
+    )
+    assert resp.status_code == 200
+    state = resp.json()["state"]
+    assert state["position_fudge_lat_deg"] == 0.02
+    assert state["position_fudge_lon_deg"] == -0.01
+
+    get_resp = client.get("/api/v1/settings/aprs")
+    assert get_resp.status_code == 200
+    get_state = get_resp.json()["state"]
+    assert get_state["position_fudge_lat_deg"] == 0.02
+    assert get_state["position_fudge_lon_deg"] == -0.01
+
+
 def test_aprs_position_send_uses_mode_specific_default_comment(tmp_path):
     client = make_client(tmp_path)
     main.aprs_service = FakeAprsService()
@@ -2014,6 +2036,11 @@ def test_aprs_position_send_uses_mode_specific_default_comment(tmp_path):
     assert terrestrial_send.status_code == 200
     terrestrial_frame = main.aprs_service.kiss_clients[-1].sent[-1][0]
     assert decode_ui_frame(terrestrial_frame).text.endswith("LAND")
+    terrestrial_runtime = terrestrial_send.json()["runtime"]
+    assert terrestrial_runtime["last_tx_packet_type"] == "position"
+    assert terrestrial_runtime["last_tx_text"].endswith("LAND")
+    assert terrestrial_runtime["last_tx_raw_tnc2"].startswith("VK4ABC-10>APOD01")
+    assert ":!" in terrestrial_runtime["last_tx_raw_tnc2"]
 
     targets = client.get("/api/v1/aprs/targets").json()["targets"]["satellites"]
     iss = next(item for item in targets if item["sat_id"] == "iss-zarya")
@@ -2046,6 +2073,44 @@ def test_aprs_position_send_uses_mode_specific_default_comment(tmp_path):
         assert decode_ui_frame(satellite_frame).text.endswith("SPACE")
     finally:
         main.tracking_service.pass_predictions = original_pass_predictions
+
+
+def test_aprs_position_send_applies_configured_position_fudge(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_service = FakeAprsService()
+
+    client.post(
+        "/api/v1/location",
+        json={
+            "source_mode": "manual",
+            "add_profile": {
+                "id": "brisbane",
+                "name": "Brisbane",
+                "point": {"lat": -27.4698, "lon": 153.0251, "alt_m": 25},
+            },
+            "selected_profile_id": "brisbane",
+        },
+    )
+    client.post(
+        "/api/v1/settings/aprs",
+        json={
+            "enabled": True,
+            "callsign": "VK4ABC",
+            "operating_mode": "terrestrial",
+            "serial_device": "/dev/ttyUSB0",
+            "audio_input_device": "default",
+            "audio_output_device": "default",
+            "position_fudge_lat_deg": 0.02,
+            "position_fudge_lon_deg": -0.01,
+            "terrestrial_beacon_comment": "FUDGED",
+        },
+    )
+    client.post("/api/v1/aprs/connect")
+    send = client.post("/api/v1/aprs/send/position", json={})
+    assert send.status_code == 200
+    runtime = send.json()["runtime"]
+    assert runtime["last_tx_packet_type"] == "position"
+    assert runtime["last_tx_text"] == "!2726.99S/15300.91E>FUDGED"
 
 
 def test_radio_control_requires_station_callsign(tmp_path):
@@ -2186,7 +2251,11 @@ def test_aprs_service_wifi_backend_uses_native_audio_and_ptt(tmp_path):
     assert ("set_ptt", False) in fake_wifi.calls
 
     service.disconnect()
-    assert ("restore_state", fake_wifi.snapshot) in fake_wifi.calls
+    restore_calls = [payload for name, payload in fake_wifi.calls if name == "restore_state"]
+    assert restore_calls
+    assert restore_calls[-1]["frequency"] == fake_wifi.snapshot["frequency"]
+    assert restore_calls[-1]["vfo"] == fake_wifi.snapshot["vfo"]
+    assert restore_calls[-1]["split"] == fake_wifi.snapshot["split"]
 
 
 def test_aprs_service_wifi_backend_restores_snapshot_on_setup_failure(tmp_path):
