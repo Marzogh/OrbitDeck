@@ -336,12 +336,22 @@ def _apply_radio_settings_update(current: RadioSettings, payload: RadioSettingsU
         next_settings.enabled = payload.enabled
     if payload.rig_model is not None:
         next_settings.rig_model = payload.rig_model
+    if payload.transport_mode is not None:
+        next_settings.transport_mode = payload.transport_mode
     if payload.serial_device is not None:
         next_settings.serial_device = payload.serial_device.strip()
     if payload.baud_rate is not None:
         next_settings.baud_rate = payload.baud_rate
     if payload.civ_address is not None:
         next_settings.civ_address = normalize_civ_address(payload.civ_address.strip())
+    if payload.wifi_host is not None:
+        next_settings.wifi_host = payload.wifi_host.strip()
+    if payload.wifi_username is not None:
+        next_settings.wifi_username = payload.wifi_username.strip()
+    if payload.wifi_password is not None:
+        next_settings.wifi_password = payload.wifi_password
+    if payload.wifi_control_port is not None:
+        next_settings.wifi_control_port = payload.wifi_control_port
     if payload.poll_interval_ms is not None:
         next_settings.poll_interval_ms = payload.poll_interval_ms
     if payload.auto_connect is not None:
@@ -360,6 +370,13 @@ def _apply_radio_settings_update(current: RadioSettings, payload: RadioSettingsU
             next_settings.civ_address = civ
     else:
         next_settings.civ_address = normalize_civ_address(next_settings.civ_address)
+    if next_settings.transport_mode.value == "wifi":
+        if next_settings.rig_model != RadioRigModel.ic705:
+            raise ValueError("Wi-Fi transport is currently supported only for the IC-705")
+        if not next_settings.wifi_host:
+            raise ValueError("Wi-Fi host is required for IC-705 Wi-Fi transport")
+        if not next_settings.wifi_username:
+            raise ValueError("Wi-Fi username is required for IC-705 Wi-Fi transport")
     return next_settings
 
 
@@ -437,9 +454,10 @@ def _effective_aprs_settings_for_connect(state) -> AprsSettings:
     if radio_runtime.connected:
         settings.rig_model = state.radio_settings.rig_model
         settings.hamlib_model_id = _hamlib_model_for_radio(state.radio_settings.rig_model)
-        settings.serial_device = state.radio_settings.serial_device
-        settings.baud_rate = state.radio_settings.baud_rate
         settings.civ_address = state.radio_settings.civ_address
+        if state.radio_settings.transport_mode != state.radio_settings.transport_mode.wifi:
+            settings.serial_device = state.radio_settings.serial_device
+            settings.baud_rate = state.radio_settings.baud_rate
     elif settings.hamlib_model_id is None:
         settings.hamlib_model_id = _hamlib_model_for_radio(settings.rig_model)
     return settings
@@ -913,6 +931,13 @@ def settings_index() -> FileResponse:
     if lite_only_ui():
         return FileResponse("app/static/lite/settings.html")
     return FileResponse("app/static/kiosk/settings.html")
+
+
+@app.get("/settings-v2")
+def settings_v2_index() -> FileResponse:
+    if lite_only_ui():
+        return FileResponse("app/static/lite/settings.html")
+    return FileResponse("app/static/kiosk/settings-v2.html")
 
 
 @app.get("/radio")
@@ -1533,6 +1558,7 @@ def connect_aprs() -> dict:
         runtime = aprs_service.connect(
             effective_settings,
             target,
+            radio_settings=state.radio_settings,
             retune_resolver=(lambda: _resolve_aprs_target(_effective_aprs_settings_for_connect(store.get()), _resolve_location()[1])),
         )
         store.save(state)

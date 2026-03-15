@@ -5,6 +5,7 @@ import subprocess
 from time import sleep
 from types import MethodType
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
@@ -13,6 +14,7 @@ from app.aprs.direwolf import DireWolfProcess
 from app.aprs.service import AprsService
 from app.models import (
     AprsOperatingMode,
+    AprsSendStatusRequest,
     AprsSettings,
     AprsTargetState,
     CorrectionSide,
@@ -24,6 +26,7 @@ from app.models import (
     LiveTrack,
     PassEvent,
     RadioRigModel,
+    RadioTransportMode,
     Satellite,
 )
 from app.radio.civ import ACK, build_frame, freq_to_bcd
@@ -121,6 +124,12 @@ class FakeDireWolfSidecar:
         self.output_tail = [f"started {target.frequency_hz}"]
         return self.command, self.output_tail
 
+    def start_network_decoder(self, settings, target, *, udp_port, sample_rate=48000):
+        self.running = True
+        self.command = [settings.direwolf_binary, "-c", "fake-direwolf.conf", f"UDP:{udp_port}"]
+        self.output_tail = [f"started network decoder {target.frequency_hz} @ {sample_rate}"]
+        return self.command, self.output_tail
+
     def stop(self):
         self.running = False
 
@@ -166,6 +175,133 @@ class FakeAprsService(AprsService):
 
     def _tune_radio(self, settings, frequency_hz: int) -> None:
         self.last_tuned_frequency = int(frequency_hz)
+
+
+class FakeWifiSession:
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+        self.calls: list[tuple[str, object]] = []
+        self.audio_rx_callback = None
+        self.snapshot = {"frequency": 145175000, "vfo": "A", "split": False}
+        self.vox_enabled = True
+        self.selected_vfo = "A"
+        self.vfo_a_freq = 145175000
+        self.vfo_b_freq = 145175000
+        self.mode = "FM"
+
+    def connect(self):
+        self.calls.append(("connect", None))
+
+    def disconnect(self):
+        self.calls.append(("disconnect", None))
+
+    def snapshot_state(self):
+        self.calls.append(("snapshot_state", None))
+        snapshot = dict(self.snapshot)
+        snapshot["vfo"] = self.selected_vfo
+        snapshot["split"] = self.snapshot.get("split", False)
+        snapshot["frequency"] = self.vfo_a_freq if self.selected_vfo == "A" else self.vfo_b_freq
+        return snapshot
+
+    def restore_state(self, snapshot):
+        self.calls.append(("restore_state", dict(snapshot)))
+
+    def get_vox(self):
+        self.calls.append(("get_vox", None))
+        return self.vox_enabled
+
+    def set_vox(self, on):
+        self.calls.append(("set_vox", bool(on)))
+        self.vox_enabled = bool(on)
+
+    def get_mode(self, receiver=0):
+        self.calls.append(("get_mode", int(receiver)))
+        return (self.mode, None)
+
+    def get_frequency(self):
+        self.calls.append(("get_frequency", None))
+        return self.vfo_a_freq if self.selected_vfo == "A" else self.vfo_b_freq
+
+    def get_data_mode(self):
+        self.calls.append(("get_data_mode", None))
+        return True
+
+    def get_data_off_mod_input(self):
+        self.calls.append(("get_data_off_mod_input", None))
+        return 5
+
+    def get_data1_mod_input(self):
+        self.calls.append(("get_data1_mod_input", None))
+        return 3
+
+    def select_vfo(self, vfo):
+        self.calls.append(("select_vfo", vfo))
+        self.selected_vfo = str(vfo)
+
+    def set_split_mode(self, on):
+        self.calls.append(("set_split_mode", bool(on)))
+        self.snapshot["split"] = bool(on)
+
+    def set_mode(self, mode):
+        self.calls.append(("set_mode", mode))
+        self.mode = str(mode)
+
+    def set_data_mode(self, on):
+        self.calls.append(("set_data_mode", bool(on)))
+
+    def set_data_off_mod_input(self, source):
+        self.calls.append(("set_data_off_mod_input", int(source)))
+
+    def set_data1_mod_input(self, source):
+        self.calls.append(("set_data1_mod_input", int(source)))
+
+    def set_frequency(self, freq_hz):
+        self.calls.append(("set_frequency", int(freq_hz)))
+        if self.selected_vfo == "B":
+            self.vfo_b_freq = int(freq_hz)
+        else:
+            self.vfo_a_freq = int(freq_hz)
+
+    def vfo_equalize(self):
+        self.calls.append(("vfo_equalize", None))
+        self.vfo_b_freq = self.vfo_a_freq
+
+    def start_audio_rx(self, callback):
+        self.audio_rx_callback = callback
+        self.calls.append(("start_audio_rx", None))
+
+    def stop_audio_rx(self):
+        self.calls.append(("stop_audio_rx", None))
+
+    def start_audio_tx(self):
+        self.calls.append(("start_audio_tx", None))
+
+    def push_audio_tx(self, pcm_bytes):
+        self.calls.append(("push_audio_tx", len(pcm_bytes)))
+
+    def stop_audio_tx(self):
+        self.calls.append(("stop_audio_tx", None))
+
+    def set_ptt(self, on):
+        self.calls.append(("set_ptt", bool(on)))
+
+    def set_squelch(self, level, receiver=0):
+        self.calls.append(("set_squelch", (int(level), int(receiver))))
+
+    def enable_scope(self, *, output=False, policy="fast"):
+        self.calls.append(("enable_scope", (bool(output), policy)))
+
+    def set_scope_mode(self, mode):
+        self.calls.append(("set_scope_mode", int(mode)))
+
+    def set_scope_span(self, span):
+        self.calls.append(("set_scope_span", int(span)))
+
+
+class FailingVerifyWifiSession(FakeWifiSession):
+    def get_data_mode(self):
+        self.calls.append(("get_data_mode", None))
+        return False
 
 
 class ScriptedIc705Transport:
@@ -423,6 +559,59 @@ def test_set_and_get_radio_settings(tmp_path):
     state = get_resp.json()["state"]
     assert state["enabled"] is True
     assert state["auto_connect"] is True
+
+
+def test_set_and_get_radio_wifi_settings(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.post(
+        "/api/v1/settings/radio",
+        json={
+            "enabled": True,
+            "rig_model": "ic705",
+            "transport_mode": "wifi",
+            "wifi_host": "192.168.2.70",
+            "wifi_username": "demo-user",
+            "wifi_password": "secret-pass",
+            "wifi_control_port": 50001,
+            "civ_address": "0xA4",
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()["state"]
+    assert payload["transport_mode"] == "wifi"
+    assert payload["wifi_host"] == "192.168.2.70"
+    assert payload["wifi_username"] == "demo-user"
+    assert payload["wifi_control_port"] == 50001
+
+    get_resp = client.get("/api/v1/settings/radio")
+    assert get_resp.status_code == 200
+    state = get_resp.json()["state"]
+    assert state["transport_mode"] == "wifi"
+    assert state["wifi_host"] == "192.168.2.70"
+
+
+def test_radio_wifi_settings_require_ic705_and_host(tmp_path):
+    client = make_client(tmp_path)
+
+    missing_host = client.post(
+        "/api/v1/settings/radio",
+        json={"rig_model": "ic705", "transport_mode": "wifi", "wifi_username": "demo-user"},
+    )
+    assert missing_host.status_code == 400
+    assert "host is required" in missing_host.json()["detail"].lower()
+
+    wrong_model = client.post(
+        "/api/v1/settings/radio",
+        json={
+            "rig_model": "id5100",
+            "transport_mode": "wifi",
+            "wifi_host": "192.168.2.70",
+            "wifi_username": "demo-user",
+        },
+    )
+    assert wrong_model.status_code == 400
+    assert "supported only for the ic-705" in wrong_model.json()["detail"].lower()
 
 
 def test_radio_connect_apply_and_stop(tmp_path):
@@ -1903,7 +2092,7 @@ def test_aprs_connect_surfaces_serial_error_as_bad_request(tmp_path):
     client = make_client(tmp_path)
 
     class FailingAprsService(FakeAprsService):
-        def connect(self, settings, target, retune_resolver=None, interval_s=1.0):
+        def connect(self, settings, target, *, radio_settings=None, retune_resolver=None, interval_s=1.0):
             raise OSError("[Errno 2] could not open port /dev/cu.fake: No such file or directory")
 
     main.aprs_service = FailingAprsService()
@@ -1929,6 +2118,210 @@ def test_aprs_connect_surfaces_serial_error_as_bad_request(tmp_path):
     resp = client.post("/api/v1/aprs/connect")
     assert resp.status_code == 400
     assert "could not open port" in resp.json()["detail"].lower()
+
+
+def test_aprs_service_wifi_backend_uses_native_audio_and_ptt(tmp_path):
+    fake_wifi = FakeWifiSession()
+    service = AprsService(
+        sidecar_factory=lambda: FakeDireWolfSidecar(),
+        kiss_factory=lambda host, port, cb: FakeKissClient(host, port, cb),
+        wait_for_socket_fn=lambda host, port, timeout: None,
+        wifi_session_factory=lambda **kwargs: fake_wifi,
+    )
+    settings = AprsSettings(
+        callsign="VK4ABC",
+        ssid=7,
+        rig_model=RadioRigModel.ic705,
+        civ_address="0xA4",
+        direwolf_binary="/opt/homebrew/bin/direwolf",
+    )
+    radio_settings = main.store.get().radio_settings.model_copy(
+        update={
+            "rig_model": RadioRigModel.ic705,
+            "transport_mode": RadioTransportMode.wifi,
+            "wifi_host": "192.168.2.70",
+            "wifi_username": "demo-user",
+            "wifi_password": "secret-pass",
+            "wifi_control_port": 50001,
+        }
+    )
+    target = AprsTargetState(
+        operating_mode=AprsOperatingMode.terrestrial,
+        label="Terrestrial APRS",
+        frequency_hz=145175000,
+        path_default="WIDE1-1,WIDE2-1",
+    )
+
+    runtime = service.connect(settings, target, radio_settings=radio_settings)
+    assert runtime.transport_mode == "wifi"
+    assert runtime.capabilities == {
+        "cat_control": True,
+        "rx_audio": True,
+        "tx_audio": True,
+        "ptt": True,
+    }
+    assert ("snapshot_state", None) in fake_wifi.calls
+    assert ("get_vox", None) in fake_wifi.calls
+    assert ("set_vox", False) in fake_wifi.calls
+    assert ("set_split_mode", False) in fake_wifi.calls
+    assert ("set_frequency", 145175000) in fake_wifi.calls
+    assert ("set_mode", "FM") in fake_wifi.calls
+    assert ("vfo_equalize", None) in fake_wifi.calls
+    assert ("set_squelch", (0, 0)) in fake_wifi.calls
+    assert ("enable_scope", (False, "fast")) in fake_wifi.calls
+    assert ("set_scope_mode", 0) in fake_wifi.calls
+    assert ("set_scope_span", 7) in fake_wifi.calls
+    assert ("get_mode", 0) in fake_wifi.calls
+    assert ("get_data_mode", None) in fake_wifi.calls
+    assert ("get_data_off_mod_input", None) in fake_wifi.calls
+    assert ("get_data1_mod_input", None) in fake_wifi.calls
+    assert ("set_data_off_mod_input", 5) in fake_wifi.calls
+    assert ("set_data1_mod_input", 3) in fake_wifi.calls
+    assert ("start_audio_rx", None) in fake_wifi.calls
+
+    service.send_status(settings, AprsSendStatusRequest(text="wifi status"))
+    assert ("start_audio_tx", None) in fake_wifi.calls
+    assert ("set_ptt", True) in fake_wifi.calls
+    assert any(name == "push_audio_tx" and size > 0 for name, size in fake_wifi.calls if isinstance(size, int))
+    assert ("set_ptt", False) in fake_wifi.calls
+
+    service.disconnect()
+    assert ("restore_state", fake_wifi.snapshot) in fake_wifi.calls
+
+
+def test_aprs_service_wifi_backend_restores_snapshot_on_setup_failure(tmp_path):
+    fake_wifi = FailingVerifyWifiSession()
+    service = AprsService(
+        sidecar_factory=lambda: FakeDireWolfSidecar(),
+        kiss_factory=lambda host, port, cb: FakeKissClient(host, port, cb),
+        wait_for_socket_fn=lambda host, port, timeout: None,
+        wifi_session_factory=lambda **kwargs: fake_wifi,
+    )
+    settings = AprsSettings(
+        callsign="VK4ABC",
+        ssid=7,
+        rig_model=RadioRigModel.ic705,
+        civ_address="0xA4",
+        direwolf_binary="/opt/homebrew/bin/direwolf",
+    )
+    radio_settings = main.store.get().radio_settings.model_copy(
+        update={
+            "rig_model": RadioRigModel.ic705,
+            "transport_mode": RadioTransportMode.wifi,
+            "wifi_host": "192.168.2.70",
+            "wifi_username": "demo-user",
+            "wifi_password": "secret-pass",
+            "wifi_control_port": 50001,
+        }
+    )
+    target = AprsTargetState(
+        operating_mode=AprsOperatingMode.terrestrial,
+        label="Terrestrial APRS",
+        frequency_hz=145175000,
+        path_default="WIDE1-1,WIDE2-1",
+    )
+
+    with pytest.raises(RuntimeError, match="DATA mode is not enabled"):
+        service.connect(settings, target, radio_settings=radio_settings)
+
+    assert ("restore_state", fake_wifi.snapshot) in fake_wifi.calls
+
+
+def test_direwolf_network_decoder_command_uses_udp_source(tmp_path):
+    process = DireWolfProcess(workdir=str(tmp_path / "aprs-sidecar"))
+    process._terminate_conflicting_direwolf = lambda port: None
+    process._wait_for_port_state = lambda port, in_use, timeout=3.0: None
+    settings = AprsSettings(callsign="VK4ABC", direwolf_binary="/opt/homebrew/bin/direwolf")
+    target = AprsTargetState(
+        operating_mode=AprsOperatingMode.terrestrial,
+        label="Terrestrial APRS",
+        frequency_hz=145175000,
+        path_default="WIDE1-1,WIDE2-1",
+    )
+
+    captured = {}
+
+    def fake_popen(cmd, cwd=None, stdout=None, stderr=None, text=None, **kwargs):
+        captured["cmd"] = cmd
+        captured["cwd"] = cwd
+        class Proc:
+            def __init__(self):
+                self.stdout = None
+                self.stderr = None
+            def poll(self):
+                return None
+        return Proc()
+
+    original = subprocess.Popen
+    subprocess.Popen = fake_popen
+    try:
+        process.start_network_decoder(settings, target, udp_port=9134)
+    finally:
+        subprocess.Popen = original
+    assert captured["cmd"][-1] == "UDP:9134"
+    assert "-r" in captured["cmd"]
+    assert captured["cwd"] == str(tmp_path / "aprs-sidecar")
+
+
+def test_aprs_connect_passes_wifi_radio_settings_to_service(tmp_path):
+    client = make_client(tmp_path)
+    configure_station_identity(client)
+
+    captured = {}
+
+    class CapturingAprsService(FakeAprsService):
+        def connect(self, settings, target, *, radio_settings=None, retune_resolver=None, interval_s=1.0):
+            captured["radio_settings"] = radio_settings
+            return super().connect(settings, target, radio_settings=None, retune_resolver=retune_resolver, interval_s=interval_s)
+
+    main.aprs_service = CapturingAprsService()
+    client.post(
+        "/api/v1/settings/radio",
+        json={
+            "enabled": True,
+            "rig_model": "ic705",
+            "transport_mode": "wifi",
+            "wifi_host": "192.168.2.70",
+            "wifi_username": "demo-user",
+            "wifi_password": "secret-pass",
+            "wifi_control_port": 50001,
+            "civ_address": "0xA4",
+        },
+    )
+    client.post("/api/v1/aprs/session/select", json={"operating_mode": "terrestrial"})
+    resp = client.post("/api/v1/aprs/connect")
+    assert resp.status_code == 200
+    assert captured["radio_settings"].transport_mode == RadioTransportMode.wifi
+
+
+def test_radio_wifi_connect_runtime_exposes_endpoint(tmp_path):
+    client = make_client(tmp_path)
+    configure_station_identity(client)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
+    )
+
+    settings_resp = client.post(
+        "/api/v1/settings/radio",
+        json={
+            "enabled": True,
+            "rig_model": "ic705",
+            "transport_mode": "wifi",
+            "wifi_host": "192.168.2.70",
+            "wifi_username": "demo-user",
+            "wifi_password": "secret-pass",
+            "wifi_control_port": 50001,
+            "civ_address": "0xA4",
+        },
+    )
+    assert settings_resp.status_code == 200
+
+    connect_resp = client.post("/api/v1/radio/connect")
+    assert connect_resp.status_code == 200
+    runtime = connect_resp.json()["runtime"]
+    assert runtime["connected"] is True
+    assert runtime["transport_mode"] == "wifi"
+    assert runtime["endpoint"] == "192.168.2.70:50001"
 
 
 def test_aprs_connect_reuses_connected_radio_settings(tmp_path):
