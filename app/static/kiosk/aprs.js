@@ -1,18 +1,11 @@
 let trackerApi;
 let trackerById;
 let trackerRenderStationBadge;
-let trackerCreateRigConnectController;
 let latestTargets = { satellites: [], terrestrial: null };
 let latestPreviewTarget = null;
-let aprsConnectController = null;
 let latestAudioDevices = { inputs: [], outputs: [] };
-let latestAprsPorts = [];
 let latestRadioTransport = "usb";
-
-function hamlibDefaultsForRig(model) {
-  if (String(model || "") === "ic705") return "3085";
-  return "3071";
-}
+let latestRadioSettings = {};
 
 function isDirewolfMissingMessage(message) {
   const text = String(message || "").toLowerCase();
@@ -158,31 +151,6 @@ function populateAudioSelect(selectId, items, selectedValue) {
   select.value = resolvedSelected || values[0]?.value || values[0]?.name || "default";
 }
 
-function populateSerialPortSelect(items, selectedValue) {
-  const select = trackerById("aprsSerialDevicePage");
-  if (!select) return;
-  const values = Array.isArray(items) ? items : [];
-  const selected = String(selectedValue || "").trim();
-  const seen = new Set();
-  const options = [];
-  if (selected && !values.some((item) => String(item?.device || "").trim() === selected)) {
-    options.push(`<option value="${selected}">${selected} · current</option>`);
-    seen.add(selected);
-  }
-  for (const item of values) {
-    const device = String(item?.device || "").trim();
-    if (!device || seen.has(device)) continue;
-    seen.add(device);
-    const desc = String(item?.description || "").trim();
-    options.push(`<option value="${device}">${desc ? `${device} · ${desc}` : device}</option>`);
-  }
-  if (!options.length) {
-    options.push('<option value="">No serial ports detected</option>');
-  }
-  select.innerHTML = options.join("");
-  select.value = selected || values[0]?.device || "";
-}
-
 function updateDirewolfInstallCard(status, hint = "") {
   const card = trackerById("direwolfInstallCard");
   const label = trackerById("direwolfInstallStatus");
@@ -227,37 +195,22 @@ async function installDirewolf() {
   await loadAprsPage();
 }
 
-async function openAprsConnectModal() {
-  if (!aprsConnectController) return;
-  await aprsConnectController.open();
-}
-
-async function submitAprsConnectModal() {
-  if (!aprsConnectController) return;
-  await aprsConnectController.submit();
-}
-
 async function loadAprsPage() {
-  const [stateResp, targetResp, systemResp, audioResp, portsResp] = await Promise.all([
+  const [stateResp, targetResp, systemResp, audioResp] = await Promise.all([
     trackerApi.get("/api/v1/aprs/state"),
     trackerApi.get("/api/v1/aprs/targets"),
     trackerApi.get("/api/v1/system/state"),
     trackerApi.get("/api/v1/aprs/audio-devices").catch(() => ({ inputs: [], outputs: [] })),
-    trackerApi.get("/api/v1/aprs/ports").catch(() => ({ items: [] })),
   ]);
   const settings = stateResp.settings || {};
   latestAudioDevices = audioResp || { inputs: [], outputs: [] };
-  latestAprsPorts = portsResp?.items || [];
+  latestRadioSettings = systemResp.radioSettings || {};
   if (trackerRenderStationBadge) {
     trackerRenderStationBadge("stationBadge", systemResp.stationIdentity, systemResp.aprsSettings);
   }
   trackerById("aprsCallsignPage").value = settings.callsign || "N0CALL";
   trackerById("aprsSsidPage").value = settings.ssid ?? 10;
   trackerById("aprsModePage").value = settings.operating_mode || "terrestrial";
-  populateSerialPortSelect(latestAprsPorts, settings.serial_device || "");
-  trackerById("aprsHamlibModelPage").value = String(settings.hamlib_model_id || hamlibDefaultsForRig(settings.rig_model));
-  trackerById("aprsBaudRatePage").value = settings.baud_rate || 19200;
-  trackerById("aprsCivAddressPage").value = settings.civ_address || "0xA4";
   populateAudioSelect("aprsAudioInputPage", latestAudioDevices.inputs, settings.audio_input_device || "");
   populateAudioSelect("aprsAudioOutputPage", latestAudioDevices.outputs, settings.audio_output_device || "");
   trackerById("aprsListenOnlyPage").checked = !!settings.listen_only;
@@ -269,21 +222,28 @@ async function loadAprsPage() {
     settings.satellite_beacon_comment || settings.beacon_comment || "OrbitDeck Space APRS";
   renderTargets(targetResp.targets || {}, settings, stateResp.previewTarget || stateResp.runtime?.target || null);
   updateTransportUi(systemResp, stateResp);
+  trackerById("aprsConnectionHintPage").textContent =
+    `Rig connection settings are shared with Radio Control | ${String(latestRadioSettings.rig_model || settings.rig_model || "--").toUpperCase()} | Change transport/port/host on Settings or Radio page`;
   syncModeUi();
   await refreshDirewolfStatus();
   setRuntime("loadAprsPage", { status: "ok", response: stateResp });
 }
 
 async function saveAprsSettingsPage() {
+  const radioSettings = latestRadioSettings && Object.keys(latestRadioSettings).length
+    ? latestRadioSettings
+    : (await trackerApi.get("/api/v1/settings/radio")).state || {};
+  const rigModel = radioSettings.rig_model || "ic705";
   const payload = {
     enabled: true,
     callsign: trackerById("aprsCallsignPage").value,
     ssid: Number(trackerById("aprsSsidPage").value),
     operating_mode: trackerById("aprsModePage").value,
-    serial_device: trackerById("aprsSerialDevicePage").value,
-    hamlib_model_id: Number(trackerById("aprsHamlibModelPage").value),
-    baud_rate: Number(trackerById("aprsBaudRatePage").value),
-    civ_address: trackerById("aprsCivAddressPage").value,
+    rig_model: rigModel,
+    hamlib_model_id: rigModel === "ic705" ? 3085 : 3071,
+    serial_device: radioSettings.serial_device || "",
+    baud_rate: Number(radioSettings.baud_rate || 19200),
+    civ_address: radioSettings.civ_address || (rigModel === "ic705" ? "0xA4" : "0x8C"),
     audio_input_device: trackerById("aprsAudioInputPage").value,
     audio_output_device: trackerById("aprsAudioOutputPage").value,
     listen_only: trackerById("aprsListenOnlyPage").checked,
@@ -328,9 +288,12 @@ async function connectAprsPage() {
     await loadAprsPage();
     return;
   }
-  const serialDevice = String(aprsState?.state?.serial_device || "").trim();
+  const serialDevice = String(radioState?.settings?.serial_device || aprsState?.state?.serial_device || "").trim();
   if (!serialDevice) {
-    await openAprsConnectModal();
+    setRuntime("POST /api/v1/aprs/connect", {
+      status: "error",
+      message: "Configure the shared radio USB connection on Settings or Radio page before connecting APRS.",
+    });
     return;
   }
   try {
@@ -338,8 +301,10 @@ async function connectAprsPage() {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("could not open port") || message.includes("No such file or directory")) {
-      await openAprsConnectModal();
-      updateAprsConnectModalStatus(`${message} Select the rig and USB port to continue.`);
+      setRuntime("POST /api/v1/aprs/connect", {
+        status: "error",
+        message: `${message} Update the shared radio USB connection on Settings or Radio page, then try APRS again.`,
+      });
       return;
     }
     if (isDirewolfMissingMessage(message)) {
@@ -353,56 +318,7 @@ async function connectAprsPage() {
 
 window.addEventListener("DOMContentLoaded", async () => {
   ({ api: trackerApi, byId: trackerById, renderStationBadge: trackerRenderStationBadge } = window.issTracker);
-  trackerCreateRigConnectController = window.issTracker.createRigConnectController;
-  aprsConnectController = trackerCreateRigConnectController({
-    modalId: "aprsConnectModal",
-    statusId: "aprsConnectModalStatus",
-    rigModelId: "aprsConnectRigModel",
-    portSelectId: "aprsConnectPortSelect",
-    manualId: "aprsConnectPortManual",
-    loadCurrent: async () => {
-      const [aprsResp, radioResp] = await Promise.all([
-        trackerApi.get("/api/v1/settings/aprs"),
-        trackerApi.get("/api/v1/settings/radio"),
-      ]);
-      const aprsSettings = aprsResp.state || {};
-      const radioSettings = radioResp.state || {};
-      return {
-        rigModel: aprsSettings.rig_model || radioSettings.rig_model || "ic705",
-        selectedDevice: aprsSettings.serial_device || radioSettings.serial_device || "",
-      };
-    },
-    readyMessage: "Select the rig and USB port to connect APRS",
-    connectingMessage: (rigModel) => `Saving ${rigModel} settings and connecting APRS...`,
-    saveSelection: async ({ rigModel, serialDevice, defaults }) => {
-      await trackerApi.post("/api/v1/settings/radio", {
-        enabled: true,
-        rig_model: rigModel,
-        serial_device: serialDevice,
-        baud_rate: defaults.baud_rate,
-        civ_address: defaults.civ_address,
-      });
-      await trackerApi.post("/api/v1/settings/aprs", {
-        enabled: true,
-        rig_model: rigModel,
-        hamlib_model_id: Number(hamlibDefaultsForRig(rigModel)),
-        serial_device: serialDevice,
-        baud_rate: defaults.baud_rate,
-        civ_address: defaults.civ_address,
-      });
-    },
-    onConnected: async () => {
-      await runAction("POST /api/v1/aprs/connect", () => trackerApi.post("/api/v1/aprs/connect", {}));
-      await loadAprsPage();
-    },
-  });
-  aprsConnectController.bind();
-
   trackerById("aprsModePage").addEventListener("change", syncModeUi);
-  trackerById("aprsConnectRigModel").addEventListener("change", (event) => {
-    const rigModel = event.target.value;
-    trackerById("aprsHamlibModelPage").value = hamlibDefaultsForRig(rigModel);
-  });
   trackerById("aprsSatellitePage").addEventListener("change", () => {
     renderChannelOptions({ selected_channel_id: null });
   });
@@ -436,15 +352,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
   trackerById("refreshDirewolfStatusBtn").addEventListener("click", async () => {
     await refreshDirewolfStatus();
-  });
-  trackerById("aprsConnectModalCloseBtn").addEventListener("click", () => {
-    if (aprsConnectController) aprsConnectController.close();
-  });
-  trackerById("aprsConnectRefreshPortsBtn").addEventListener("click", async () => {
-    await openAprsConnectModal();
-  });
-  trackerById("aprsConnectConfirmBtn").addEventListener("click", async () => {
-    await submitAprsConnectModal();
   });
   trackerById("sendAprsMessagePage").addEventListener("click", async () => {
     await runAction("POST /api/v1/aprs/send/message", () => trackerApi.post("/api/v1/aprs/send/message", {

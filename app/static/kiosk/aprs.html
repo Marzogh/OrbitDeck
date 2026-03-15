@@ -19,6 +19,7 @@
         <label for="aprsCallsignPage">Callsign</label>
         <input id="aprsCallsignPage" type="text" placeholder="VK4ABC" />
         <div id="aprsTransportHintPage" class="label">Transport: loading…</div>
+        <div id="aprsConnectionHintPage" class="label">Rig connection settings are shared with Radio Control.</div>
         <label for="aprsSsidPage">SSID</label>
         <input id="aprsSsidPage" type="number" min="0" max="15" step="1" />
         <label for="aprsModePage">Operating Mode</label>
@@ -37,17 +38,6 @@
           <input id="aprsTerrestrialFreqPage" type="number" min="1000" step="1" />
           <div id="aprsRegionHintPage" class="label">Loading APRS region…</div>
         </div>
-        <label for="aprsSerialDevicePage">Serial Device</label>
-        <select id="aprsSerialDevicePage"></select>
-        <label for="aprsHamlibModelPage">Hamlib Rig</label>
-        <select id="aprsHamlibModelPage">
-          <option value="3085">Icom IC-705 (3085)</option>
-          <option value="3071">Icom ID-5100 (3071)</option>
-        </select>
-        <label for="aprsBaudRatePage">Baud Rate</label>
-        <input id="aprsBaudRatePage" type="number" min="4800" max="19200" step="1" />
-        <label for="aprsCivAddressPage">CI-V Address</label>
-        <input id="aprsCivAddressPage" type="text" placeholder="0xA4" />
         <label for="aprsAudioInputPage">Audio Input</label>
         <select id="aprsAudioInputPage"></select>
         <label for="aprsAudioOutputPage">Audio Output</label>
@@ -107,40 +97,6 @@
         <div class="controls">
           <button id="installDirewolfBtn" type="button">Install Dire Wolf</button>
           <button id="refreshDirewolfStatusBtn" type="button">Refresh Status</button>
-        </div>
-      </section>
-
-      <section id="aprsConnectModal" class="rotator-modal hidden" aria-hidden="true">
-        <div class="rotator-modal-panel">
-          <div class="rotator-modal-head">
-            <div>
-              <div class="rotator-modal-kicker mono">APRS Connection</div>
-              <h2 class="rotator-modal-title">Choose rig and USB port</h2>
-            </div>
-            <button id="aprsConnectModalCloseBtn" type="button" class="rotator-modal-close">Close</button>
-          </div>
-          <div class="rotator-modal-grid">
-            <label class="rotator-modal-field">
-              <span>Radio Type</span>
-              <select id="aprsConnectRigModel">
-                <option value="ic705">Icom IC-705</option>
-                <option value="id5100">Icom ID-5100</option>
-              </select>
-            </label>
-            <label class="rotator-modal-field">
-              <span>USB Port</span>
-              <select id="aprsConnectPortSelect"></select>
-            </label>
-          </div>
-          <label class="rotator-modal-field">
-            <span>Manual Port Override</span>
-            <input id="aprsConnectPortManual" type="text" placeholder="/dev/cu.usbmodem..." />
-          </label>
-          <div id="aprsConnectModalStatus" class="rotator-modal-status mono">Loading available USB ports...</div>
-          <div class="controls rotator-modal-actions">
-            <button id="aprsConnectRefreshPortsBtn" type="button">Refresh Ports</button>
-            <button id="aprsConnectConfirmBtn" type="button">Save And Connect</button>
-          </div>
         </div>
       </section>
     </main>
