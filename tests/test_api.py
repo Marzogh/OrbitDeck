@@ -425,6 +425,59 @@ def test_set_and_get_radio_settings(tmp_path):
     assert state["auto_connect"] is True
 
 
+def test_set_and_get_radio_wifi_settings(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.post(
+        "/api/v1/settings/radio",
+        json={
+            "enabled": True,
+            "rig_model": "ic705",
+            "transport_mode": "wifi",
+            "wifi_host": "192.168.2.70",
+            "wifi_username": "demo-user",
+            "wifi_password": "secret-pass",
+            "wifi_control_port": 50001,
+            "civ_address": "0xA4",
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()["state"]
+    assert payload["transport_mode"] == "wifi"
+    assert payload["wifi_host"] == "192.168.2.70"
+    assert payload["wifi_username"] == "demo-user"
+    assert payload["wifi_control_port"] == 50001
+
+    get_resp = client.get("/api/v1/settings/radio")
+    assert get_resp.status_code == 200
+    state = get_resp.json()["state"]
+    assert state["transport_mode"] == "wifi"
+    assert state["wifi_host"] == "192.168.2.70"
+
+
+def test_radio_wifi_settings_require_ic705_and_host(tmp_path):
+    client = make_client(tmp_path)
+
+    missing_host = client.post(
+        "/api/v1/settings/radio",
+        json={"rig_model": "ic705", "transport_mode": "wifi", "wifi_username": "demo-user"},
+    )
+    assert missing_host.status_code == 400
+    assert "host is required" in missing_host.json()["detail"].lower()
+
+    wrong_model = client.post(
+        "/api/v1/settings/radio",
+        json={
+            "rig_model": "id5100",
+            "transport_mode": "wifi",
+            "wifi_host": "192.168.2.70",
+            "wifi_username": "demo-user",
+        },
+    )
+    assert wrong_model.status_code == 400
+    assert "supported only for the ic-705" in wrong_model.json()["detail"].lower()
+
+
 def test_radio_connect_apply_and_stop(tmp_path):
     client = make_client(tmp_path)
     configure_station_identity(client)
@@ -1929,6 +1982,36 @@ def test_aprs_connect_surfaces_serial_error_as_bad_request(tmp_path):
     resp = client.post("/api/v1/aprs/connect")
     assert resp.status_code == 400
     assert "could not open port" in resp.json()["detail"].lower()
+
+
+def test_radio_wifi_connect_runtime_exposes_endpoint(tmp_path):
+    client = make_client(tmp_path)
+    configure_station_identity(client)
+    main.radio_control_service = RigControlService(
+        controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
+    )
+
+    settings_resp = client.post(
+        "/api/v1/settings/radio",
+        json={
+            "enabled": True,
+            "rig_model": "ic705",
+            "transport_mode": "wifi",
+            "wifi_host": "192.168.2.70",
+            "wifi_username": "demo-user",
+            "wifi_password": "secret-pass",
+            "wifi_control_port": 50001,
+            "civ_address": "0xA4",
+        },
+    )
+    assert settings_resp.status_code == 200
+
+    connect_resp = client.post("/api/v1/radio/connect")
+    assert connect_resp.status_code == 200
+    runtime = connect_resp.json()["runtime"]
+    assert runtime["connected"] is True
+    assert runtime["transport_mode"] == "wifi"
+    assert runtime["endpoint"] == "192.168.2.70:50001"
 
 
 def test_aprs_connect_reuses_connected_radio_settings(tmp_path):

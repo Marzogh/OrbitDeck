@@ -336,12 +336,22 @@ def _apply_radio_settings_update(current: RadioSettings, payload: RadioSettingsU
         next_settings.enabled = payload.enabled
     if payload.rig_model is not None:
         next_settings.rig_model = payload.rig_model
+    if payload.transport_mode is not None:
+        next_settings.transport_mode = payload.transport_mode
     if payload.serial_device is not None:
         next_settings.serial_device = payload.serial_device.strip()
     if payload.baud_rate is not None:
         next_settings.baud_rate = payload.baud_rate
     if payload.civ_address is not None:
         next_settings.civ_address = normalize_civ_address(payload.civ_address.strip())
+    if payload.wifi_host is not None:
+        next_settings.wifi_host = payload.wifi_host.strip()
+    if payload.wifi_username is not None:
+        next_settings.wifi_username = payload.wifi_username.strip()
+    if payload.wifi_password is not None:
+        next_settings.wifi_password = payload.wifi_password
+    if payload.wifi_control_port is not None:
+        next_settings.wifi_control_port = payload.wifi_control_port
     if payload.poll_interval_ms is not None:
         next_settings.poll_interval_ms = payload.poll_interval_ms
     if payload.auto_connect is not None:
@@ -360,6 +370,13 @@ def _apply_radio_settings_update(current: RadioSettings, payload: RadioSettingsU
             next_settings.civ_address = civ
     else:
         next_settings.civ_address = normalize_civ_address(next_settings.civ_address)
+    if next_settings.transport_mode.value == "wifi":
+        if next_settings.rig_model != RadioRigModel.ic705:
+            raise ValueError("Wi-Fi transport is currently supported only for the IC-705")
+        if not next_settings.wifi_host:
+            raise ValueError("Wi-Fi host is required for IC-705 Wi-Fi transport")
+        if not next_settings.wifi_username:
+            raise ValueError("Wi-Fi username is required for IC-705 Wi-Fi transport")
     return next_settings
 
 

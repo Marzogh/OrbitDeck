@@ -22,12 +22,14 @@ from app.models import (
     RadioRuntimeState,
     RadioSessionControlState,
     RadioSettings,
+    RadioTransportMode,
     DopplerDirection,
 )
 from app.radio.civ import parse_civ_address
 from app.radio.controllers.base import BaseIcomController
 from app.radio.controllers.ic705 import Ic705Controller
 from app.radio.controllers.id5100 import Id5100Controller
+from app.radio.icom_udp import IcomUdpTransport
 from app.radio.transport import SerialTransport
 
 
@@ -55,7 +57,23 @@ class RigControlService:
         self._restore_snapshot: dict[str, object] | None = None
 
     def _default_controller_factory(self, settings: RadioSettings) -> BaseIcomController:
-        transport = SerialTransport(settings.serial_device, settings.baud_rate, timeout=max(0.2, settings.poll_interval_ms / 1000))
+        timeout = max(0.2, settings.poll_interval_ms / 1000)
+        if settings.transport_mode == RadioTransportMode.wifi:
+            if settings.rig_model != RadioRigModel.ic705:
+                raise ValueError("Wi-Fi transport is currently supported only for the IC-705")
+            if not settings.wifi_host.strip():
+                raise ValueError("Wi-Fi host is required for IC-705 Wi-Fi transport")
+            if not settings.wifi_username.strip():
+                raise ValueError("Wi-Fi username is required for IC-705 Wi-Fi transport")
+            transport = IcomUdpTransport(
+                host=settings.wifi_host.strip(),
+                control_port=settings.wifi_control_port,
+                username=settings.wifi_username.strip(),
+                password=settings.wifi_password,
+                timeout=timeout,
+            )
+        else:
+            transport = SerialTransport(settings.serial_device, settings.baud_rate, timeout=timeout)
         civ_address = parse_civ_address(settings.civ_address)
         if settings.rig_model == RadioRigModel.ic705:
             return Ic705Controller(transport, civ_address)
@@ -173,7 +191,9 @@ class RigControlService:
                 connected=False,
                 control_mode=RadioControlMode.idle,
                 rig_model=settings.rig_model,
+                transport_mode=settings.transport_mode,
                 serial_device=settings.serial_device,
+                endpoint=self._runtime_endpoint(settings),
                 last_error=str(exc),
             )
             return self.runtime()
@@ -181,7 +201,9 @@ class RigControlService:
             connected=state.connected,
             control_mode=RadioControlMode.idle,
             rig_model=settings.rig_model,
+            transport_mode=settings.transport_mode,
             serial_device=settings.serial_device,
+            endpoint=self._runtime_endpoint(settings),
             last_error=state.last_error,
             last_poll_at=state.last_poll_at,
             targets=dict(state.targets),
@@ -210,6 +232,14 @@ class RigControlService:
         if self._session.active:
             self._session.control_state = RadioSessionControlState.not_connected
         return self.runtime()
+
+    @staticmethod
+    def _runtime_endpoint(settings: RadioSettings) -> str | None:
+        if settings.transport_mode == RadioTransportMode.wifi:
+            host = settings.wifi_host.strip()
+            return f"{host}:{settings.wifi_control_port}" if host else None
+        device = settings.serial_device.strip()
+        return device or None
 
     def poll(self, settings: RadioSettings | None = None) -> RadioRuntimeState:
         if self._controller is None:

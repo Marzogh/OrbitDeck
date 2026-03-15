@@ -58,6 +58,11 @@ class RadioRigModel(str, Enum):
     ic705 = "ic705"
 
 
+class RadioTransportMode(str, Enum):
+    usb = "usb"
+    wifi = "wifi"
+
+
 class RadioControlMode(str, Enum):
     idle = "idle"
     manual_applied = "manual_applied"
@@ -136,9 +141,14 @@ class CachePolicy(BaseModel):
 class RadioSettings(BaseModel):
     enabled: bool = False
     rig_model: RadioRigModel = RadioRigModel.id5100
+    transport_mode: RadioTransportMode = RadioTransportMode.usb
     serial_device: str = "/dev/ttyUSB0"
     baud_rate: int = Field(default=19200, ge=4800, le=19200)
     civ_address: str = "0x8C"
+    wifi_host: str = ""
+    wifi_username: str = ""
+    wifi_password: str = ""
+    wifi_control_port: int = Field(default=50001, ge=1, le=65535)
     poll_interval_ms: int = Field(default=1000, ge=100, le=10000)
     auto_connect: bool = False
     auto_track_interval_ms: int = Field(default=1500, ge=200, le=10000)
@@ -452,7 +462,9 @@ class RadioRuntimeState(BaseModel):
     connected: bool = False
     control_mode: RadioControlMode = RadioControlMode.idle
     rig_model: RadioRigModel | None = None
+    transport_mode: RadioTransportMode | None = None
     serial_device: str | None = None
+    endpoint: str | None = None
     last_error: str | None = None
     last_poll_at: datetime | None = None
     active_sat_id: str | None = None
@@ -567,9 +579,14 @@ class PersistedState(BaseModel):
 class RadioSettingsUpdate(BaseModel):
     enabled: bool | None = None
     rig_model: RadioRigModel | None = None
+    transport_mode: RadioTransportMode | None = None
     serial_device: str | None = None
     baud_rate: int | None = Field(default=None, ge=4800, le=19200)
     civ_address: str | None = None
+    wifi_host: str | None = None
+    wifi_username: str | None = None
+    wifi_password: str | None = None
+    wifi_control_port: int | None = Field(default=None, ge=1, le=65535)
     poll_interval_ms: int | None = Field(default=None, ge=100, le=10000)
     auto_connect: bool | None = None
     auto_track_interval_ms: int | None = Field(default=None, ge=200, le=10000)
