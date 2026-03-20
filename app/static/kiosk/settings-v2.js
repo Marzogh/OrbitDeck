@@ -1,49 +1,65 @@
+import {
+  aprsClient,
+  getEnv,
+  initEnvironment,
+  stateCache,
+  viewState,
+  pretty,
+  defaultsForModel,
+  isHamFrequencySatellite,
+  loadVideoSources,
+  saveVideoSourcesLocal,
+  getDevSettings,
+  saveDevSettings,
+  runAction,
+  setRuntime,
+  recordEvent,
+  formatCoord,
+  formatDateTime,
+  formatRelativeTone,
+  transportSummary,
+  radioContextSummary,
+  effectiveLocation,
+  locationSummary,
+  toggleHidden,
+  getTrackedSatelliteId,
+  setTrackedSatelliteId,
+  escapeHtml,
+} from "./settings-v2/shared.js";
+import { renderOverviewSection, bindOverviewSection } from "./settings-v2/overview-section.js";
+import { renderRadioSection, bindRadioSection } from "./settings-v2/radio-section.js";
+import { renderLocationSection, bindLocationSection } from "./settings-v2/location-section.js";
+import { renderTrackingSection, bindTrackingSection } from "./settings-v2/tracking-section.js";
+import { renderDisplaySection, bindDisplaySection } from "./settings-v2/display-section.js";
+import {
+  renderAprsSection,
+  bindAprsSection,
+  renderAprsDrawer,
+  bindAprsDrawer,
+  maybeNotifyPackets,
+} from "./settings-v2/aprs-section.js";
+import { renderDeveloperSection, bindDeveloperSection } from "./settings-v2/developer-section.js";
+
+const SECTION_ORDER = ["overview", "radio", "location", "tracking", "display", "aprs", "developer"];
+
+const sections = {
+  overview: { render: renderOverviewSection, bind: bindOverviewSection, dirty: false },
+  radio: { render: renderRadioSection, bind: bindRadioSection, dirty: true },
+  location: { render: renderLocationSection, bind: bindLocationSection, dirty: true },
+  tracking: { render: renderTrackingSection, bind: bindTrackingSection, dirty: true },
+  display: { render: renderDisplaySection, bind: bindDisplaySection, dirty: true },
+  aprs: { render: renderAprsSection, bind: bindAprsSection, dirty: true },
+  developer: { render: renderDeveloperSection, bind: bindDeveloperSection, dirty: true },
+};
+
 let trackerApi;
 let trackerById;
 let trackerSetBrowserLocation;
 let trackerRenderStationBadge;
 
-const TRACKED_SAT_KEY = "kioskTrackedSatId";
-const VIDEO_SOURCES_KEY = "kioskVideoSources";
-const DEV_MODE_KEY = "kioskDevModeEnabled";
-const DEV_FORCE_SCENE_KEY = "kioskDevForceScene";
-const DEFAULT_VIDEO_SOURCES = [
-  "https://www.youtube.com/embed/fO9e9jnhYK8?autoplay=1&mute=1&rel=0&modestbranding=1",
-  "https://www.youtube.com/embed/sWasdbDVNvc?autoplay=1&mute=1&rel=0&modestbranding=1",
-];
-
-let stateCache = {
-  satellites: [],
-  timezones: [],
-  radio: { settings: {}, runtime: {} },
-  aprs: { settings: {}, runtime: {}, previewTarget: null },
-  aprsTargets: { satellites: [], terrestrial: null },
-  location: { state: {} },
-  system: {},
-  cachePolicy: {},
-};
-
-function pretty(value) {
-  return JSON.stringify(value, null, 2);
-}
-
-function setRuntime(action, value) {
-  trackerById("v2RuntimeLog").textContent = pretty({ action, ...value });
-}
-
-async function runAction(action, fn) {
-  setRuntime(action, { status: "pending" });
-  try {
-    const resp = await fn();
-    setRuntime(action, { status: "ok", response: resp });
-    return resp;
-  } catch (error) {
-    setRuntime(action, {
-      status: "error",
-      message: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
+function activeSectionFromHash() {
+  const raw = String(window.location.hash || "#overview").replace(/^#/, "");
+  return SECTION_ORDER.includes(raw) ? raw : "overview";
 }
 
 function updateClock() {
@@ -51,61 +67,9 @@ function updateClock() {
   trackerById("clock").textContent = `${d.toISOString().replace("T", " ").slice(0, 19)} UTC`;
 }
 
-function loadVideoSources() {
-  try {
-    const raw = localStorage.getItem(VIDEO_SOURCES_KEY);
-    if (!raw) return [...DEFAULT_VIDEO_SOURCES];
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return [...DEFAULT_VIDEO_SOURCES];
-    const cleaned = arr.map((x) => String(x || "").trim()).filter(Boolean);
-    return cleaned.length ? cleaned : [...DEFAULT_VIDEO_SOURCES];
-  } catch (_) {
-    return [...DEFAULT_VIDEO_SOURCES];
-  }
-}
-
-function saveVideoSourcesLocal() {
-  const primary = String(trackerById("v2VideoSourcePrimary").value || "").trim();
-  const secondary = String(trackerById("v2VideoSourceSecondary").value || "").trim();
-  const sources = [primary, secondary].filter(Boolean);
-  if (!sources.length) {
-    throw new Error("At least one video source is required");
-  }
-  localStorage.setItem(VIDEO_SOURCES_KEY, JSON.stringify(sources));
-}
-
-function getDevSettings() {
-  return {
-    enabled: localStorage.getItem(DEV_MODE_KEY) === "1",
-    forceScene: localStorage.getItem(DEV_FORCE_SCENE_KEY) || "auto",
-  };
-}
-
-function saveDevSettings() {
-  const enabled = trackerById("v2DevOverridesEnabled").checked;
-  localStorage.setItem(DEV_MODE_KEY, enabled ? "1" : "0");
-  localStorage.setItem(DEV_FORCE_SCENE_KEY, enabled ? (trackerById("v2DevForceScene").value || "auto") : "auto");
-}
-
-function defaultsForModel(model) {
-  return model === "ic705"
-    ? { baud_rate: 19200, civ_address: "0xA4" }
-    : { baud_rate: 19200, civ_address: "0x8C" };
-}
-
-function isHamFrequencySatellite(sat) {
-  if (!sat || sat.has_amateur_radio === false) return false;
-  const tx = Array.isArray(sat.transponders) ? sat.transponders : [];
-  const rx = Array.isArray(sat.repeaters) ? sat.repeaters : [];
-  const joined = [...tx, ...rx].join(" ").toLowerCase();
-  if (!joined.trim()) return false;
-  return /(mhz|aprs|fm|ssb|cw|bpsk|fsk|afsk|transponder|repeater|ctcss|sstv)/.test(joined);
-}
-
-function ensureTimezoneSelector() {
-  const select = trackerById("v2DisplayTimezone");
+function ensureTimezoneSelector(select, timezones) {
   const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const choices = Array.from(new Set([browserTz, "UTC", ...(stateCache.timezones || [])]));
+  const choices = Array.from(new Set([browserTz, "UTC", ...(timezones || [])]));
   const sorted = choices.filter((t) => t !== "BrowserLocal" && t !== "UTC").sort((a, b) => a.localeCompare(b));
   const ordered = ["BrowserLocal", "UTC", ...sorted];
   select.innerHTML = ordered
@@ -113,196 +77,196 @@ function ensureTimezoneSelector() {
     .join("");
 }
 
-function populateRadioPortSelect(items, selectedValue) {
-  const select = trackerById("v2RadioSerialDevice");
-  const values = Array.isArray(items) ? items : [];
-  const selected = String(selectedValue || "").trim();
-  const options = [];
-  if (selected && !values.some((item) => String(item?.device || "").trim() === selected)) {
-    options.push(`<option value="${selected}">${selected} · current</option>`);
-  }
-  for (const item of values) {
-    const device = String(item?.device || "").trim();
-    if (!device) continue;
-    const desc = String(item?.description || "").trim();
-    options.push(`<option value="${device}">${desc ? `${device} · ${desc}` : device}</option>`);
-  }
-  if (!options.length) {
-    options.push('<option value="">No USB serial ports detected</option>');
-  }
-  select.innerHTML = options.join("");
-  select.value = selected || values[0]?.device || "";
-}
-
-function populateAudioSelect(selectId, items, selectedValue) {
-  const select = trackerById(selectId);
-  const values = Array.isArray(items) ? items : [];
-  const selected = String(selectedValue || "").trim();
-  const optionValues = values.map((item) => String(item.value || item.name || "").trim()).filter(Boolean);
-  let resolved = selected;
-  if (selected && !optionValues.includes(selected)) {
-    const exactName = values.find((item) => String(item.name || "").trim() === selected);
-    if (exactName) resolved = String(exactName.value || exactName.name || "").trim();
-  }
-  const options = [];
-  if (resolved && !optionValues.includes(resolved)) {
-    options.push(`<option value="${resolved}">${resolved} · current</option>`);
-  }
-  for (const item of values) {
-    const name = String(item.name || "").trim();
-    const value = String(item.value || item.name || "").trim();
-    if (!name) continue;
-    options.push(`<option value="${value}">${name}</option>`);
-  }
-  if (!options.length) {
-    options.push('<option value="default">System Default</option>');
-  }
-  select.innerHTML = options.join("");
-  select.value = resolved || values[0]?.value || values[0]?.name || "default";
-}
-
-function renderTargetOptions() {
-  const settings = stateCache.aprs.settings || {};
-  const targets = stateCache.aprsTargets || { satellites: [], terrestrial: null };
-  const satSelect = trackerById("v2AprsSatellite");
-  satSelect.innerHTML = (targets.satellites || []).map((item) => `<option value="${item.sat_id}">${item.name}</option>`).join("");
-  if (settings.selected_satellite_id) satSelect.value = settings.selected_satellite_id;
-  renderChannelOptions();
-  const terrestrial = targets.terrestrial || {};
-  trackerById("v2AprsTerrestrialFreq").value = settings.terrestrial_manual_frequency_hz || terrestrial.suggested_frequency_hz || "";
-  trackerById("v2AprsRegionHint").textContent = terrestrial.region_label
-    ? `Suggested terrestrial APRS: ${terrestrial.region_label} | ${terrestrial.suggested_frequency_hz} Hz | PATH ${terrestrial.path_default || "--"}`
-    : "No terrestrial APRS region suggestion available yet.";
-}
-
-function renderChannelOptions() {
-  const settings = stateCache.aprs.settings || {};
-  const targets = stateCache.aprsTargets || { satellites: [] };
-  const satellite = (targets.satellites || []).find((item) => item.sat_id === trackerById("v2AprsSatellite").value) || null;
-  const channels = satellite?.channels || [];
-  const select = trackerById("v2AprsChannel");
-  select.innerHTML = channels.map((item) => `<option value="${item.channel_id}">${item.label} | ${item.frequency_hz} Hz | ${item.mode}</option>`).join("");
-  if (settings.selected_channel_id && channels.some((item) => item.channel_id === settings.selected_channel_id)) {
-    select.value = settings.selected_channel_id;
-  }
-}
-
-function syncRadioTransportUi() {
-  const mode = trackerById("v2RadioTransportMode").value || "usb";
-  const model = trackerById("v2RadioRigModel").value || "id5100";
-  const forceUsb = model !== "ic705" && mode === "wifi";
-  const effectiveMode = forceUsb ? "usb" : mode;
-  if (forceUsb) trackerById("v2RadioTransportMode").value = "usb";
-  trackerById("v2RadioUsbField").classList.toggle("hidden", effectiveMode !== "usb");
-  trackerById("v2RadioWifiHostField").classList.toggle("hidden", effectiveMode !== "wifi");
-  trackerById("v2RadioWifiUsernameField").classList.toggle("hidden", effectiveMode !== "wifi");
-  trackerById("v2RadioWifiPasswordField").classList.toggle("hidden", effectiveMode !== "wifi");
-  trackerById("v2RadioWifiPortField").classList.toggle("hidden", effectiveMode !== "wifi");
-}
-
-function syncLocationUi() {
-  const mode = trackerById("v2LocationMode").value;
-  trackerById("v2ManualLatField").classList.toggle("hidden", mode !== "manual");
-  trackerById("v2ManualLonField").classList.toggle("hidden", mode !== "manual");
-  trackerById("v2GpsLatField").classList.toggle("hidden", mode !== "gps");
-  trackerById("v2GpsLonField").classList.toggle("hidden", mode !== "gps");
-}
-
-function syncAprsUi() {
-  const mode = trackerById("v2AprsMode").value;
-  trackerById("v2AprsSatelliteField").classList.toggle("hidden", mode !== "satellite");
-  trackerById("v2AprsChannelField").classList.toggle("hidden", mode !== "satellite");
-  trackerById("v2AprsTerrestrialField").classList.toggle("hidden", mode !== "terrestrial");
-  trackerById("v2AprsTerrestrialPathField").classList.toggle("hidden", mode !== "terrestrial");
-  trackerById("v2AprsSatellitePathField").classList.toggle("hidden", mode !== "satellite");
-  trackerById("v2AprsTerrestrialCommentField").classList.toggle("hidden", mode !== "terrestrial");
-  trackerById("v2AprsSatelliteCommentField").classList.toggle("hidden", mode !== "satellite");
-}
-
-function updateSectionSummaries() {
-  const radioSettings = stateCache.radio.settings || {};
-  const radioRuntime = stateCache.radio.runtime || {};
-  const aprsSettings = stateCache.aprs.settings || {};
-  const aprsRuntime = stateCache.aprs.runtime || {};
-  const locationState = stateCache.location.state || {};
-  const passProfile = stateCache.system.passFilter?.profile || "IssOnly";
-  const timezone = stateCache.system.timezone?.timezone || "UTC";
-  const issMode = stateCache.system.issDisplayMode?.mode || "--";
-
-  trackerById("radioSectionSummary").textContent =
-    `${String(radioSettings.transport_mode || "usb").toUpperCase()} | ${radioRuntime.connected ? "Connected" : "Disconnected"}`;
-  trackerById("locationSectionSummary").textContent = String(locationState.source_mode || "--");
-  trackerById("trackingSectionSummary").textContent = passProfile;
-  trackerById("displaySectionSummary").textContent = `${issMode} | ${timezone}`;
-  trackerById("aprsSectionSummary").textContent = `${String(aprsSettings.operating_mode || "--")} | ${aprsRuntime.connected ? "Connected" : "Disconnected"}`;
-}
-
-function updateRuntimePane() {
-  const radioRuntime = stateCache.radio.runtime || {};
-  const aprsRuntime = stateCache.aprs.runtime || {};
-  trackerById("v2RadioRuntimeSummary").textContent =
-    `${radioRuntime.connected ? "Connected" : "Disconnected"}`
-    + (radioRuntime.transport_mode ? ` | ${String(radioRuntime.transport_mode).toUpperCase()}` : "")
-    + (radioRuntime.endpoint ? ` | ${radioRuntime.endpoint}` : "");
-  trackerById("v2AprsRuntimeSummary").textContent =
-    `${aprsRuntime.connected ? "Connected" : "Disconnected"}`
-    + (aprsRuntime.target?.label ? ` | ${aprsRuntime.target.label}` : "")
-    + (aprsRuntime.modem_state ? ` | ${aprsRuntime.modem_state}` : "");
-}
-
-function updateRadioContextNote() {
-  const radioSettings = stateCache.radio.settings || {};
-  trackerById("v2RadioContext").textContent =
-    `Shared connection profile | ${String(radioSettings.rig_model || "--").toUpperCase()} | ${String(radioSettings.transport_mode || "usb").toUpperCase()} transport`;
-  trackerById("v2AprsRadioContext").textContent =
-    `Shared radio context | Rig ${String(radioSettings.rig_model || "--").toUpperCase()} | ${String(radioSettings.transport_mode || "usb").toUpperCase()}`
-    + (radioSettings.transport_mode === "wifi"
-      ? ` | ${radioSettings.wifi_host || "--"}:${radioSettings.wifi_control_port || 50001}`
-      : ` | ${radioSettings.serial_device || "--"}`);
-}
-
-function syncAprsAudioUi() {
-  const radioSettings = stateCache.radio.settings || {};
-  const wifiManaged = radioSettings.rig_model === "ic705" && radioSettings.transport_mode === "wifi";
-  trackerById("v2AprsAudioInputField").classList.toggle("hidden", wifiManaged);
-  trackerById("v2AprsAudioOutputField").classList.toggle("hidden", wifiManaged);
-  const note = trackerById("v2AprsAudioManagedNote");
-  note.classList.toggle("hidden", !wifiManaged);
-  if (wifiManaged) {
-    note.textContent =
-      `Audio is managed automatically by the IC-705 Wi-Fi transport | RX: IC-705 WLAN audio stream -> Dire Wolf | TX: OrbitDeck AFSK -> IC-705 WLAN audio`;
-  }
-}
-
-function applyHashState() {
-  const hash = window.location.hash || "#radio-connection";
-  const section = document.querySelector(hash);
-  if (section && section.tagName.toLowerCase() === "details") {
-    section.open = true;
-    section.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-  trackerById("settingsV2SectionPicker").value = hash;
+function updateNav() {
+  const active = viewState.activeSection;
+  trackerById("settingsV2SectionPicker").value = active;
   for (const link of document.querySelectorAll("[data-section-link]")) {
-    link.classList.toggle("active", link.getAttribute("href") === hash);
+    link.classList.toggle("active", link.dataset.sectionLink === active);
   }
 }
 
-function initSectionObserver() {
-  const sections = document.querySelectorAll(".settings-v2-section");
-  const observer = new IntersectionObserver((entries) => {
-    const visible = entries.filter((entry) => entry.isIntersecting)
-      .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-    if (!visible) return;
-    const id = `#${visible.target.id}`;
-    trackerById("settingsV2SectionPicker").value = id;
-    for (const link of document.querySelectorAll("[data-section-link]")) {
-      link.classList.toggle("active", link.getAttribute("href") === id);
-    }
-  }, { rootMargin: "-20% 0px -60% 0px", threshold: [0.2, 0.4, 0.6] });
-  sections.forEach((section) => observer.observe(section));
+function renderRuntimeRail() {
+  const radioRuntime = stateCache.radio.runtime || {};
+  const radioSettings = stateCache.radio.settings || {};
+  const aprsRuntime = stateCache.aprs.runtime || {};
+  const aprsSettings = stateCache.aprs.settings || {};
+  const locationState = stateCache.location.state || {};
+  const trackedSat = stateCache.satellites.find((sat) => sat.sat_id === getTrackedSatelliteId()) || null;
+  const displayMode = stateCache.system.issDisplayMode?.mode || "--";
+  const timezone = stateCache.system.timezone?.timezone || "UTC";
+  const warnings = buildWarnings();
+
+  trackerById("settingsV2RuntimeCards").innerHTML = `
+    <article class="settings-v2-rail-card">
+      <div class="label mono">Radio Connection</div>
+      <div class="settings-v2-rail-value">${radioRuntime.connected ? "Connected" : "Disconnected"}</div>
+      <div class="settings-v2-rail-meta">${escapeHtml(transportSummary(radioSettings, radioRuntime))}</div>
+    </article>
+    <article class="settings-v2-rail-card">
+      <div class="label mono">APRS Runtime</div>
+      <div class="settings-v2-rail-value">${aprsRuntime.connected ? "Connected" : "Disconnected"}</div>
+      <div class="settings-v2-rail-meta">${escapeHtml(aprsRuntime.target?.label || aprsSettings.operating_mode || "No target selected")}</div>
+    </article>
+    <article class="settings-v2-rail-card">
+      <div class="label mono">Satellite Tracking</div>
+      <div class="settings-v2-rail-value">${escapeHtml(trackedSat?.name || "No satellite selected")}</div>
+      <div class="settings-v2-rail-meta">${escapeHtml(stateCache.system.passFilter?.profile || "IssOnly")}</div>
+    </article>
+    <article class="settings-v2-rail-card">
+      <div class="label mono">Display</div>
+      <div class="settings-v2-rail-value">${escapeHtml(displayMode)}</div>
+      <div class="settings-v2-rail-meta">${escapeHtml(timezone)}</div>
+    </article>
+    <article class="settings-v2-rail-card">
+      <div class="label mono">Location</div>
+      <div class="settings-v2-rail-value">${escapeHtml(locationState.source_mode || "--")}</div>
+      <div class="settings-v2-rail-meta">${escapeHtml(locationSummary(stateCache.location))}</div>
+    </article>
+    <article class="settings-v2-rail-card">
+      <div class="label mono">Recent Events</div>
+      <div class="settings-v2-runtime-events">
+        ${viewState.recentEvents.slice(0, 6).map((event) => `
+          <div class="settings-v2-runtime-event">
+            <strong>${escapeHtml(event.title)}</strong>
+            <span>${escapeHtml(event.detail || formatDateTime(event.at))}</span>
+          </div>
+        `).join("") || '<div class="settings-v2-runtime-empty">No recent actions yet.</div>'}
+      </div>
+    </article>
+    <article class="settings-v2-rail-card">
+      <div class="label mono">Attention</div>
+      <div class="settings-v2-runtime-events">
+        ${warnings.map((warning) => `
+          <div class="settings-v2-runtime-event">
+            <strong>${escapeHtml(warning.title)}</strong>
+            <span>${escapeHtml(warning.detail)}</span>
+          </div>
+        `).join("") || '<div class="settings-v2-runtime-empty">No active warnings.</div>'}
+      </div>
+    </article>
+  `;
 }
 
-async function refreshState() {
+function serializeScope(scope) {
+  const values = [];
+  for (const el of scope.querySelectorAll("input, select, textarea")) {
+    if (el.dataset.transient === "1") continue;
+    if (el.disabled || el.closest(".hidden")) continue;
+    const key = el.id || el.name || el.dataset.field || el.type;
+    if (el.type === "checkbox") {
+      values.push(`${key}:${el.checked ? "1" : "0"}`);
+      continue;
+    }
+    if (el.multiple) {
+      const selected = Array.from(el.selectedOptions).map((opt) => opt.value).sort().join(",");
+      values.push(`${key}:${selected}`);
+      continue;
+    }
+    values.push(`${key}:${el.value}`);
+  }
+  return values.join("|");
+}
+
+function updateDirtyState(sectionId) {
+  const scope = document.querySelector(`[data-dirty-scope="${sectionId}"]`);
+  if (!scope) return;
+  const next = serializeScope(scope);
+  viewState.dirtySections[sectionId] = next !== viewState.sectionSnapshots[sectionId];
+  const badge = document.querySelector("[data-dirty-badge]");
+  if (badge) {
+    badge.textContent = viewState.dirtySections[sectionId] ? "Unsaved changes" : "All changes saved";
+    badge.classList.toggle("is-dirty", viewState.dirtySections[sectionId]);
+  }
+  if (sectionId === "radio") updateRadioConnectButton();
+}
+
+function mountDirtyTracking(sectionId) {
+  const scope = document.querySelector(`[data-dirty-scope="${sectionId}"]`);
+  if (!scope) return;
+  viewState.sectionSnapshots[sectionId] = serializeScope(scope);
+  viewState.dirtySections[sectionId] = false;
+  for (const el of scope.querySelectorAll("input, select, textarea")) {
+    el.addEventListener("input", () => updateDirtyState(sectionId));
+    el.addEventListener("change", () => updateDirtyState(sectionId));
+  }
+  updateDirtyState(sectionId);
+}
+
+function buildWarnings() {
+  const warnings = [];
+  const radioRuntime = stateCache.radio.runtime || {};
+  const locationState = stateCache.location.state || {};
+  const aprsRuntime = stateCache.aprs.runtime || {};
+  const aprsTarget = stateCache.aprs.previewTarget || aprsRuntime.target || null;
+  if (!radioRuntime.connected) warnings.push({ title: "Radio disconnected", detail: radioRuntime.last_error || "Shared radio transport is not connected." });
+  if (!effectiveLocation(locationState)) warnings.push({ title: "Location unresolved", detail: "Pass predictions and terrestrial APRS defaults are degraded until a location is resolved." });
+  if (aprsTarget?.requires_pass && !aprsTarget?.pass_active) warnings.push({ title: "Satellite APRS transmit blocked", detail: aprsTarget.tx_block_reason || "Transmit is only allowed during an active pass." });
+  if (!aprsRuntime.connected) warnings.push({ title: "APRS offline", detail: "APRS runtime is disconnected." });
+  return warnings;
+}
+
+function updateRadioConnectButton() {
+  const buttons = document.querySelectorAll("[data-radio-connect]");
+  const note = document.querySelector("[data-radio-reconnect-note]");
+  if (!buttons.length) return;
+  const connected = !!stateCache.radio.runtime?.connected;
+  const dirty = !!viewState.dirtySections.radio;
+  buttons.forEach((button) => {
+    button.disabled = dirty;
+    button.textContent = dirty ? "Save Changes First" : (connected ? "Disconnect" : "Connect");
+    button.classList.toggle("aprs-connect-green", !connected && !dirty);
+    button.classList.toggle("aprs-connect-red", connected && !dirty);
+  });
+  if (note) toggleHidden(note, !dirty);
+}
+
+function updateAprsDrawer() {
+  trackerById("settingsV2DrawerHost").innerHTML = renderAprsDrawer({
+    stateCache,
+    viewState,
+  });
+  bindAprsDrawer(buildContext());
+}
+
+function renderPanel({ preserveActiveDraft = false } = {}) {
+  if (preserveActiveDraft && viewState.dirtySections[viewState.activeSection]) {
+    return;
+  }
+  const panel = trackerById("settingsV2Panel");
+  const section = sections[viewState.activeSection];
+  panel.innerHTML = section.render({
+    stateCache,
+    viewState,
+    formatCoord,
+    formatDateTime,
+    formatRelativeTone,
+    locationSummary,
+    radioContextSummary,
+    transportSummary,
+    buildWarnings,
+  });
+  section.bind(buildContext());
+  if (section.dirty) mountDirtyTracking(viewState.activeSection);
+  updateRadioConnectButton();
+}
+
+function renderAll({ preserveActiveDraft = false } = {}) {
+  updateNav();
+  renderRuntimeRail();
+  renderPanel({ preserveActiveDraft });
+  updateAprsDrawer();
+}
+
+function applyRadioResponse(response) {
+  if (!response) return;
+  stateCache.radio = {
+    settings: response.settings || stateCache.radio.settings || {},
+    runtime: response.runtime || stateCache.radio.runtime || {},
+  };
+  renderAll({ preserveActiveDraft: true });
+}
+
+async function refreshState({ preserveDraft = false } = {}) {
   const [
     issDisplayMode,
     satellites,
@@ -313,10 +277,8 @@ async function refreshState() {
     system,
     cachePolicy,
     radio,
-    aprs,
-    aprsTargets,
+    aprsBundle,
     radioPorts,
-    audioDevices,
   ] = await Promise.all([
     trackerApi.get("/api/v1/settings/iss-display-mode"),
     trackerApi.get("/api/v1/satellites"),
@@ -327,112 +289,38 @@ async function refreshState() {
     trackerApi.get("/api/v1/system/state"),
     trackerApi.get("/api/v1/cache-policy"),
     trackerApi.get("/api/v1/radio/state"),
-    trackerApi.get("/api/v1/aprs/state"),
-    trackerApi.get("/api/v1/aprs/targets"),
+    aprsClient.loadBundle(trackerApi),
     trackerApi.get("/api/v1/radio/ports").catch(() => ({ items: [] })),
-    trackerApi.get("/api/v1/aprs/audio-devices").catch(() => ({ inputs: [], outputs: [] })),
   ]);
 
-  stateCache = {
-    satellites: satellites.items || [],
-    timezones: timezones.timezones || [],
-    radio,
-    aprs,
-    aprsTargets: aprsTargets.targets || { satellites: [], terrestrial: null },
-    location,
-    system: {
-      stationIdentity: system.stationIdentity,
-      aprsSettings: system.aprsSettings,
-      issDisplayMode,
-      passFilter,
-      timezone,
-      cachePolicy,
-    },
-    radioPorts: radioPorts.items || [],
-    audioDevices,
+  stateCache.satellites = satellites.items || [];
+  stateCache.timezones = timezones.timezones || [];
+  stateCache.radio = radio;
+  stateCache.aprs = aprsBundle.aprs;
+  stateCache.aprsTargets = aprsBundle.targets.targets || { satellites: [], terrestrial: null };
+  stateCache.aprsLogSettings = aprsBundle.logSettings || {};
+  stateCache.aprsLog = aprsBundle.logRecent || { items: [] };
+  stateCache.location = location;
+  stateCache.system = {
+    stationIdentity: system.stationIdentity,
+    aprsSettings: system.aprsSettings,
+    issDisplayMode,
+    passFilter,
+    timezone,
+    cachePolicy,
   };
+  stateCache.radioPorts = radioPorts.items || [];
+  stateCache.audioDevices = aprsBundle.audioDevices || { inputs: [], outputs: [] };
 
   if (trackerRenderStationBadge) {
     trackerRenderStationBadge("stationBadge", system.stationIdentity, system.aprsSettings);
   }
-
-  const radioSettings = radio.settings || {};
-  trackerById("v2RadioRigModel").value = radioSettings.rig_model || "id5100";
-  trackerById("v2RadioTransportMode").value = radioSettings.transport_mode || "usb";
-  populateRadioPortSelect(stateCache.radioPorts, radioSettings.serial_device || "");
-  trackerById("v2RadioWifiHost").value = radioSettings.wifi_host || "";
-  trackerById("v2RadioWifiUsername").value = radioSettings.wifi_username || "";
-  trackerById("v2RadioWifiPassword").value = radioSettings.wifi_password || "";
-  trackerById("v2RadioWifiControlPort").value = radioSettings.wifi_control_port || 50001;
-  trackerById("v2RadioBaudRate").value = radioSettings.baud_rate || 19200;
-  trackerById("v2RadioCivAddress").value = radioSettings.civ_address || "0x8C";
-  trackerById("v2RadioPollInterval").value = radioSettings.poll_interval_ms || 1000;
-  trackerById("v2RadioAutoTrackInterval").value = radioSettings.auto_track_interval_ms || 1500;
-  trackerById("v2RadioEnabled").checked = !!radioSettings.enabled;
-  trackerById("v2RadioAutoConnect").checked = !!radioSettings.auto_connect;
-  trackerById("v2RadioApplyModeTone").checked = radioSettings.default_apply_mode_and_tone !== false;
-  trackerById("v2RadioSafeTxGuard").checked = radioSettings.safe_tx_guard_enabled !== false;
-  syncRadioTransportUi();
-
-  const locationState = location.state || {};
-  trackerById("v2LocationMode").value = locationState.source_mode || "browser";
-  if (locationState.manual_location) {
-    trackerById("v2ManualLat").value = locationState.manual_location.lat ?? "";
-    trackerById("v2ManualLon").value = locationState.manual_location.lon ?? "";
+  if (!preserveDraft) {
+    viewState.dirtySections = {};
+    viewState.sectionSnapshots = {};
   }
-  if (locationState.gps_location) {
-    trackerById("v2GpsLat").value = locationState.gps_location.lat ?? "";
-    trackerById("v2GpsLon").value = locationState.gps_location.lon ?? "";
-  }
-  trackerById("v2LocationSummary").textContent =
-    `Source: ${locationState.source_mode || "--"}`
-    + (locationState.resolved_location ? ` | ${locationState.resolved_location.lat?.toFixed?.(6) ?? locationState.resolved_location.lat}, ${locationState.resolved_location.lon?.toFixed?.(6) ?? locationState.resolved_location.lon}` : "");
-  syncLocationUi();
-
-  const trackedSat = localStorage.getItem(TRACKED_SAT_KEY) || "iss-zarya";
-  const hamItems = stateCache.satellites.filter(isHamFrequencySatellite);
-  trackerById("v2TrackedSatellite").innerHTML = hamItems.map((sat) => `<option value="${sat.sat_id}">${sat.name}</option>`).join("");
-  trackerById("v2TrackedSatellite").value = hamItems.some((sat) => sat.sat_id === trackedSat) ? trackedSat : (hamItems[0]?.sat_id || "");
-  trackerById("v2PassProfile").value = passFilter.profile || "IssOnly";
-  trackerById("v2PassSatSelect").innerHTML = hamItems.map((sat) => `<option value="${sat.sat_id}">${sat.name} (${sat.norad_id})</option>`).join("");
-  for (const option of trackerById("v2PassSatSelect").options) {
-    option.selected = (passFilter.satIds || ["iss-zarya"]).includes(option.value);
-  }
-
-  trackerById("v2IssMode").value = issDisplayMode.mode;
-  ensureTimezoneSelector();
-  const selectedDisplayTimezone = timezone.timezone || "UTC";
-  trackerById("v2DisplayTimezone").value = selectedDisplayTimezone;
-  const sources = loadVideoSources();
-  trackerById("v2VideoSourcePrimary").value = sources[0] || "";
-  trackerById("v2VideoSourceSecondary").value = sources[1] || "";
-
-  const aprsSettings = aprs.settings || {};
-  trackerById("v2AprsCallsign").value = aprsSettings.callsign || "N0CALL";
-  trackerById("v2AprsSsid").value = aprsSettings.ssid ?? 10;
-  trackerById("v2AprsMode").value = aprsSettings.operating_mode || "terrestrial";
-  trackerById("v2AprsListenOnly").value = String(!!aprsSettings.listen_only);
-  trackerById("v2AprsTerrestrialPath").value = aprsSettings.terrestrial_path || "WIDE1-1,WIDE2-1";
-  trackerById("v2AprsSatellitePath").value = aprsSettings.satellite_path || "ARISS";
-  trackerById("v2AprsTerrestrialComment").value =
-    aprsSettings.terrestrial_beacon_comment || aprsSettings.beacon_comment || "OrbitDeck APRS";
-  trackerById("v2AprsSatelliteComment").value =
-    aprsSettings.satellite_beacon_comment || aprsSettings.beacon_comment || "OrbitDeck Space APRS";
-  trackerById("v2AprsPositionFudgeLat").value = Number(aprsSettings.position_fudge_lat_deg || 0).toFixed(2);
-  trackerById("v2AprsPositionFudgeLon").value = Number(aprsSettings.position_fudge_lon_deg || 0).toFixed(2);
-  populateAudioSelect("v2AprsAudioInput", stateCache.audioDevices.inputs || [], aprsSettings.audio_input_device || "");
-  populateAudioSelect("v2AprsAudioOutput", stateCache.audioDevices.outputs || [], aprsSettings.audio_output_device || "");
-  renderTargetOptions();
-  syncAprsUi();
-
-  const dev = getDevSettings();
-  trackerById("v2DevOverridesEnabled").checked = dev.enabled;
-  trackerById("v2DevForceScene").value = dev.forceScene;
-
-  updateSectionSummaries();
-  updateRuntimePane();
-  updateRadioContextNote();
-  syncAprsAudioUi();
+  maybeNotifyPackets(stateCache, viewState, trackerById);
+  renderAll({ preserveActiveDraft: preserveDraft });
 }
 
 async function saveRadioSection() {
@@ -454,39 +342,71 @@ async function saveRadioSection() {
     safe_tx_guard_enabled: trackerById("v2RadioSafeTxGuard").checked,
   };
   await runAction("POST /api/v1/settings/radio", () => trackerApi.post("/api/v1/settings/radio", payload));
+  recordEvent("Radio settings saved", payload.transport_mode === "wifi" ? `${payload.wifi_host}:${payload.wifi_control_port}` : payload.serial_device);
   await refreshState();
+}
+
+async function toggleRadioConnection() {
+  if (viewState.dirtySections.radio) return;
+  const buttons = document.querySelectorAll("[data-radio-connect]");
+  buttons.forEach((button) => {
+    button.disabled = true;
+    button.textContent = stateCache.radio.runtime?.connected ? "Disconnecting..." : "Connecting...";
+  });
+  try {
+    if (stateCache.radio.runtime?.connected) {
+      const response = await runAction("POST /api/v1/radio/disconnect", () => trackerApi.post("/api/v1/radio/disconnect", {}));
+      applyRadioResponse(response);
+      recordEvent("Radio disconnected", stateCache.radio.runtime?.endpoint || "");
+    } else {
+      const response = await runAction("POST /api/v1/radio/connect", () => trackerApi.post("/api/v1/radio/connect", {}));
+      applyRadioResponse(response);
+      if (response?.runtime?.connected) {
+        recordEvent("Radio connected", transportSummary(response.settings || stateCache.radio.settings, response.runtime || stateCache.radio.runtime));
+      } else {
+        recordEvent("Radio connect failed", response?.runtime?.last_error || "Connection attempt did not succeed.");
+      }
+    }
+    window.setTimeout(() => {
+      refreshState({ preserveDraft: true }).catch(() => {
+        // Non-fatal reconcile failure.
+      });
+    }, 600);
+  } catch (error) {
+    updateRadioConnectButton();
+    throw error;
+  }
 }
 
 async function saveLocationSection() {
   const sourceMode = trackerById("v2LocationMode").value;
   const payload = { source_mode: sourceMode };
-  if (sourceMode === "browser") {
+  if (sourceMode === "browser" || sourceMode === "auto") {
     await trackerSetBrowserLocation();
   } else if (sourceMode === "manual") {
     const lat = Number(trackerById("v2ManualLat").value);
     const lon = Number(trackerById("v2ManualLon").value);
-    if (Number.isNaN(lat) || Number.isNaN(lon)) {
-      throw new Error("Manual latitude and longitude are required");
-    }
+    if (Number.isNaN(lat) || Number.isNaN(lon)) throw new Error("Manual latitude and longitude are required");
     payload.add_profile = { id: "manual-kiosk", name: "Manual Kiosk", point: { lat, lon, alt_m: 0 } };
     payload.selected_profile_id = "manual-kiosk";
   } else if (sourceMode === "gps") {
     const lat = Number(trackerById("v2GpsLat").value);
     const lon = Number(trackerById("v2GpsLon").value);
-    if (Number.isNaN(lat) || Number.isNaN(lon)) {
-      throw new Error("GPS latitude and longitude are required");
-    }
+    if (Number.isNaN(lat) || Number.isNaN(lon)) throw new Error("GPS latitude and longitude are required");
     payload.gps_location = { lat, lon, alt_m: 0 };
   }
   await runAction("POST /api/v1/location", () => trackerApi.post("/api/v1/location", payload));
+  recordEvent("Location settings saved", sourceMode);
   await refreshState();
 }
 
 async function saveTrackingSection() {
   const profile = trackerById("v2PassProfile").value;
-  const satIds = Array.from(trackerById("v2PassSatSelect").selectedOptions).map((o) => o.value);
-  localStorage.setItem(TRACKED_SAT_KEY, trackerById("v2TrackedSatellite").value);
+  const satIds = Array.from(document.querySelectorAll("[data-pass-favorite]:checked")).map((el) => el.value);
+  const tracked = trackerById("v2TrackedSatellite").value;
+  setTrackedSatelliteId(tracked);
   await runAction("POST /api/v1/settings/pass-filter", () => trackerApi.post("/api/v1/settings/pass-filter", { profile, sat_ids: satIds }));
+  recordEvent("Tracking updated", tracked);
   await refreshState();
 }
 
@@ -494,7 +414,16 @@ async function saveDisplaySection() {
   const picked = trackerById("v2DisplayTimezone").value;
   const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const tzToSave = picked === "BrowserLocal" ? browserTz : picked;
-  saveVideoSourcesLocal();
+  saveVideoSourcesLocal(
+    {
+      mode: trackerById("v2VideoSourcePrimaryMode").value,
+      url: trackerById("v2VideoSourcePrimary").value,
+    },
+    {
+      mode: trackerById("v2VideoSourceSecondaryMode").value,
+      url: trackerById("v2VideoSourceSecondary").value,
+    },
+  );
   await runAction("POST /api/v1/settings/display", async () => {
     await trackerApi.post("/api/v1/settings/iss-display-mode", { mode: trackerById("v2IssMode").value });
     await trackerApi.post("/api/v1/settings/timezone", { timezone: tzToSave });
@@ -504,10 +433,11 @@ async function saveDisplaySection() {
       video_sources: loadVideoSources(),
     };
   });
+  recordEvent("Display settings saved", `${trackerById("v2IssMode").value} | ${tzToSave}`);
   await refreshState();
 }
 
-async function saveAprsSection() {
+function aprsSettingsPayload() {
   const radioSettings = stateCache.radio.settings || {};
   const rigModel = radioSettings.rig_model || "ic705";
   const payload = {
@@ -528,7 +458,7 @@ async function saveAprsSection() {
     terrestrial_beacon_comment: trackerById("v2AprsTerrestrialComment").value,
     satellite_beacon_comment: trackerById("v2AprsSatelliteComment").value,
   };
-  if (!(radioSettings.rig_model === "ic705" && radioSettings.transport_mode === "wifi")) {
+  if (!aprsClient.isWifiManaged(radioSettings)) {
     payload.audio_input_device = trackerById("v2AprsAudioInput").value;
     payload.audio_output_device = trackerById("v2AprsAudioOutput").value;
   }
@@ -538,69 +468,193 @@ async function saveAprsSection() {
   } else {
     payload.terrestrial_manual_frequency_hz = Number(trackerById("v2AprsTerrestrialFreq").value || 0);
   }
-  await runAction("POST /api/v1/settings/aprs", () => trackerApi.post("/api/v1/settings/aprs", payload));
+  return payload;
+}
+
+function aprsLogSettingsPayload() {
+  return {
+    log_enabled: trackerById("v2AprsLogEnabled").checked,
+    log_max_records: Number(trackerById("v2AprsLogMaxRecords").value || 500),
+    notify_incoming_messages: trackerById("v2AprsNotifyMessages").checked,
+    notify_all_packets: trackerById("v2AprsNotifyAllPackets").checked,
+    digipeater: {
+      enabled: trackerById("v2AprsFutureDigipeater").checked,
+      aliases: trackerById("v2AprsDigipeaterAliases").value.split(",").map((item) => item.trim()).filter(Boolean),
+      max_hops: stateCache.aprsLogSettings.digipeater?.max_hops || 1,
+      dedupe_window_s: Number(trackerById("v2AprsDigipeaterDedupe").value || 30),
+      callsign_allowlist: stateCache.aprsLogSettings.digipeater?.callsign_allowlist || [],
+      path_blocklist: stateCache.aprsLogSettings.digipeater?.path_blocklist || ["TCPIP", "TCPXX", "NOGATE", "RFONLY"],
+    },
+    igate: {
+      enabled: trackerById("v2AprsFutureIgate").checked,
+      server_host: trackerById("v2AprsIgateHost").value,
+      server_port: Number(trackerById("v2AprsIgatePort").value || 14580),
+      login_callsign: trackerById("v2AprsIgateLogin").value,
+      passcode: trackerById("v2AprsIgatePasscode").value,
+      filter: trackerById("v2AprsIgateFilter").value,
+      connect_timeout_s: stateCache.aprsLogSettings.igate?.connect_timeout_s || 10,
+      gate_terrestrial_rx: trackerById("v2AprsIgateTerrestrial").checked,
+      gate_satellite_rx: trackerById("v2AprsIgateSatellite").checked,
+    },
+    future_digipeater_enabled: trackerById("v2AprsFutureDigipeater").checked,
+    future_igate_enabled: trackerById("v2AprsFutureIgate").checked,
+  };
+}
+
+async function saveAprsSection() {
+  await runAction("POST /api/v1/settings/aprs", () => aprsClient.saveAprsSettings(trackerApi, aprsSettingsPayload()));
+  viewState.aprsDraftMode = null;
+  recordEvent("APRS settings saved", trackerById("v2AprsMode").value);
+  await refreshState();
+}
+
+async function refreshAprsTarget() {
+  const mode = trackerById("v2AprsMode").value;
+  const payload = { operating_mode: mode };
+  if (mode === "satellite") {
+    payload.sat_id = trackerById("v2AprsSatellite").value || null;
+    payload.channel_id = trackerById("v2AprsChannel").value || null;
+  } else {
+    payload.terrestrial_frequency_hz = Number(trackerById("v2AprsTerrestrialFreq").value || 0);
+  }
+  await runAction("POST /api/v1/aprs/select-target", () => aprsClient.selectTarget(trackerApi, payload));
+  recordEvent("APRS target refreshed", mode);
+  await refreshState();
+}
+
+async function toggleAprsConnection() {
+  if (stateCache.aprs.runtime?.connected) {
+    await runAction("POST /api/v1/aprs/disconnect", () => aprsClient.disconnect(trackerApi));
+    recordEvent("APRS disconnected", stateCache.aprs.runtime?.target?.label || "");
+    await refreshState();
+    return;
+  }
+  await runAction("POST /api/v1/settings/aprs", () => aprsClient.saveAprsSettings(trackerApi, aprsSettingsPayload()));
+  await runAction("POST /api/v1/aprs/select-target", async () => {
+    const mode = trackerById("v2AprsMode").value;
+    const payload = { operating_mode: mode };
+    if (mode === "satellite") {
+      payload.sat_id = trackerById("v2AprsSatellite").value || null;
+      payload.channel_id = trackerById("v2AprsChannel").value || null;
+    } else {
+      payload.terrestrial_frequency_hz = Number(trackerById("v2AprsTerrestrialFreq").value || 0);
+    }
+    return aprsClient.selectTarget(trackerApi, payload);
+  });
+  await runAction("POST /api/v1/aprs/connect", () => aprsClient.connect(trackerApi));
+  recordEvent("APRS connected", trackerById("v2AprsMode").value);
+  await refreshState();
+}
+
+async function saveAprsLogSettingsSection() {
+  await runAction("POST /api/v1/aprs/log/settings", () => aprsClient.saveLogSettings(trackerApi, aprsLogSettingsPayload()));
+  recordEvent("APRS log settings saved", "Local storage and gateway settings updated.");
   await refreshState();
 }
 
 async function saveDeveloperSection() {
-  saveDevSettings();
+  saveDevSettings({
+    enabled: trackerById("v2DevOverridesEnabled").checked,
+    forceScene: trackerById("v2DevForceScene").value || "auto",
+  });
   setRuntime("local developer settings", { status: "ok", response: getDevSettings() });
-  await refreshState();
+  recordEvent("Developer settings saved", trackerById("v2DevForceScene").value || "auto");
+  await refreshState({ preserveDraft: true });
+}
+
+function discardSection(sectionId) {
+  viewState.dirtySections[sectionId] = false;
+  renderPanel();
+}
+
+function startPolling() {
+  if (viewState.pollTimer) window.clearInterval(viewState.pollTimer);
+  viewState.pollTimer = window.setInterval(async () => {
+    if (Object.values(viewState.dirtySections).some(Boolean)) return;
+    try {
+      await refreshState({ preserveDraft: true });
+    } catch {
+      // Non-fatal polling failure.
+    }
+  }, 5000);
+}
+
+function setActiveSection(sectionId) {
+  viewState.activeSection = SECTION_ORDER.includes(sectionId) ? sectionId : "overview";
+  window.location.hash = `#${viewState.activeSection}`;
+  renderAll();
+}
+
+function buildContext() {
+  return {
+    stateCache,
+    viewState,
+    trackerApi,
+    trackerById,
+    trackerSetBrowserLocation,
+    trackerRenderStationBadge,
+    ensureTimezoneSelector,
+    formatCoord,
+    formatDateTime,
+    formatRelativeTone,
+    locationSummary,
+    radioContextSummary,
+    transportSummary,
+    defaultsForModel,
+    isHamFrequencySatellite,
+    loadVideoSources,
+    getDevSettings,
+    saveRadioSection,
+    toggleRadioConnection,
+    saveLocationSection,
+    saveTrackingSection,
+    saveDisplaySection,
+    saveAprsSection,
+    refreshAprsTarget,
+    toggleAprsConnection,
+    saveAprsLogSettingsSection,
+    saveDeveloperSection,
+    discardSection,
+    refreshState,
+    setActiveSection,
+    updateDirtyState,
+    updateAprsDrawer,
+    recordEvent,
+    runAction,
+  };
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
-  ({
-    api: trackerApi,
-    byId: trackerById,
-    setBrowserLocation: trackerSetBrowserLocation,
-    renderStationBadge: trackerRenderStationBadge,
-  } = window.issTracker);
+  initEnvironment();
+  ({ trackerApi, trackerById, trackerSetBrowserLocation, trackerRenderStationBadge } = getEnv());
 
-  trackerById("v2RadioRigModel").addEventListener("change", () => {
-    const model = trackerById("v2RadioRigModel").value;
-    const defaults = defaultsForModel(model);
-    trackerById("v2RadioBaudRate").value = defaults.baud_rate;
-    trackerById("v2RadioCivAddress").value = defaults.civ_address;
-    syncRadioTransportUi();
+  viewState.activeSection = activeSectionFromHash();
+
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest("[data-section-link]");
+    if (link) {
+      event.preventDefault();
+      setActiveSection(link.dataset.sectionLink);
+    }
   });
-  trackerById("v2RadioTransportMode").addEventListener("change", syncRadioTransportUi);
-  trackerById("v2LocationMode").addEventListener("change", syncLocationUi);
-  trackerById("v2AprsMode").addEventListener("change", syncAprsUi);
-  trackerById("v2AprsSatellite").addEventListener("change", renderChannelOptions);
 
   trackerById("settingsV2SectionPicker").addEventListener("change", () => {
-    window.location.hash = trackerById("settingsV2SectionPicker").value;
-  });
-  window.addEventListener("hashchange", applyHashState);
-  trackerById("v2ToggleRuntime").addEventListener("click", () => {
-    const body = trackerById("v2RuntimeBody");
-    body.classList.toggle("hidden");
-    trackerById("v2ToggleRuntime").textContent = body.classList.contains("hidden") ? "Expand" : "Collapse";
+    setActiveSection(trackerById("settingsV2SectionPicker").value);
   });
 
-  trackerById("v2SaveRadioSettings").addEventListener("click", saveRadioSection);
-  trackerById("v2ConnectRadio").addEventListener("click", async () => {
-    await runAction("POST /api/v1/radio/connect", () => trackerApi.post("/api/v1/radio/connect", {}));
-    await refreshState();
+  window.addEventListener("hashchange", () => {
+    viewState.activeSection = activeSectionFromHash();
+    renderAll();
   });
-  trackerById("v2DisconnectRadio").addEventListener("click", async () => {
-    await runAction("POST /api/v1/radio/disconnect", () => trackerApi.post("/api/v1/radio/disconnect", {}));
-    await refreshState();
+
+  trackerById("v2ToggleRuntime").addEventListener("click", () => {
+    const log = trackerById("v2RuntimeLog");
+    log.classList.toggle("hidden");
+    trackerById("v2ToggleRuntime").textContent = log.classList.contains("hidden") ? "Show Debug" : "Hide Debug";
   });
-  trackerById("v2SaveLocation").addEventListener("click", saveLocationSection);
-  trackerById("v2SaveTracking").addEventListener("click", saveTrackingSection);
-  trackerById("v2SaveDisplay").addEventListener("click", saveDisplaySection);
-  trackerById("v2SaveAprs").addEventListener("click", saveAprsSection);
-  trackerById("v2SaveDeveloper").addEventListener("click", saveDeveloperSection);
-  trackerById("v2RefreshPassCache").addEventListener("click", async () => {
-    await runAction("POST /api/v1/passes/cache/refresh", () => trackerApi.post("/api/v1/passes/cache/refresh", {}));
-    await refreshState();
-  });
-  trackerById("v2RefreshPage").addEventListener("click", refreshState);
 
   updateClock();
-  setInterval(updateClock, 1000);
+  window.setInterval(updateClock, 1000);
   await refreshState();
-  initSectionObserver();
-  applyHashState();
+  startPolling();
 });

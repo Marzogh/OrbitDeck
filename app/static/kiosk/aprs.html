@@ -6,7 +6,8 @@
     <title>OrbitDeck APRS</title>
     <link rel="stylesheet" href="/static/common/styles.css?v=20260314a" />
     <script defer src="/static/common/app.js?v=20260314a"></script>
-    <script defer src="/static/kiosk/aprs.js?v=20260315a"></script>
+    <script defer src="/static/common/aprs-console.js?v=20260315a"></script>
+    <script defer src="/static/kiosk/aprs.js?v=20260315c"></script>
   </head>
   <body class="kiosk">
     <header>
@@ -72,8 +73,6 @@
           <button id="connectAprsPage" type="button">Connect</button>
           <button id="disconnectAprsPage" type="button">Disconnect</button>
           <button id="panicUnkeyAprsPage" type="button">Panic Unkey</button>
-          <a href="/settings">Back to Settings</a>
-          <a href="/radio">Radio Page</a>
         </div>
       </section>
 
@@ -83,10 +82,14 @@
         <input id="aprsMessageToPage" type="text" placeholder="VK4XYZ-7" />
         <label for="aprsMessageBodyPage">Message Text</label>
         <input id="aprsMessageBodyPage" type="text" placeholder="Test from OrbitDeck" />
+        <small id="aprsMessageCounterPage" class="aprs-counter"></small>
         <label for="aprsStatusPage">Status Text</label>
         <input id="aprsStatusPage" type="text" placeholder="OrbitDeck APRS status" />
+        <small id="aprsStatusCounterPage" class="aprs-counter"></small>
         <label for="aprsPositionCommentPage">Position Comment</label>
         <input id="aprsPositionCommentPage" type="text" placeholder="Portable packet test" />
+        <small id="aprsPositionCounterPage" class="aprs-counter"></small>
+        <div id="aprsPositionPreviewPage" class="label mono">Position preview unavailable until location is resolved.</div>
         <div class="controls">
           <button id="sendAprsMessagePage" type="button">Send Message</button>
           <button id="sendAprsStatusPage" type="button">Send Status</button>
@@ -98,6 +101,68 @@
         <h2>Runtime</h2>
         <div id="aprsTxStatusPage" class="label">Loading TX status…</div>
         <pre id="aprsRuntimePage" class="mono">Loading…</pre>
+      </section>
+
+      <section class="card controls">
+        <h2>Stored Log</h2>
+        <label for="aprsLogEnabledPage">Store received APRS locally</label>
+        <input id="aprsLogEnabledPage" type="checkbox" />
+        <label for="aprsNotifyMessagesPage">Notify of incoming APRS messages</label>
+        <input id="aprsNotifyMessagesPage" type="checkbox" />
+        <label for="aprsNotifyAllPacketsPage">Notify for all heard packets</label>
+        <input id="aprsNotifyAllPacketsPage" type="checkbox" />
+        <label for="aprsLogMaxRecordsPage">Max Stored Records</label>
+        <select id="aprsLogMaxRecordsPage">
+          <option value="100">100</option>
+          <option value="500">500</option>
+          <option value="1000">1000</option>
+          <option value="5000">5000</option>
+        </select>
+        <details>
+          <summary>Digipeater</summary>
+          <label for="aprsDigipeaterEnabledPage">Enable digipeater mode</label>
+          <input id="aprsDigipeaterEnabledPage" type="checkbox" />
+          <label for="aprsDigipeaterAliasesPage">Aliases</label>
+          <input id="aprsDigipeaterAliasesPage" type="text" placeholder="WIDE1-1" />
+          <label for="aprsDigipeaterMaxHopsPage">Max Hops</label>
+          <input id="aprsDigipeaterMaxHopsPage" type="number" min="0" max="7" step="1" />
+          <label for="aprsDigipeaterDedupePage">Duplicate Window (s)</label>
+          <input id="aprsDigipeaterDedupePage" type="number" min="1" max="600" step="1" />
+        </details>
+        <details>
+          <summary>iGate</summary>
+          <label for="aprsIgateEnabledPage">Enable RX-only iGate</label>
+          <input id="aprsIgateEnabledPage" type="checkbox" />
+          <label for="aprsIgateHostPage">APRS-IS Host</label>
+          <input id="aprsIgateHostPage" type="text" placeholder="rotate.aprs2.net" />
+          <label for="aprsIgatePortPage">APRS-IS Port</label>
+          <input id="aprsIgatePortPage" type="number" min="1" max="65535" step="1" />
+          <label for="aprsIgateLoginPage">Login Callsign</label>
+          <input id="aprsIgateLoginPage" type="text" placeholder="VK4ABC-10" />
+          <label for="aprsIgatePasscodePage">Passcode</label>
+          <input id="aprsIgatePasscodePage" type="password" placeholder="APRS-IS passcode" />
+          <label for="aprsIgateFilterPage">Filter</label>
+          <input id="aprsIgateFilterPage" type="text" placeholder="m/25" />
+          <label for="aprsIgateTerrestrialPage">Gate terrestrial RX</label>
+          <input id="aprsIgateTerrestrialPage" type="checkbox" />
+          <label for="aprsIgateSatellitePage">Gate satellite RX</label>
+          <input id="aprsIgateSatellitePage" type="checkbox" />
+        </details>
+        <div id="aprsGatewayPolicyPage" class="label">Gateway policy loading…</div>
+        <label for="aprsClearAgePage">Clear Older Than</label>
+        <select id="aprsClearAgePage">
+          <option value="7d">7 days</option>
+          <option value="30d">30 days</option>
+          <option value="90d">90 days</option>
+          <option value="all">Everything</option>
+        </select>
+        <div class="controls">
+          <button id="saveAprsLogPage" type="button">Save Log Settings</button>
+          <button id="exportAprsLogCsvPage" type="button">Export CSV</button>
+          <button id="exportAprsLogJsonPage" type="button">Export JSON</button>
+          <button id="clearAprsLogPage" type="button">Clear Stored Log</button>
+        </div>
+        <div id="aprsStoredLogPage" class="aprs-packet-feed"></div>
       </section>
 
       <section id="direwolfInstallCard" class="card controls hidden">

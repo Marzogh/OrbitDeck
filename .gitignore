@@ -10,6 +10,8 @@ data/snapshots/*.json
 docs/*proposal*.md
 docs/*review-log.md
 docs/*redesign-log.md
+docs/settings-v2-plan.md
+docs/settings-v2-implementation-log.md
 docs/aprs-rotator-log.md
 docs/ic705-wifi-log.md
 docs/icom-lan-protocol-log.md
