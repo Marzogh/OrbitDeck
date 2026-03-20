@@ -5,12 +5,16 @@ from collections import deque
 from pathlib import Path
 from threading import Event, Thread
 from time import monotonic, sleep
+from typing import Callable
 
 from app.models import AprsSettings, AprsTargetState
 
 
+OutputObserver = Callable[[str], None]
+
+
 class DireWolfProcess:
-    def __init__(self, workdir: str = "data/aprs") -> None:
+    def __init__(self, workdir: str = "data/aprs", output_observer: OutputObserver | None = None) -> None:
         self.workdir = Path(workdir)
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.process: subprocess.Popen[str] | None = None
@@ -20,6 +24,7 @@ class DireWolfProcess:
         self._stop = Event()
         self._threads: list[Thread] = []
         self._kiss_port: int | None = None
+        self._output_observer = output_observer
 
     @staticmethod
     def _port_in_use(port: int) -> bool:
@@ -95,12 +100,31 @@ class DireWolfProcess:
         if include_ptt and settings.ptt_via_cat and not settings.listen_only:
             rig_model = int(settings.hamlib_model_id or 3085)
             lines.append(f"PTT RIG {rig_model} {settings.serial_device} {settings.baud_rate}")
+        if settings.digipeater.enabled:
+            aliases = [item.strip().upper() for item in settings.digipeater.aliases if str(item).strip()]
+            if aliases:
+                lines.append(f"DIGIPEAT 0 0 {' '.join(aliases)}")
+        if settings.igate.enabled:
+            login_call = settings.igate.login_callsign.strip().upper() or mycall
+            lines.extend(
+                [
+                    f"IGSERVER {settings.igate.server_host.strip()}",
+                    f"IGLOGIN {login_call} {settings.igate.passcode.strip()}",
+                ]
+            )
+            ig_filter = settings.igate.filter.strip()
+            if ig_filter:
+                lines.append(f"IGFILTER {ig_filter}")
         comment = (settings.beacon_comment or "").strip()
         if target.operating_mode.value == "terrestrial" and target.region_label:
             comment = f"{comment} [{target.region_label}]".strip()
         lines.append(f"# Target {target.label} {target.frequency_hz}")
         if comment:
             lines.append(f"# Comment {comment}")
+        if settings.digipeater.enabled:
+            lines.append(f"# Digipeater aliases {','.join(settings.digipeater.aliases)}")
+        if settings.igate.enabled:
+            lines.append(f"# IGate {settings.igate.server_host.strip()}:{settings.igate.server_port}")
         return "\n".join(lines) + "\n"
 
     def start(self, settings: AprsSettings, target: AprsTargetState) -> tuple[list[str], list[str]]:
@@ -182,7 +206,13 @@ class DireWolfProcess:
             line = stream.readline()
             if not line:
                 return
-            self.output_tail.append(line.rstrip())
+            text = line.rstrip()
+            self.output_tail.append(text)
+            if self._output_observer is not None:
+                try:
+                    self._output_observer(text)
+                except Exception:
+                    pass
 
     def stop(self) -> None:
         self._stop.set()
