@@ -6,7 +6,8 @@
     <title>OrbitDeck Settings Preview</title>
     <link rel="stylesheet" href="/static/common/styles.css?v=20260315b" />
     <script defer src="/static/common/app.js?v=20260315a"></script>
-    <script defer src="/static/kiosk/settings-v2.js?v=20260315a"></script>
+    <script defer src="/static/common/aprs-console.js?v=20260315a"></script>
+    <script defer src="/static/kiosk/settings-v2.js?v=20260315c"></script>
   </head>
   <body class="kiosk settings-v2-page">
     <header class="settings-v2-header">
@@ -242,89 +243,278 @@
           <summary>
             <div>
               <h2>APRS</h2>
-              <div class="label">Feature settings only. Shared connection details come from Radio Connection.</div>
+              <div class="label">Embedded APRS operator console with shared radio transport and local packet logging.</div>
             </div>
             <span id="aprsSectionSummary" class="settings-v2-summary-pill">Loading…</span>
           </summary>
           <div class="settings-v2-section-body">
-            <div id="v2AprsRadioContext" class="settings-v2-inline-note">Shared radio context: loading…</div>
-            <div class="settings-v2-form-grid">
-              <label>
-                <span>Callsign</span>
-                <input id="v2AprsCallsign" type="text" placeholder="VK4ABC" />
-              </label>
-              <label>
-                <span>SSID</span>
-                <input id="v2AprsSsid" type="number" min="0" max="15" step="1" />
-              </label>
-              <label>
-                <span>Operating Mode</span>
-                <select id="v2AprsMode">
-                  <option value="terrestrial">Terrestrial</option>
-                  <option value="satellite">Satellite</option>
-                </select>
-              </label>
-              <label>
-                <span>Listen Only</span>
-                <select id="v2AprsListenOnly">
-                  <option value="false">Transmit + Receive</option>
-                  <option value="true">Listen Only</option>
-                </select>
-              </label>
-              <label id="v2AprsSatelliteField" class="hidden">
-                <span>APRS Satellite</span>
-                <select id="v2AprsSatellite"></select>
-              </label>
-              <label id="v2AprsChannelField" class="hidden">
-                <span>Satellite APRS Channel</span>
-                <select id="v2AprsChannel"></select>
-              </label>
-              <label id="v2AprsTerrestrialField">
-                <span>Terrestrial Frequency (Hz)</span>
-                <input id="v2AprsTerrestrialFreq" type="number" min="1000" step="1" />
-              </label>
-              <label id="v2AprsAudioInputField">
-                <span>Audio Input</span>
-                <select id="v2AprsAudioInput"></select>
-              </label>
-              <label id="v2AprsAudioOutputField">
-                <span>Audio Output</span>
-                <select id="v2AprsAudioOutput"></select>
-              </label>
-              <label id="v2AprsTerrestrialPathField">
-                <span>Terrestrial PATH</span>
-                <input id="v2AprsTerrestrialPath" type="text" placeholder="WIDE1-1,WIDE2-1" />
-              </label>
-              <label id="v2AprsSatellitePathField" class="hidden">
-                <span>Satellite PATH</span>
-                <input id="v2AprsSatellitePath" type="text" placeholder="ARISS" />
-              </label>
-              <label id="v2AprsTerrestrialCommentField">
-                <span>Terrestrial Comment</span>
-                <input id="v2AprsTerrestrialComment" type="text" placeholder="OrbitDeck APRS" />
-              </label>
-              <label id="v2AprsSatelliteCommentField" class="hidden">
-                <span>Satellite Comment</span>
-                <input id="v2AprsSatelliteComment" type="text" placeholder="OrbitDeck Space APRS" />
-              </label>
-              <label>
-                <span>Position Fudge Latitude (deg)</span>
-                <input id="v2AprsPositionFudgeLat" type="number" min="-0.02" max="0.02" step="0.01" />
-              </label>
-              <label>
-                <span>Position Fudge Longitude (deg)</span>
-                <input id="v2AprsPositionFudgeLon" type="number" min="-0.02" max="0.02" step="0.01" />
-              </label>
-            </div>
-            <div id="v2AprsRegionHint" class="settings-v2-inline-note">Loading APRS target profile…</div>
-            <div id="v2AprsAudioManagedNote" class="settings-v2-inline-note hidden">Audio path: loading…</div>
-            <div class="settings-v2-inline-note">APRS-only transmit offset. Each axis can be nudged by up to plus or minus 0.02 degrees in 0.01 degree steps.</div>
-            <div class="settings-v2-note-card">
-              <strong>IC-705 Wi-Fi operator note</strong>
-              <p>Placeholder: expand this with saved-profile guidance, Wi-Fi data-mode prerequisites, and APRS workflow notes once the final operator playbook is settled.</p>
-            </div>
-            <div class="settings-v2-actions">
-              <button id="v2SaveAprs" type="button">Save APRS</button>
+            <section class="aprs-console-band aprs-mode-bar">
+              <div class="aprs-mode-toggle" role="tablist" aria-label="APRS operating mode">
+                <button id="v2AprsModeTerrestrial" type="button" class="active">Terrestrial</button>
+                <button id="v2AprsModeSatellite" type="button">Satellite</button>
+              </div>
+              <select id="v2AprsMode" class="hidden" aria-hidden="true">
+                <option value="terrestrial">Terrestrial</option>
+                <option value="satellite">Satellite</option>
+              </select>
+              <div class="aprs-mode-actions">
+                <span id="v2AprsConnectionPill" class="settings-v2-summary-pill">Disconnected</span>
+                <button id="v2AprsConnectToggle" type="button" class="aprs-connect-action aprs-connect-green">Connect</button>
+                <button id="v2AprsPanicUnkey" type="button" class="hidden">Panic Unkey</button>
+                <button id="v2AprsOpenInbox" type="button">Open Inbox / Log</button>
+              </div>
+            </section>
+
+            <section class="aprs-console-band">
+              <div class="aprs-band-head">
+                <h3>Configuration</h3>
+                <div id="v2AprsRadioContext" class="settings-v2-inline-note">Shared radio context: loading…</div>
+              </div>
+              <div class="settings-v2-form-grid">
+                <label>
+                  <span>Callsign</span>
+                  <input id="v2AprsCallsign" type="text" placeholder="VK4ABC" />
+                </label>
+                <label>
+                  <span>SSID</span>
+                  <input id="v2AprsSsid" type="number" min="0" max="15" step="1" />
+                </label>
+                <label>
+                  <span>Listen Only</span>
+                  <select id="v2AprsListenOnly">
+                    <option value="false">Transmit + Receive</option>
+                    <option value="true">Listen Only</option>
+                  </select>
+                </label>
+                <label id="v2AprsTerrestrialField">
+                  <span>Terrestrial Frequency (Hz)</span>
+                  <input id="v2AprsTerrestrialFreq" type="number" min="1000" step="1" />
+                </label>
+                <label id="v2AprsSatelliteField" class="hidden">
+                  <span>APRS Satellite</span>
+                  <select id="v2AprsSatellite"></select>
+                </label>
+                <label id="v2AprsChannelField" class="hidden">
+                  <span>Satellite APRS Channel</span>
+                  <select id="v2AprsChannel"></select>
+                </label>
+                <label id="v2AprsAudioInputField">
+                  <span>Audio Input</span>
+                  <select id="v2AprsAudioInput"></select>
+                </label>
+                <label id="v2AprsAudioOutputField">
+                  <span>Audio Output</span>
+                  <select id="v2AprsAudioOutput"></select>
+                </label>
+                <label id="v2AprsTerrestrialPathField">
+                  <span>Terrestrial PATH</span>
+                  <input id="v2AprsTerrestrialPath" type="text" placeholder="WIDE1-1,WIDE2-1" />
+                </label>
+                <label id="v2AprsSatellitePathField" class="hidden">
+                  <span>Satellite PATH</span>
+                  <input id="v2AprsSatellitePath" type="text" placeholder="ARISS" />
+                </label>
+                <label id="v2AprsTerrestrialCommentField">
+                  <span>Terrestrial Comment</span>
+                  <input id="v2AprsTerrestrialComment" type="text" placeholder="OrbitDeck APRS" />
+                </label>
+                <label id="v2AprsSatelliteCommentField" class="hidden">
+                  <span>Satellite Comment</span>
+                  <input id="v2AprsSatelliteComment" type="text" placeholder="OrbitDeck Space APRS" />
+                </label>
+                <label>
+                  <span>Position Fudge Latitude (deg)</span>
+                  <input id="v2AprsPositionFudgeLat" type="number" min="-0.02" max="0.02" step="0.01" />
+                </label>
+                <label>
+                  <span>Position Fudge Longitude (deg)</span>
+                  <input id="v2AprsPositionFudgeLon" type="number" min="-0.02" max="0.02" step="0.01" />
+                </label>
+              </div>
+              <div id="v2AprsRegionHint" class="settings-v2-inline-note">Loading APRS target profile…</div>
+              <div id="v2AprsAudioManagedNote" class="settings-v2-inline-note hidden">Audio path: loading…</div>
+              <div id="v2AprsTargetSummary" class="settings-v2-inline-note">Loading APRS target summary…</div>
+              <div class="settings-v2-inline-note">APRS-only transmit offset. Each axis can be nudged by up to plus or minus 0.02 degrees in 0.01 degree steps.</div>
+              <div class="settings-v2-actions">
+                <button id="v2SaveAprs" type="button">Save APRS Settings</button>
+                <button id="v2AprsSelectTarget" type="button">Refresh Target</button>
+              </div>
+            </section>
+
+            <section class="aprs-console-band">
+              <div class="aprs-band-head">
+                <h3>Send</h3>
+                <div id="v2AprsTxStatus" class="settings-v2-inline-note">Loading transmit state…</div>
+              </div>
+              <div class="aprs-send-tabs" role="tablist" aria-label="APRS send action">
+                <button id="v2AprsSendTabMessage" type="button" class="active">Message</button>
+                <button id="v2AprsSendTabStatus" type="button">Status</button>
+                <button id="v2AprsSendTabPosition" type="button">Position</button>
+              </div>
+              <div id="v2AprsSendMessagePanel" class="aprs-send-panel">
+                <div class="settings-v2-form-grid">
+                  <label>
+                    <span>Message To</span>
+                    <input id="v2AprsMessageTo" type="text" placeholder="VK4XYZ-7" />
+                  </label>
+                  <label class="settings-v2-span-2">
+                    <span>Message Text</span>
+                    <input id="v2AprsMessageBody" type="text" placeholder="Test from OrbitDeck" />
+                    <small id="v2AprsMessageCounter" class="aprs-counter"></small>
+                  </label>
+                </div>
+                <div class="settings-v2-actions">
+                  <button id="v2AprsSendMessage" type="button">Send Message</button>
+                </div>
+              </div>
+              <div id="v2AprsSendStatusPanel" class="aprs-send-panel hidden">
+                <div class="settings-v2-form-grid">
+                  <label class="settings-v2-span-2">
+                    <span>Status Text</span>
+                    <input id="v2AprsStatusBody" type="text" placeholder="IC-705 linked and monitoring." />
+                    <small id="v2AprsStatusCounter" class="aprs-counter"></small>
+                  </label>
+                </div>
+                <div class="settings-v2-actions">
+                  <button id="v2AprsSendStatus" type="button">Send Status</button>
+                </div>
+              </div>
+              <div id="v2AprsSendPositionPanel" class="aprs-send-panel hidden">
+                <div class="settings-v2-form-grid">
+                  <label class="settings-v2-span-2">
+                    <span>Position Comment</span>
+                    <input id="v2AprsPositionComment" type="text" placeholder="IC-705 over Wi-Fi" />
+                    <small id="v2AprsPositionCounter" class="aprs-counter"></small>
+                  </label>
+                </div>
+                <div class="settings-v2-inline-note">Shorter comments decode better on-air. Keep them under 20 characters when possible.</div>
+                <div id="v2AprsPositionPreview" class="settings-v2-note-card mono">Position preview unavailable until location is resolved.</div>
+                <div class="settings-v2-actions">
+                  <button id="v2AprsSendPosition" type="button">Send Position</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="aprs-console-band">
+              <div class="aprs-band-head">
+                <h3>Live Heard</h3>
+                <div class="aprs-live-actions">
+                  <span id="v2AprsHeardMeta" class="settings-v2-inline-note">Last 10 packets heard on this session.</span>
+                  <button id="v2AprsRefreshLog" type="button">Refresh</button>
+                </div>
+              </div>
+              <div class="aprs-last-grid">
+                <article class="settings-v2-note-card">
+                  <strong>Last TX</strong>
+                  <div id="v2AprsLastTxCard" class="aprs-last-card">No local transmission yet.</div>
+                </article>
+                <article class="settings-v2-note-card">
+                  <strong>Last RX</strong>
+                  <div id="v2AprsLastRxCard" class="aprs-last-card">No packets heard yet.</div>
+                </article>
+              </div>
+              <div class="aprs-filter-chips">
+                <button type="button" data-aprs-filter="all" class="active">All</button>
+                <button type="button" data-aprs-filter="message">Messages</button>
+                <button type="button" data-aprs-filter="position">Positions</button>
+                <button type="button" data-aprs-filter="status">Status</button>
+                <button type="button" data-aprs-filter="raw">Raw</button>
+              </div>
+              <div id="v2AprsHeardList" class="aprs-heard-list"></div>
+            </section>
+
+            <div id="v2AprsDrawer" class="aprs-drawer hidden" aria-hidden="true">
+              <div class="aprs-drawer-backdrop" data-aprs-drawer-close></div>
+              <section class="aprs-drawer-sheet">
+                <div class="aprs-drawer-head">
+                  <div>
+                    <div class="label mono">APRS Inbox / Log</div>
+                    <h3>Recent Traffic And Local Storage</h3>
+                  </div>
+                  <button id="v2AprsCloseInbox" type="button">Close</button>
+                </div>
+                <div class="aprs-send-tabs" role="tablist" aria-label="APRS inbox tabs">
+                  <button type="button" data-aprs-drawer-tab="recent" class="active">Recent</button>
+                  <button type="button" data-aprs-drawer-tab="messages">Messages</button>
+                  <button type="button" data-aprs-drawer-tab="stored">Stored Log</button>
+                </div>
+                <div id="v2AprsDrawerRecent" class="aprs-drawer-panel"></div>
+                <div id="v2AprsDrawerMessages" class="aprs-drawer-panel hidden"></div>
+                <div id="v2AprsDrawerStored" class="aprs-drawer-panel hidden">
+                  <div class="settings-v2-toggle-grid">
+                    <label class="settings-v2-toggle"><input id="v2AprsLogEnabled" type="checkbox" /> <span>Store received APRS locally</span></label>
+                    <label class="settings-v2-toggle"><input id="v2AprsNotifyMessages" type="checkbox" /> <span>Notify of incoming APRS messages</span></label>
+                    <label class="settings-v2-toggle"><input id="v2AprsNotifyAllPackets" type="checkbox" /> <span>Notify for all heard packets</span></label>
+                  </div>
+                  <div class="settings-v2-form-grid">
+                    <label>
+                      <span>Max Stored Records</span>
+                      <select id="v2AprsLogMaxRecords">
+                        <option value="100">100</option>
+                        <option value="500">500</option>
+                        <option value="1000">1000</option>
+                        <option value="5000">5000</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Clear Older Than</span>
+                      <select id="v2AprsClearAge">
+                        <option value="7d">7 days</option>
+                        <option value="30d">30 days</option>
+                        <option value="90d">90 days</option>
+                        <option value="all">Everything</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="settings-v2-actions">
+                    <button id="v2AprsSaveLogSettings" type="button">Save Log Settings</button>
+                    <button id="v2AprsExportCsv" type="button">Export CSV</button>
+                    <button id="v2AprsExportJson" type="button">Export JSON</button>
+                    <button id="v2AprsClearLog" type="button">Clear Stored Log</button>
+                  </div>
+                  <div id="v2AprsStoredList" class="aprs-heard-list"></div>
+                  <details class="settings-v2-note-card">
+                    <summary>Gateway Modes</summary>
+                    <div class="settings-v2-toggle-grid">
+                      <label class="settings-v2-toggle"><input id="v2AprsFutureDigipeater" type="checkbox" /> <span>Enable digipeater mode</span></label>
+                      <label class="settings-v2-toggle"><input id="v2AprsFutureIgate" type="checkbox" /> <span>Enable RX-only iGate mode</span></label>
+                      <label class="settings-v2-toggle"><input id="v2AprsIgateTerrestrial" type="checkbox" /> <span>Gate terrestrial APRS RX</span></label>
+                      <label class="settings-v2-toggle"><input id="v2AprsIgateSatellite" type="checkbox" /> <span>Gate satellite APRS RX</span></label>
+                    </div>
+                    <div class="settings-v2-form-grid">
+                      <label>
+                        <span>Digipeater Aliases</span>
+                        <input id="v2AprsDigipeaterAliases" type="text" placeholder="WIDE1-1" />
+                      </label>
+                      <label>
+                        <span>Duplicate Window (s)</span>
+                        <input id="v2AprsDigipeaterDedupe" type="number" min="1" max="600" step="1" />
+                      </label>
+                      <label>
+                        <span>APRS-IS Host</span>
+                        <input id="v2AprsIgateHost" type="text" placeholder="rotate.aprs2.net" />
+                      </label>
+                      <label>
+                        <span>APRS-IS Port</span>
+                        <input id="v2AprsIgatePort" type="number" min="1" max="65535" step="1" />
+                      </label>
+                      <label>
+                        <span>Login Callsign</span>
+                        <input id="v2AprsIgateLogin" type="text" placeholder="VK4ABC-10" />
+                      </label>
+                      <label>
+                        <span>Passcode</span>
+                        <input id="v2AprsIgatePasscode" type="password" placeholder="APRS-IS passcode" />
+                      </label>
+                      <label>
+                        <span>Filter</span>
+                        <input id="v2AprsIgateFilter" type="text" placeholder="m/25" />
+                      </label>
+                    </div>
+                  </details>
+                </div>
+                <pre id="v2AprsPacketDetail" class="mono settings-v2-runtime-log">Select a packet row for details.</pre>
+              </section>
             </div>
           </div>
         </details>
@@ -387,5 +577,6 @@
         </div>
       </aside>
     </main>
+    <div id="v2AprsToastHost" class="aprs-toast-host"></div>
   </body>
 </html>
