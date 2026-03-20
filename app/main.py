@@ -16,7 +16,7 @@ from zoneinfo import available_timezones
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.aprs.log_store import AprsLogStore
@@ -983,14 +983,19 @@ def lite_settings_index() -> FileResponse:
 def settings_index() -> FileResponse:
     if lite_only_ui():
         return FileResponse("app/static/lite/settings.html")
-    return FileResponse("app/static/kiosk/settings.html")
+    return FileResponse("app/static/kiosk/settings-v2.html")
 
 
 @app.get("/settings-v2")
-def settings_v2_index() -> FileResponse:
+def settings_v2_index() -> Response:
+    return RedirectResponse(url="/settings", status_code=307)
+
+
+@app.get("/internal/settings-legacy")
+def settings_legacy_index() -> FileResponse:
     if lite_only_ui():
         return FileResponse("app/static/lite/settings.html")
-    return FileResponse("app/static/kiosk/settings-v2.html")
+    return FileResponse("app/static/kiosk/settings-legacy.html")
 
 
 @app.get("/radio")
@@ -1000,6 +1005,16 @@ def radio_index() -> FileResponse:
 
 @app.get("/aprs")
 def aprs_index() -> FileResponse:
+    return FileResponse("app/static/kiosk/aprs.html")
+
+
+@app.get("/internal/radio")
+def internal_radio_index() -> FileResponse:
+    return FileResponse("app/static/kiosk/radio.html")
+
+
+@app.get("/internal/aprs")
+def internal_aprs_index() -> FileResponse:
     return FileResponse("app/static/kiosk/aprs.html")
 
 

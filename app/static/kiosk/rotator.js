@@ -1780,7 +1780,6 @@ function renderAprsSceneCard(system) {
         <button id="aprsDisconnectBtn" type="button"${connected ? "" : " disabled"}>Disconnect APRS</button>
         <button id="aprsPanicBtn" type="button"${connected ? "" : " disabled"}>Panic Unkey</button>
         <button id="aprsBackBtn" type="button">Back to Rotator</button>
-        <a href="/aprs">Open Full APRS Page</a>
       </div>
       <div class="controls radio-session-actions">
         <input id="aprsMessageToRotator" type="text" placeholder="VK4XYZ-7" />
