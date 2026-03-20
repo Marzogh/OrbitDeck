@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class IssDisplayMode(str, Enum):
@@ -156,6 +156,27 @@ class RadioSettings(BaseModel):
     safe_tx_guard_enabled: bool = True
 
 
+class AprsDigipeaterSettings(BaseModel):
+    enabled: bool = False
+    aliases: list[str] = Field(default_factory=lambda: ["WIDE1-1"])
+    max_hops: int = Field(default=1, ge=0, le=7)
+    dedupe_window_s: int = Field(default=30, ge=1, le=600)
+    callsign_allowlist: list[str] = Field(default_factory=list)
+    path_blocklist: list[str] = Field(default_factory=lambda: ["TCPIP", "TCPXX", "NOGATE", "RFONLY"])
+
+
+class AprsIgateSettings(BaseModel):
+    enabled: bool = False
+    server_host: str = "rotate.aprs2.net"
+    server_port: int = Field(default=14580, ge=1, le=65535)
+    login_callsign: str = ""
+    passcode: str = ""
+    filter: str = "m/25"
+    connect_timeout_s: int = Field(default=10, ge=1, le=120)
+    gate_terrestrial_rx: bool = True
+    gate_satellite_rx: bool = True
+
+
 class AprsSettings(BaseModel):
     enabled: bool = False
     callsign: str = "N0CALL"
@@ -182,12 +203,52 @@ class AprsSettings(BaseModel):
     satellite_beacon_comment: str = "OrbitDeck Space APRS"
     symbol_table: str = "/"
     symbol_code: str = "["
+    position_fudge_lat_deg: float = Field(default=0.0, ge=-0.02, le=0.02, multiple_of=0.01)
+    position_fudge_lon_deg: float = Field(default=0.0, ge=-0.02, le=0.02, multiple_of=0.01)
+    log_enabled: bool = False
+    log_max_records: int = Field(default=500, ge=100, le=5000)
+    notify_incoming_messages: bool = True
+    notify_all_packets: bool = False
+    digipeater: AprsDigipeaterSettings = Field(default_factory=AprsDigipeaterSettings)
+    igate: AprsIgateSettings = Field(default_factory=AprsIgateSettings)
+    future_digipeater_enabled: bool = False
+    future_igate_enabled: bool = False
     selected_satellite_id: str | None = None
     selected_channel_id: str | None = None
     terrestrial_auto_region: bool = True
     terrestrial_region_label: str | None = None
     terrestrial_manual_frequency_hz: int | None = Field(default=None, ge=1000)
     terrestrial_last_suggested_frequency_hz: int | None = Field(default=None, ge=1000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_gateway_flags(cls, value):
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        digipeater = payload.get("digipeater")
+        igate = payload.get("igate")
+        future_digipeater = bool(payload.get("future_digipeater_enabled", False))
+        future_igate = bool(payload.get("future_igate_enabled", False))
+        if isinstance(digipeater, AprsDigipeaterSettings):
+            pass
+        elif not isinstance(digipeater, dict):
+            payload["digipeater"] = {"enabled": future_digipeater}
+        elif "enabled" not in digipeater:
+            payload["digipeater"] = {**digipeater, "enabled": future_digipeater}
+        if isinstance(igate, AprsIgateSettings):
+            pass
+        elif not isinstance(igate, dict):
+            payload["igate"] = {"enabled": future_igate}
+        elif "enabled" not in igate:
+            payload["igate"] = {**igate, "enabled": future_igate}
+        return payload
+
+    @model_validator(mode="after")
+    def _sync_legacy_gateway_flags(self):
+        self.future_digipeater_enabled = bool(self.digipeater.enabled)
+        self.future_igate_enabled = bool(self.igate.enabled)
+        return self
 
 
 class LiteSettings(BaseModel):
@@ -536,6 +597,20 @@ class AprsPacketEvent(BaseModel):
     raw_tnc2: str
 
 
+class AprsLogEntry(BaseModel):
+    received_at: datetime
+    source: str
+    destination: str
+    path: list[str] = Field(default_factory=list)
+    packet_type: str
+    text: str
+    latitude: float | None = None
+    longitude: float | None = None
+    addressee: str | None = None
+    message_id: str | None = None
+    raw_tnc2: str
+
+
 class AprsHeardStation(BaseModel):
     callsign: str
     last_heard_at: datetime
@@ -560,9 +635,27 @@ class AprsRuntimeState(BaseModel):
     last_error: str | None = None
     last_started_at: datetime | None = None
     last_packet_at: datetime | None = None
+    last_tx_at: datetime | None = None
+    last_tx_packet_type: str | None = None
+    last_tx_text: str | None = None
+    last_tx_raw_tnc2: str | None = None
     packets_rx: int = 0
     packets_tx: int = 0
+    packets_digipeated: int = 0
+    packets_igated: int = 0
+    packets_dropped_policy: int = 0
+    packets_dropped_duplicate: int = 0
     heard_count: int = 0
+    digipeater_requested: bool = False
+    digipeater_active: bool = False
+    digipeater_reason: str | None = None
+    igate_requested: bool = False
+    igate_active: bool = False
+    igate_connected: bool = False
+    igate_reason: str | None = None
+    igate_server: str | None = None
+    igate_last_connect_at: datetime | None = None
+    igate_last_error: str | None = None
     target: AprsTargetState | None = None
     recent_packets: list[AprsPacketEvent] = Field(default_factory=list)
     heard_stations: list[AprsHeardStation] = Field(default_factory=list)
@@ -624,6 +717,16 @@ class AprsSettingsUpdate(BaseModel):
     satellite_beacon_comment: str | None = None
     symbol_table: str | None = None
     symbol_code: str | None = None
+    position_fudge_lat_deg: float | None = Field(default=None, ge=-0.02, le=0.02, multiple_of=0.01)
+    position_fudge_lon_deg: float | None = Field(default=None, ge=-0.02, le=0.02, multiple_of=0.01)
+    log_enabled: bool | None = None
+    log_max_records: int | None = Field(default=None, ge=100, le=5000)
+    notify_incoming_messages: bool | None = None
+    notify_all_packets: bool | None = None
+    digipeater: AprsDigipeaterSettings | None = None
+    igate: AprsIgateSettings | None = None
+    future_digipeater_enabled: bool | None = None
+    future_igate_enabled: bool | None = None
     selected_satellite_id: str | None = None
     selected_channel_id: str | None = None
     terrestrial_path: str | None = None
@@ -687,4 +790,19 @@ class AprsSendStatusRequest(BaseModel):
 class AprsSendPositionRequest(BaseModel):
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
-    comment: str = Field(default="", max_length=67)
+    comment: str = Field(default="", max_length=40)
+
+
+class AprsLogSettingsUpdate(BaseModel):
+    log_enabled: bool
+    log_max_records: int = Field(ge=100, le=5000)
+    notify_incoming_messages: bool
+    notify_all_packets: bool
+    digipeater: AprsDigipeaterSettings | None = None
+    igate: AprsIgateSettings | None = None
+    future_digipeater_enabled: bool = False
+    future_igate_enabled: bool = False
+
+
+class AprsLogClearRequest(BaseModel):
+    age_bucket: Literal["7d", "30d", "90d", "all"] = "all"

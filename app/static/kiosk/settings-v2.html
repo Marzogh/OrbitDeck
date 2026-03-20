@@ -3,16 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OrbitDeck Settings Preview</title>
-    <link rel="stylesheet" href="/static/common/styles.css?v=20260315b" />
+    <title>OrbitDeck Settings</title>
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260320a" />
     <script defer src="/static/common/app.js?v=20260315a"></script>
-    <script defer src="/static/kiosk/settings-v2.js?v=20260315a"></script>
+    <script defer src="/static/common/aprs-console.js?v=20260315a"></script>
+    <script defer type="module" src="/static/kiosk/settings-v2.js?v=20260320a"></script>
   </head>
   <body class="kiosk settings-v2-page">
     <header class="settings-v2-header">
       <div>
-        <h1>OrbitDeck Settings Console</h1>
-        <div class="label">Preview build of the consolidated settings experience.</div>
+        <h1>OrbitDeck Settings</h1>
+        <div class="label">Shared radio, kiosk, and APRS configuration in one focused workspace.</div>
       </div>
       <div class="settings-v2-header-meta">
         <div id="stationBadge" class="label mono">Station: --</div>
@@ -20,362 +21,52 @@
       </div>
     </header>
 
-    <main class="settings-v2-layout">
-      <aside class="card settings-v2-nav">
-        <div class="settings-v2-nav-head">
+    <main class="settings-v2-shell">
+      <aside class="card settings-v2-sidebar">
+        <div class="settings-v2-sidebar-block">
           <div class="label mono">Sections</div>
-          <select id="settingsV2SectionPicker" class="settings-v2-section-picker">
-            <option value="#radio-connection">Radio Connection</option>
-            <option value="#location">Location</option>
-            <option value="#tracking">Tracking</option>
-            <option value="#display-video">Display / Video</option>
-            <option value="#aprs">APRS</option>
-            <option value="#developer">Developer</option>
+          <select id="settingsV2SectionPicker" class="settings-v2-section-picker" aria-label="Select section">
+            <option value="overview">Overview</option>
+            <option value="radio">Radio</option>
+            <option value="location">Location</option>
+            <option value="tracking">Satellite Tracking</option>
+            <option value="display">Display</option>
+            <option value="aprs">APRS</option>
+            <option value="developer">Developer</option>
           </select>
-        </div>
-        <nav id="settingsV2NavLinks" class="settings-v2-nav-links">
-          <a href="#radio-connection" data-section-link>Radio Connection</a>
-          <a href="#location" data-section-link>Location</a>
-          <a href="#tracking" data-section-link>Tracking</a>
-          <a href="#display-video" data-section-link>Display / Video</a>
-          <a href="#aprs" data-section-link>APRS</a>
-          <a href="#developer" data-section-link>Developer</a>
-        </nav>
-        <div class="settings-v2-nav-footer">
-          <a href="/settings">Open Current Settings</a>
-          <a href="/radio">Radio Test Page</a>
-          <a href="/aprs">APRS Test Page</a>
+          <nav id="settingsV2Nav" class="settings-v2-sidebar-nav" aria-label="Settings sections">
+            <a href="#overview" data-section-link="overview">Overview</a>
+            <a href="#radio" data-section-link="radio">Radio</a>
+            <a href="#location" data-section-link="location">Location</a>
+            <a href="#tracking" data-section-link="tracking">Satellite Tracking</a>
+            <a href="#display" data-section-link="display">Display</a>
+            <a href="#aprs" data-section-link="aprs">APRS</a>
+            <a href="#developer" data-section-link="developer">Developer</a>
+          </nav>
         </div>
       </aside>
 
-      <section class="settings-v2-main">
-        <details id="radio-connection" class="card settings-v2-section" open>
-          <summary>
-            <div>
-              <h2>Radio Connection</h2>
-              <div class="label">One shared connection profile for radio control and APRS.</div>
-            </div>
-            <span id="radioSectionSummary" class="settings-v2-summary-pill">Loading…</span>
-          </summary>
-          <div class="settings-v2-section-body">
-            <div class="settings-v2-form-grid">
-              <label>
-                <span>Rig Model</span>
-                <select id="v2RadioRigModel">
-                  <option value="id5100">Icom ID-5100</option>
-                  <option value="ic705">Icom IC-705</option>
-                </select>
-              </label>
-              <label>
-                <span>Connection Type</span>
-                <select id="v2RadioTransportMode">
-                  <option value="usb">USB</option>
-                  <option value="wifi">Wi-Fi</option>
-                </select>
-              </label>
-              <label id="v2RadioUsbField">
-                <span>USB Serial Device</span>
-                <select id="v2RadioSerialDevice"></select>
-              </label>
-              <label id="v2RadioWifiHostField" class="hidden">
-                <span>Wi-Fi Host</span>
-                <input id="v2RadioWifiHost" type="text" placeholder="192.168.2.70" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-1p-ignore="true" data-lpignore="true" data-form-type="other" />
-              </label>
-              <label id="v2RadioWifiUsernameField" class="hidden">
-                <span>Wi-Fi Username</span>
-                <input id="v2RadioWifiUsername" type="text" placeholder="prajwal" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-1p-ignore="true" data-lpignore="true" data-form-type="other" />
-              </label>
-              <label id="v2RadioWifiPasswordField" class="hidden">
-                <span>Wi-Fi Password</span>
-                <input id="v2RadioWifiPassword" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" data-1p-ignore="true" data-lpignore="true" data-form-type="other" />
-              </label>
-              <label id="v2RadioWifiPortField" class="hidden">
-                <span>Wi-Fi Control Port</span>
-                <input id="v2RadioWifiControlPort" type="number" min="1" max="65535" step="1" />
-              </label>
-              <label>
-                <span>Baud Rate</span>
-                <input id="v2RadioBaudRate" type="number" min="4800" max="19200" step="1" />
-              </label>
-              <label>
-                <span>CI-V Address</span>
-                <input id="v2RadioCivAddress" type="text" placeholder="0xA4" />
-              </label>
-              <label>
-                <span>Poll Interval (ms)</span>
-                <input id="v2RadioPollInterval" type="number" min="100" max="10000" step="100" />
-              </label>
-              <label>
-                <span>Auto-Track Interval (ms)</span>
-                <input id="v2RadioAutoTrackInterval" type="number" min="200" max="10000" step="100" />
-              </label>
-            </div>
-            <div class="settings-v2-toggle-grid">
-              <label class="settings-v2-toggle"><input id="v2RadioEnabled" type="checkbox" /> <span>Radio Enabled</span></label>
-              <label class="settings-v2-toggle"><input id="v2RadioAutoConnect" type="checkbox" /> <span>Auto Connect</span></label>
-              <label class="settings-v2-toggle"><input id="v2RadioApplyModeTone" type="checkbox" /> <span>Apply Mode and Tone</span></label>
-              <label class="settings-v2-toggle"><input id="v2RadioSafeTxGuard" type="checkbox" /> <span>Safe TX Guard</span></label>
-            </div>
-            <div class="settings-v2-inline-note" id="v2RadioContext">Shared connection details are used by both Radio Control and APRS.</div>
-            <div class="settings-v2-actions">
-              <button id="v2SaveRadioSettings" type="button">Save Radio Connection</button>
-              <button id="v2ConnectRadio" type="button">Connect Radio</button>
-              <button id="v2DisconnectRadio" type="button">Disconnect Radio</button>
-            </div>
-          </div>
-        </details>
-
-        <details id="location" class="card settings-v2-section" open>
-          <summary>
-            <div>
-              <h2>Location</h2>
-              <div class="label">Choose the source used for APRS regioning and pass predictions.</div>
-            </div>
-            <span id="locationSectionSummary" class="settings-v2-summary-pill">Loading…</span>
-          </summary>
-          <div class="settings-v2-section-body">
-            <div class="settings-v2-form-grid">
-              <label>
-                <span>Location Source</span>
-                <select id="v2LocationMode">
-                  <option value="browser">System Location</option>
-                  <option value="gps">GPS</option>
-                  <option value="manual">Manual</option>
-                  <option value="auto">Auto</option>
-                </select>
-              </label>
-              <label id="v2ManualLatField" class="hidden">
-                <span>Manual Latitude</span>
-                <input id="v2ManualLat" type="number" step="0.000001" placeholder="-27.470125" />
-              </label>
-              <label id="v2ManualLonField" class="hidden">
-                <span>Manual Longitude</span>
-                <input id="v2ManualLon" type="number" step="0.000001" placeholder="153.021072" />
-              </label>
-              <label id="v2GpsLatField" class="hidden">
-                <span>GPS Latitude</span>
-                <input id="v2GpsLat" type="number" step="0.000001" placeholder="-27.470125" />
-              </label>
-              <label id="v2GpsLonField" class="hidden">
-                <span>GPS Longitude</span>
-                <input id="v2GpsLon" type="number" step="0.000001" placeholder="153.021072" />
-              </label>
-            </div>
-            <div id="v2LocationSummary" class="settings-v2-inline-note">Loading current resolved location…</div>
-            <div class="settings-v2-actions">
-              <button id="v2SaveLocation" type="button">Save Location</button>
-            </div>
-          </div>
-        </details>
-
-        <details id="tracking" class="card settings-v2-section" open>
-          <summary>
-            <div>
-              <h2>Tracking</h2>
-              <div class="label">Configure which satellites and pass profiles drive the kiosk.</div>
-            </div>
-            <span id="trackingSectionSummary" class="settings-v2-summary-pill">Loading…</span>
-          </summary>
-          <div class="settings-v2-section-body">
-            <div class="settings-v2-form-grid">
-              <label>
-                <span>Tracked Satellite</span>
-                <select id="v2TrackedSatellite"></select>
-              </label>
-              <label>
-                <span>Pass Profile</span>
-                <select id="v2PassProfile">
-                  <option value="IssOnly">ISS Only</option>
-                  <option value="Favorites">Favorites</option>
-                </select>
-              </label>
-              <label>
-                <span>Favorites</span>
-                <select id="v2PassSatSelect" multiple size="6"></select>
-              </label>
-            </div>
-            <div class="settings-v2-inline-note">Tracked satellite stays local to this kiosk. Pass profile is saved globally.</div>
-            <div class="settings-v2-actions">
-              <button id="v2SaveTracking" type="button">Save Tracking</button>
-            </div>
-          </div>
-        </details>
-
-        <details id="display-video" class="card settings-v2-section" open>
-          <summary>
-            <div>
-              <h2>Display / Video</h2>
-              <div class="label">Control the kiosk presentation mode, timezone, and fallback streams.</div>
-            </div>
-            <span id="displaySectionSummary" class="settings-v2-summary-pill">Loading…</span>
-          </summary>
-          <div class="settings-v2-section-body">
-            <div class="settings-v2-form-grid">
-              <label>
-                <span>ISS Display Mode</span>
-                <select id="v2IssMode">
-                  <option value="SunlitOnlyVideo">Video: ISS Sunlit</option>
-                  <option value="SunlitAndVisibleVideo">Video: Sunlit + Above Horizon</option>
-                  <option value="TelemetryOnly">Telemetry Only</option>
-                </select>
-              </label>
-              <label>
-                <span>Display Timezone</span>
-                <select id="v2DisplayTimezone"></select>
-              </label>
-              <label class="settings-v2-span-2">
-                <span>Video Source Primary</span>
-                <input id="v2VideoSourcePrimary" type="text" placeholder="https://www.youtube.com/embed/..." />
-              </label>
-              <label class="settings-v2-span-2">
-                <span>Video Source Secondary</span>
-                <input id="v2VideoSourceSecondary" type="text" placeholder="https://www.youtube.com/embed/... (optional)" />
-              </label>
-            </div>
-            <div class="settings-v2-actions">
-              <button id="v2SaveDisplay" type="button">Save Display / Video</button>
-            </div>
-          </div>
-        </details>
-
-        <details id="aprs" class="card settings-v2-section" open>
-          <summary>
-            <div>
-              <h2>APRS</h2>
-              <div class="label">Feature settings only. Shared connection details come from Radio Connection.</div>
-            </div>
-            <span id="aprsSectionSummary" class="settings-v2-summary-pill">Loading…</span>
-          </summary>
-          <div class="settings-v2-section-body">
-            <div id="v2AprsRadioContext" class="settings-v2-inline-note">Shared radio context: loading…</div>
-            <div class="settings-v2-form-grid">
-              <label>
-                <span>Callsign</span>
-                <input id="v2AprsCallsign" type="text" placeholder="VK4ABC" />
-              </label>
-              <label>
-                <span>SSID</span>
-                <input id="v2AprsSsid" type="number" min="0" max="15" step="1" />
-              </label>
-              <label>
-                <span>Operating Mode</span>
-                <select id="v2AprsMode">
-                  <option value="terrestrial">Terrestrial</option>
-                  <option value="satellite">Satellite</option>
-                </select>
-              </label>
-              <label>
-                <span>Listen Only</span>
-                <select id="v2AprsListenOnly">
-                  <option value="false">Transmit + Receive</option>
-                  <option value="true">Listen Only</option>
-                </select>
-              </label>
-              <label id="v2AprsSatelliteField" class="hidden">
-                <span>APRS Satellite</span>
-                <select id="v2AprsSatellite"></select>
-              </label>
-              <label id="v2AprsChannelField" class="hidden">
-                <span>Satellite APRS Channel</span>
-                <select id="v2AprsChannel"></select>
-              </label>
-              <label id="v2AprsTerrestrialField">
-                <span>Terrestrial Frequency (Hz)</span>
-                <input id="v2AprsTerrestrialFreq" type="number" min="1000" step="1" />
-              </label>
-              <label>
-                <span>Audio Input</span>
-                <select id="v2AprsAudioInput"></select>
-              </label>
-              <label>
-                <span>Audio Output</span>
-                <select id="v2AprsAudioOutput"></select>
-              </label>
-              <label id="v2AprsTerrestrialPathField">
-                <span>Terrestrial PATH</span>
-                <input id="v2AprsTerrestrialPath" type="text" placeholder="WIDE1-1,WIDE2-1" />
-              </label>
-              <label id="v2AprsSatellitePathField" class="hidden">
-                <span>Satellite PATH</span>
-                <input id="v2AprsSatellitePath" type="text" placeholder="ARISS" />
-              </label>
-              <label id="v2AprsTerrestrialCommentField">
-                <span>Terrestrial Comment</span>
-                <input id="v2AprsTerrestrialComment" type="text" placeholder="OrbitDeck APRS" />
-              </label>
-              <label id="v2AprsSatelliteCommentField" class="hidden">
-                <span>Satellite Comment</span>
-                <input id="v2AprsSatelliteComment" type="text" placeholder="OrbitDeck Space APRS" />
-              </label>
-            </div>
-            <div id="v2AprsRegionHint" class="settings-v2-inline-note">Loading APRS target profile…</div>
-            <div class="settings-v2-note-card">
-              <strong>IC-705 Wi-Fi operator note</strong>
-              <p>Placeholder: expand this with saved-profile guidance, Wi-Fi data-mode prerequisites, and APRS workflow notes once the final operator playbook is settled.</p>
-            </div>
-            <div class="settings-v2-actions">
-              <button id="v2SaveAprs" type="button">Save APRS</button>
-            </div>
-          </div>
-        </details>
-
-        <details id="developer" class="card settings-v2-section">
-          <summary>
-            <div>
-              <h2>Developer</h2>
-              <div class="label">Debug toggles, cache actions, and maintenance tools.</div>
-            </div>
-            <span id="developerSectionSummary" class="settings-v2-summary-pill">Optional</span>
-          </summary>
-          <div class="settings-v2-section-body">
-            <div class="settings-v2-form-grid">
-              <label>
-                <span>Force Scene</span>
-                <select id="v2DevForceScene">
-                  <option value="auto">Auto</option>
-                  <option value="ongoing">Ongoing pass</option>
-                  <option value="upcoming">Upcoming pass</option>
-                  <option value="iss-upcoming">ISS upcoming</option>
-                  <option value="passes">Passes console</option>
-                  <option value="radio">Radio ops</option>
-                  <option value="video">Video</option>
-                </select>
-              </label>
-            </div>
-            <div class="settings-v2-toggle-grid">
-              <label class="settings-v2-toggle"><input id="v2DevOverridesEnabled" type="checkbox" /> <span>Developer Overrides</span></label>
-            </div>
-            <div class="settings-v2-actions">
-              <button id="v2SaveDeveloper" type="button">Save Developer Settings</button>
-              <button id="v2RefreshPassCache" type="button">Refresh Pass Cache</button>
-              <button id="v2RefreshPage" type="button">Refresh Page State</button>
-            </div>
-          </div>
-        </details>
+      <section class="settings-v2-workspace">
+        <div id="settingsV2Panel" class="settings-v2-panel"></div>
       </section>
 
-      <aside class="card settings-v2-runtime">
+      <aside class="card settings-v2-runtime-rail">
         <div class="settings-v2-runtime-head">
           <div>
             <div class="label mono">Runtime</div>
-            <h2>Live Debug</h2>
+            <h2>System State</h2>
           </div>
-          <button id="v2ToggleRuntime" type="button">Collapse</button>
+          <button id="v2ToggleRuntime" type="button">Hide Debug</button>
         </div>
-        <div id="v2RuntimeBody">
-          <div class="settings-v2-runtime-grid">
-            <div class="settings-v2-runtime-card">
-              <div class="label">Radio Runtime</div>
-              <div id="v2RadioRuntimeSummary" class="value">Loading…</div>
-            </div>
-            <div class="settings-v2-runtime-card">
-              <div class="label">APRS Runtime</div>
-              <div id="v2AprsRuntimeSummary" class="value">Loading…</div>
-            </div>
-          </div>
+        <div id="settingsV2RuntimeCards" class="settings-v2-runtime-stack"></div>
+        <div class="settings-v2-runtime-debug">
+          <div class="label mono">Live Debug</div>
           <pre id="v2RuntimeLog" class="mono settings-v2-runtime-log">Loading…</pre>
         </div>
       </aside>
     </main>
+
+    <div id="settingsV2DrawerHost"></div>
+    <div id="v2AprsToastHost" class="aprs-toast-host"></div>
   </body>
 </html>

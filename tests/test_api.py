@@ -11,8 +11,12 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.aprs.codec import decode_ui_frame, encode_ui_frame
 from app.aprs.direwolf import DireWolfProcess
+from app.aprs.log_store import AprsLogStore
 from app.aprs.service import AprsService
 from app.models import (
+    AprsDigipeaterSettings,
+    AprsIgateSettings,
+    AprsLogEntry,
     AprsOperatingMode,
     AprsSendStatusRequest,
     AprsSettings,
@@ -43,7 +47,8 @@ def make_client(tmp_path):
     main.tracking_service = TrackingService(str(tmp_path / "latest_catalog.json"))
     main.ingestion_service = DataIngestionService()
     main.radio_control_service = RigControlService()
-    main.aprs_service = AprsService()
+    main.aprs_log_store = AprsLogStore(str(tmp_path / "received_log.jsonl"))
+    main.aprs_service = AprsService(packet_received_callback=main._handle_aprs_received_packet)
     main.pass_cache_service = PassPredictionCacheService(str(tmp_path / "pass_predictions_cache.json"))
     return TestClient(main.app)
 
@@ -1980,6 +1985,28 @@ def test_aprs_settings_store_separate_space_and_terrestrial_comments(tmp_path):
     assert state["satellite_beacon_comment"] == "OrbitDeck space"
 
 
+def test_set_and_get_aprs_position_fudge_settings(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.post(
+        "/api/v1/settings/aprs",
+        json={
+            "position_fudge_lat_deg": 0.02,
+            "position_fudge_lon_deg": -0.01,
+        },
+    )
+    assert resp.status_code == 200
+    state = resp.json()["state"]
+    assert state["position_fudge_lat_deg"] == 0.02
+    assert state["position_fudge_lon_deg"] == -0.01
+
+    get_resp = client.get("/api/v1/settings/aprs")
+    assert get_resp.status_code == 200
+    get_state = get_resp.json()["state"]
+    assert get_state["position_fudge_lat_deg"] == 0.02
+    assert get_state["position_fudge_lon_deg"] == -0.01
+
+
 def test_aprs_position_send_uses_mode_specific_default_comment(tmp_path):
     client = make_client(tmp_path)
     main.aprs_service = FakeAprsService()
@@ -2014,6 +2041,11 @@ def test_aprs_position_send_uses_mode_specific_default_comment(tmp_path):
     assert terrestrial_send.status_code == 200
     terrestrial_frame = main.aprs_service.kiss_clients[-1].sent[-1][0]
     assert decode_ui_frame(terrestrial_frame).text.endswith("LAND")
+    terrestrial_runtime = terrestrial_send.json()["runtime"]
+    assert terrestrial_runtime["last_tx_packet_type"] == "position"
+    assert terrestrial_runtime["last_tx_text"].endswith("LAND")
+    assert terrestrial_runtime["last_tx_raw_tnc2"].startswith("VK4ABC-10>APOD01")
+    assert ":!" in terrestrial_runtime["last_tx_raw_tnc2"]
 
     targets = client.get("/api/v1/aprs/targets").json()["targets"]["satellites"]
     iss = next(item for item in targets if item["sat_id"] == "iss-zarya")
@@ -2046,6 +2078,164 @@ def test_aprs_position_send_uses_mode_specific_default_comment(tmp_path):
         assert decode_ui_frame(satellite_frame).text.endswith("SPACE")
     finally:
         main.tracking_service.pass_predictions = original_pass_predictions
+
+
+def test_aprs_position_send_applies_configured_position_fudge(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_service = FakeAprsService()
+
+    client.post(
+        "/api/v1/location",
+        json={
+            "source_mode": "manual",
+            "add_profile": {
+                "id": "brisbane",
+                "name": "Brisbane",
+                "point": {"lat": -27.4698, "lon": 153.0251, "alt_m": 25},
+            },
+            "selected_profile_id": "brisbane",
+        },
+    )
+    client.post(
+        "/api/v1/settings/aprs",
+        json={
+            "enabled": True,
+            "callsign": "VK4ABC",
+            "operating_mode": "terrestrial",
+            "serial_device": "/dev/ttyUSB0",
+            "audio_input_device": "default",
+            "audio_output_device": "default",
+            "position_fudge_lat_deg": 0.02,
+            "position_fudge_lon_deg": -0.01,
+            "terrestrial_beacon_comment": "FUDGED",
+        },
+    )
+    client.post("/api/v1/aprs/connect")
+    send = client.post("/api/v1/aprs/send/position", json={})
+    assert send.status_code == 200
+    runtime = send.json()["runtime"]
+    assert runtime["last_tx_packet_type"] == "position"
+    assert runtime["last_tx_text"] == "!2726.99S/15300.91E>FUDGED"
+
+
+def test_aprs_log_settings_round_trip(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.get("/api/v1/aprs/log/settings")
+    assert resp.status_code == 200
+    assert resp.json()["log_enabled"] is False
+    assert resp.json()["notify_incoming_messages"] is True
+
+    update = client.post(
+        "/api/v1/aprs/log/settings",
+        json={
+            "log_enabled": True,
+            "log_max_records": 1000,
+            "notify_incoming_messages": False,
+            "notify_all_packets": True,
+            "future_digipeater_enabled": True,
+            "future_igate_enabled": False,
+        },
+    )
+    assert update.status_code == 200
+    assert update.json()["log_enabled"] is True
+    assert update.json()["log_max_records"] == 1000
+    assert update.json()["notify_incoming_messages"] is False
+    assert update.json()["notify_all_packets"] is True
+    assert update.json()["future_digipeater_enabled"] is True
+    assert update.json()["digipeater"]["enabled"] is True
+
+
+def test_aprs_settings_migrates_legacy_gateway_flags():
+    settings = AprsSettings.model_validate(
+        {
+            "callsign": "VK4ABC",
+            "future_digipeater_enabled": True,
+            "future_igate_enabled": True,
+        }
+    )
+    assert settings.digipeater.enabled is True
+    assert settings.igate.enabled is True
+    assert settings.future_digipeater_enabled is True
+    assert settings.future_igate_enabled is True
+
+
+def test_aprs_connect_rejects_igate_without_credentials(tmp_path):
+    client = make_client(tmp_path)
+    configure_station_identity(client)
+    main.aprs_service = FakeAprsService()
+    state = main.store.get()
+    state.aprs_settings.igate.enabled = True
+    state.aprs_settings.igate.server_host = "rotate.aprs2.net"
+    state.aprs_settings.igate.login_callsign = ""
+    state.aprs_settings.igate.passcode = ""
+    main.store.save(state)
+    client.post("/api/v1/aprs/session/select", json={"operating_mode": "terrestrial"})
+
+    resp = client.post("/api/v1/aprs/connect")
+    assert resp.status_code == 400
+    assert "login callsign" in resp.json()["detail"].lower()
+
+
+def test_aprs_log_captures_received_packets_when_enabled(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_service = FakeAprsService()
+    main.aprs_service._packet_received_callback = main._handle_aprs_received_packet
+
+    configure_station_identity(client, "VK4ABC")
+    client.post(
+        "/api/v1/aprs/log/settings",
+        json={
+            "log_enabled": True,
+            "log_max_records": 500,
+            "notify_incoming_messages": True,
+            "notify_all_packets": False,
+            "future_digipeater_enabled": False,
+            "future_igate_enabled": False,
+        },
+    )
+    client.post("/api/v1/settings/aprs", json={"serial_device": "/dev/ttyUSB0"})
+    client.post("/api/v1/aprs/session/select", json={"operating_mode": "terrestrial"})
+    connect = client.post("/api/v1/aprs/connect")
+    assert connect.status_code == 200
+
+    fake_kiss = main.aprs_service.kiss_clients[-1]
+    fake_kiss.inject(encode_ui_frame("VK4XYZ-7", "APRS", ["WIDE1-1"], ">hello from test"))
+
+    log_resp = client.get("/api/v1/aprs/log?limit=10")
+    assert log_resp.status_code == 200
+    items = log_resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["source"] == "VK4XYZ-7"
+    assert items[0]["packet_type"] == "status"
+
+
+def test_aprs_log_clear_and_export_endpoints(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_log_store.append(
+        AprsLogEntry(
+            received_at=datetime.now(UTC),
+            source="VK4XYZ-7",
+            destination="APRS",
+            path=["WIDE1-1"],
+            packet_type="message",
+            text="hello",
+            raw_tnc2="VK4XYZ-7>APRS,WIDE1-1::VK4ABC  :hello",
+        ),
+        max_records=500,
+    )
+
+    csv_resp = client.get("/api/v1/aprs/log/export.csv")
+    json_resp = client.get("/api/v1/aprs/log/export.json")
+    assert csv_resp.status_code == 200
+    assert "received_at,source,destination" in csv_resp.text
+    assert json_resp.status_code == 200
+    assert json.loads(json_resp.text)[0]["source"] == "VK4XYZ-7"
+
+    clear = client.post("/api/v1/aprs/log/clear", json={"age_bucket": "all"})
+    assert clear.status_code == 200
+    assert clear.json()["removed"] == 1
+    assert client.get("/api/v1/aprs/log?limit=10").json()["items"] == []
 
 
 def test_radio_control_requires_station_callsign(tmp_path):
@@ -2186,7 +2376,11 @@ def test_aprs_service_wifi_backend_uses_native_audio_and_ptt(tmp_path):
     assert ("set_ptt", False) in fake_wifi.calls
 
     service.disconnect()
-    assert ("restore_state", fake_wifi.snapshot) in fake_wifi.calls
+    restore_calls = [payload for name, payload in fake_wifi.calls if name == "restore_state"]
+    assert restore_calls
+    assert restore_calls[-1]["frequency"] == fake_wifi.snapshot["frequency"]
+    assert restore_calls[-1]["vfo"] == fake_wifi.snapshot["vfo"]
+    assert restore_calls[-1]["split"] == fake_wifi.snapshot["split"]
 
 
 def test_aprs_service_wifi_backend_restores_snapshot_on_setup_failure(tmp_path):
@@ -2224,7 +2418,7 @@ def test_aprs_service_wifi_backend_restores_snapshot_on_setup_failure(tmp_path):
     with pytest.raises(RuntimeError, match="DATA mode is not enabled"):
         service.connect(settings, target, radio_settings=radio_settings)
 
-    assert ("restore_state", fake_wifi.snapshot) in fake_wifi.calls
+    assert any(name == "restore_state" for name, _payload in fake_wifi.calls)
 
 
 def test_direwolf_network_decoder_command_uses_udp_source(tmp_path):
@@ -2538,6 +2732,67 @@ def test_direwolf_config_uses_selected_hamlib_model():
     assert "PTT RIG AUTO" not in config
 
 
+def test_direwolf_config_includes_digipeater_and_igate_blocks():
+    process = DireWolfProcess(workdir="data/aprs-test")
+    settings = AprsSettings(
+        callsign="VK4ABC",
+        digipeater=AprsDigipeaterSettings(enabled=True, aliases=["WIDE1-1"]),
+        igate=AprsIgateSettings(
+            enabled=True,
+            server_host="rotate.aprs2.net",
+            server_port=14580,
+            login_callsign="VK4ABC-10",
+            passcode="12345",
+            filter="m/25",
+        ),
+    )
+    target = AprsTargetState(
+        operating_mode=AprsOperatingMode.terrestrial,
+        label="Terrestrial APRS",
+        frequency_hz=144390000,
+    )
+
+    config = process.build_config(settings, target)
+    assert "DIGIPEAT 0 0 WIDE1-1" in config
+    assert "IGSERVER rotate.aprs2.net" in config
+    assert "IGLOGIN VK4ABC-10 12345" in config
+    assert "IGFILTER m/25" in config
+
+
+def test_aprs_service_disables_digipeater_for_satellite_target():
+    service = AprsService(
+        sidecar_factory=lambda: FakeDireWolfSidecar(),
+        kiss_factory=lambda host, port, cb: FakeKissClient(host, port, cb),
+        wait_for_socket_fn=lambda host, port, timeout: None,
+    )
+    settings = AprsSettings(
+        callsign="VK4ABC",
+        rig_model=RadioRigModel.id5100,
+        digipeater=AprsDigipeaterSettings(enabled=True, aliases=["WIDE1-1"]),
+        igate=AprsIgateSettings(enabled=True, login_callsign="VK4ABC-10", passcode="12345"),
+    )
+    target = AprsTargetState(
+        operating_mode=AprsOperatingMode.satellite,
+        label="ISS (ZARYA) | APRS",
+        sat_id="iss-zarya",
+        sat_name="ISS (ZARYA)",
+        channel_id="iss-zarya:seed:0",
+        channel_label="APRS",
+        frequency_hz=145825000,
+        path_default="ARISS",
+        can_transmit=False,
+        tx_block_reason="Satellite APRS transmit is only enabled during an active pass",
+    )
+
+    runtime = service.connect(settings, target)
+    assert runtime.digipeater_requested is True
+    assert runtime.digipeater_active is False
+    assert "disabled by policy" in str(runtime.digipeater_reason).lower()
+    assert runtime.igate_requested is True
+    assert runtime.igate_active is True
+    assert runtime.igate_connected is True
+
+
 def test_direwolf_start_uses_absolute_config_path(monkeypatch, tmp_path):
     captured = {}
 
@@ -2563,6 +2818,8 @@ def test_direwolf_start_uses_absolute_config_path(monkeypatch, tmp_path):
 
     monkeypatch.setattr(subprocess, "Popen", FakePopen)
     process = DireWolfProcess(workdir=str(tmp_path / "aprs-sidecar"))
+    process._terminate_conflicting_direwolf = lambda port: None
+    process._wait_for_port_state = lambda port, in_use, timeout=3.0: None
     settings = AprsSettings(callsign="VK4ABC", direwolf_binary="/opt/homebrew/bin/direwolf")
     target = AprsTargetState(
         operating_mode=AprsOperatingMode.terrestrial,

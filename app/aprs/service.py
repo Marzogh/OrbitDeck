@@ -20,6 +20,7 @@ from app.aprs.kiss import KissTcpClient, wait_for_socket
 from app.aprs.regions import frequency_for_location
 from app.models import (
     AprsHeardStation,
+    AprsLogEntry,
     AprsOperatingMode,
     AprsRuntimeState,
     AprsSendMessageRequest,
@@ -43,6 +44,7 @@ SidecarFactory = Callable[[], DireWolfProcess]
 KissFactory = Callable[[str, int, Callable[[bytes], None]], KissTcpClient]
 WaitForSocket = Callable[[str, int, float], None]
 WifiSessionFactory = Callable[..., IcomLanRadioSession]
+PacketReceivedCallback = Callable[[AprsLogEntry], None]
 
 
 class AprsService:
@@ -58,11 +60,13 @@ class AprsService:
         kiss_factory: KissFactory | None = None,
         wait_for_socket_fn: WaitForSocket | None = None,
         wifi_session_factory: WifiSessionFactory | None = None,
+        packet_received_callback: PacketReceivedCallback | None = None,
     ) -> None:
-        self._sidecar_factory = sidecar_factory or (lambda: DireWolfProcess())
+        self._sidecar_factory = sidecar_factory or (lambda: DireWolfProcess(output_observer=self._handle_sidecar_output))
         self._kiss_factory = kiss_factory or (lambda host, port, cb: KissTcpClient(host, port, cb))
         self._wait_for_socket = wait_for_socket_fn or wait_for_socket
         self._wifi_session_factory = wifi_session_factory or (lambda **kwargs: IcomLanRadioSession(**kwargs))
+        self._packet_received_callback = packet_received_callback
         self._sidecar: DireWolfProcess | None = None
         self._kiss: KissTcpClient | None = None
         self._wifi_radio: IcomLanRadioSession | None = None
@@ -81,6 +85,78 @@ class AprsService:
             self._runtime.sidecar_command = list(self._sidecar.command)
         self._runtime.kiss_connected = bool(self._kiss and self._kiss.connected)
         return AprsRuntimeState.model_validate(self._runtime.model_dump(mode="python"))
+
+    def _feature_policy(self, settings: AprsSettings, target: AprsTargetState) -> tuple[AprsSettings, dict[str, object]]:
+        effective = settings.model_copy(deep=True)
+        digipeater_requested = bool(settings.digipeater.enabled)
+        igate_requested = bool(settings.igate.enabled)
+        digipeater_reason = None
+        igate_reason = None
+        if target.operating_mode == AprsOperatingMode.satellite and effective.digipeater.enabled:
+            effective.digipeater.enabled = False
+            digipeater_reason = "Satellite APRS digipeating is disabled by policy; RX-only iGate remains available"
+        elif effective.digipeater.enabled:
+            digipeater_reason = "Digipeater active for terrestrial APRS target"
+        else:
+            digipeater_reason = "Digipeater not enabled"
+        if effective.igate.enabled:
+            if target.operating_mode == AprsOperatingMode.satellite and not effective.igate.gate_satellite_rx:
+                effective.igate.enabled = False
+                igate_reason = "Satellite APRS iGate is disabled by settings for this target"
+            elif target.operating_mode == AprsOperatingMode.terrestrial and not effective.igate.gate_terrestrial_rx:
+                effective.igate.enabled = False
+                igate_reason = "Terrestrial APRS iGate is disabled by settings for this target"
+            else:
+                igate_reason = (
+                    "RX-only iGate active for satellite APRS packets"
+                    if target.operating_mode == AprsOperatingMode.satellite
+                    else "RX-only iGate active for terrestrial APRS packets"
+                )
+        else:
+            igate_reason = "iGate not enabled"
+        return effective, {
+            "digipeater_requested": digipeater_requested,
+            "digipeater_active": bool(effective.digipeater.enabled),
+            "digipeater_reason": digipeater_reason,
+            "igate_requested": igate_requested,
+            "igate_active": bool(effective.igate.enabled),
+            "igate_reason": igate_reason,
+        }
+
+    def _reset_gateway_runtime(self) -> None:
+        self._runtime.digipeater_requested = False
+        self._runtime.digipeater_active = False
+        self._runtime.digipeater_reason = None
+        self._runtime.igate_requested = False
+        self._runtime.igate_active = False
+        self._runtime.igate_connected = False
+        self._runtime.igate_reason = None
+        self._runtime.igate_server = None
+        self._runtime.igate_last_connect_at = None
+        self._runtime.igate_last_error = None
+        self._runtime.packets_digipeated = 0
+        self._runtime.packets_igated = 0
+        self._runtime.packets_dropped_policy = 0
+        self._runtime.packets_dropped_duplicate = 0
+
+    def _handle_sidecar_output(self, line: str) -> None:
+        text = str(line or "").strip()
+        lower = text.lower()
+        if not lower:
+            return
+        if "ig" in lower and ("login" in lower or "server" in lower or "aprs-is" in lower or "igate" in lower):
+            self._runtime.igate_connected = True
+            self._runtime.igate_last_connect_at = self._runtime.igate_last_connect_at or datetime.now(UTC)
+        if "digipeat" in lower and ("queued" in lower or "retransmit" in lower or "transmit" in lower or "via" in lower):
+            self._runtime.packets_digipeated += 1
+        if ("igate" in lower or "aprs-is" in lower) and ("send" in lower or "gate" in lower or "tx" in lower or "forward" in lower):
+            self._runtime.packets_igated += 1
+        if "duplicate" in lower:
+            self._runtime.packets_dropped_duplicate += 1
+        if "drop" in lower or "reject" in lower or "blocked" in lower:
+            self._runtime.packets_dropped_policy += 1
+        if "error" in lower or "failed" in lower:
+            self._runtime.igate_last_error = text
 
     def _aprs_channels(self, sat: Satellite) -> list[SatelliteRadioChannel]:
         return [channel for channel in (sat.radio_channels or []) if channel.kind == "aprs" and (channel.downlink_hz or channel.uplink_hz)]
@@ -208,17 +284,27 @@ class AprsService:
         interval_s: float = 1.0,
     ) -> AprsRuntimeState:
         self.disconnect()
+        effective_settings, policy = self._feature_policy(settings, target)
+        self._reset_gateway_runtime()
+        self._runtime.digipeater_requested = bool(policy["digipeater_requested"])
+        self._runtime.digipeater_active = bool(policy["digipeater_active"])
+        self._runtime.digipeater_reason = str(policy["digipeater_reason"] or "") or None
+        self._runtime.igate_requested = bool(policy["igate_requested"])
+        self._runtime.igate_active = bool(policy["igate_active"])
+        self._runtime.igate_reason = str(policy["igate_reason"] or "") or None
+        if effective_settings.igate.enabled:
+            self._runtime.igate_server = f"{effective_settings.igate.server_host.strip()}:{effective_settings.igate.server_port}"
         transport_mode = radio_settings.transport_mode if radio_settings is not None else RadioTransportMode.usb
         if transport_mode == RadioTransportMode.wifi:
-            runtime = self._connect_wifi(settings, target, radio_settings)
+            runtime = self._connect_wifi(effective_settings, target, radio_settings)
             self._start_retune_worker(settings, radio_settings, retune_resolver, interval_s)
             return runtime
         tune_hz = int(target.corrected_frequency_hz or target.frequency_hz)
-        self._tune_radio(settings, tune_hz)
+        self._tune_radio(effective_settings, tune_hz)
         self._sidecar = self._sidecar_factory()
-        self._sidecar.start(settings, target)
-        self._wait_for_socket(settings.kiss_host, settings.kiss_port, 5.0)
-        self._kiss = self._kiss_factory(settings.kiss_host, settings.kiss_port, self._handle_frame)
+        self._sidecar.start(effective_settings, target)
+        self._wait_for_socket(effective_settings.kiss_host, effective_settings.kiss_port, 5.0)
+        self._kiss = self._kiss_factory(effective_settings.kiss_host, effective_settings.kiss_port, self._handle_frame)
         self._kiss.connect()
         self._runtime.connected = True
         self._runtime.session_active = True
@@ -234,6 +320,8 @@ class AprsService:
         self._runtime.last_error = None
         self._runtime.last_started_at = datetime.now(UTC)
         self._runtime.target = target
+        self._runtime.igate_connected = bool(effective_settings.igate.enabled)
+        self._runtime.igate_last_connect_at = datetime.now(UTC) if effective_settings.igate.enabled else None
         self._start_retune_worker(settings, radio_settings, retune_resolver, interval_s)
         return self.runtime()
 
@@ -283,6 +371,7 @@ class AprsService:
         self._runtime.audio_rx_active = False
         self._runtime.audio_tx_active = False
         self._runtime.owned_resource = None
+        self._reset_gateway_runtime()
         return self.runtime()
 
     def send_status(self, settings: AprsSettings, payload: AprsSendStatusRequest) -> AprsRuntimeState:
@@ -298,6 +387,12 @@ class AprsService:
         lon = payload.longitude if payload.longitude is not None else getattr(location, "lon", None)
         if lat is None or lon is None:
             raise ValueError("Position send requires coordinates or a resolved location")
+        lat = max(-90.0, min(90.0, float(lat) + float(settings.position_fudge_lat_deg or 0.0)))
+        lon = max(-180.0, min(180.0, float(lon) + float(settings.position_fudge_lon_deg or 0.0)))
+        symbol_table = settings.symbol_table or "/"
+        symbol_code = settings.symbol_code or ">"
+        if settings.operating_mode == AprsOperatingMode.terrestrial and symbol_table == "/" and symbol_code == "[":
+            symbol_code = ">"
         default_comment = (
             settings.satellite_beacon_comment
             if settings.operating_mode == AprsOperatingMode.satellite
@@ -305,7 +400,7 @@ class AprsService:
         )
         self._send_frame(
             settings,
-            format_position_payload(lat, lon, settings.symbol_table, settings.symbol_code, payload.comment or default_comment or ""),
+            format_position_payload(lat, lon, symbol_table, symbol_code, payload.comment or default_comment or ""),
         )
         return self.runtime()
 
@@ -323,12 +418,17 @@ class AprsService:
             )
             path = [item.strip().upper() for item in str(path_text).split(",") if item.strip()]
         frame = encode_ui_frame(source, "APOD01", path, text)
+        sent_at = datetime.now(UTC)
         if self._runtime.transport_mode == RadioTransportMode.wifi:
             self._send_wifi_frame(frame)
         else:
             if self._kiss is None or not self._kiss.connected:
                 raise RuntimeError("APRS is not connected")
             self._kiss.send_data(frame)
+        self._runtime.last_tx_at = sent_at
+        self._runtime.last_tx_packet_type = self._packet_type_for_text(text)
+        self._runtime.last_tx_text = text
+        self._runtime.last_tx_raw_tnc2 = self._build_raw_tnc2(source, "APOD01", path, text)
         self._runtime.packets_tx += 1
 
     def _handle_frame(self, frame: bytes) -> None:
@@ -355,10 +455,33 @@ class AprsService:
             self._heard_index.popitem(last=True)
         self._runtime.heard_stations = list(self._heard_index.values())
         self._runtime.heard_count = len(self._runtime.heard_stations)
+        if self._packet_received_callback is not None:
+            try:
+                self._packet_received_callback(
+                    AprsLogEntry.model_validate(event.model_dump(mode="python"))
+                )
+            except Exception:
+                pass
 
     def _source_call(self, settings: AprsSettings) -> str:
         call = settings.callsign.strip().upper() or "N0CALL"
         return call if settings.ssid <= 0 else f"{call}-{settings.ssid}"
+
+    def _packet_type_for_text(self, text: str) -> str:
+        if text.startswith(":") and len(text) >= 11:
+            return "message"
+        if text.startswith(("!", "=")):
+            return "position"
+        if text.startswith(">"):
+            return "status"
+        return "raw"
+
+    def _build_raw_tnc2(self, source: str, destination: str, path: list[str], text: str) -> str:
+        raw_tnc2 = f"{source}>{destination}"
+        if path:
+            raw_tnc2 += "," + ",".join(path)
+        raw_tnc2 += f":{text}"
+        return raw_tnc2
 
     def _tune_radio(self, settings: AprsSettings, frequency_hz: int) -> None:
         if settings.rig_model != RadioRigModel.ic705:

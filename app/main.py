@@ -16,13 +16,16 @@ from zoneinfo import available_timezones
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from app.aprs.log_store import AprsLogStore
 from app.aprs.service import AprsService
 from app.device import lite_only_ui
 from app.models import (
     AprsOperatingMode,
+    AprsLogClearRequest,
+    AprsLogSettingsUpdate,
     AprsSendMessageRequest,
     AprsSendPositionRequest,
     AprsSendStatusRequest,
@@ -73,6 +76,7 @@ except Exception:  # pragma: no cover
     list_ports = None
 
 store = StateStore()
+aprs_log_store = AprsLogStore()
 location_service = LocationService()
 tracking_service = TrackingService()
 iss_service = IssService()
@@ -82,7 +86,16 @@ pass_cache_service = PassPredictionCacheService()
 ingestion_service = DataIngestionService()
 frequency_guide_service = FrequencyGuideService()
 radio_control_service = RigControlService()
-aprs_service = AprsService()
+
+
+def _handle_aprs_received_packet(entry) -> None:
+    state = store.get()
+    if not state.aprs_settings.log_enabled:
+        return
+    aprs_log_store.append(entry, max_records=state.aprs_settings.log_max_records)
+
+
+aprs_service = AprsService(packet_received_callback=_handle_aprs_received_packet)
 _refresh_task: asyncio.Task | None = None
 _lite_snapshot_cache: dict[tuple, tuple[datetime, dict]] = {}
 _CALLSIGN_PATTERN = re.compile(r"^[A-Z0-9]{3,10}$")
@@ -428,6 +441,28 @@ def _apply_aprs_settings_update(current: AprsSettings, payload: AprsSettingsUpda
         next_settings.ssid = payload.ssid
     if payload.hamlib_model_id is not None:
         next_settings.hamlib_model_id = payload.hamlib_model_id
+    if payload.position_fudge_lat_deg is not None:
+        next_settings.position_fudge_lat_deg = payload.position_fudge_lat_deg
+    if payload.position_fudge_lon_deg is not None:
+        next_settings.position_fudge_lon_deg = payload.position_fudge_lon_deg
+    if payload.log_enabled is not None:
+        next_settings.log_enabled = payload.log_enabled
+    if payload.log_max_records is not None:
+        next_settings.log_max_records = payload.log_max_records
+    if payload.notify_incoming_messages is not None:
+        next_settings.notify_incoming_messages = payload.notify_incoming_messages
+    if payload.notify_all_packets is not None:
+        next_settings.notify_all_packets = payload.notify_all_packets
+    if payload.digipeater is not None:
+        next_settings.digipeater = payload.digipeater
+    if payload.igate is not None:
+        next_settings.igate = payload.igate
+    if payload.future_digipeater_enabled is not None:
+        next_settings.future_digipeater_enabled = payload.future_digipeater_enabled
+        next_settings.digipeater.enabled = payload.future_digipeater_enabled
+    if payload.future_igate_enabled is not None:
+        next_settings.future_igate_enabled = payload.future_igate_enabled
+        next_settings.igate.enabled = payload.future_igate_enabled
     if payload.baud_rate is not None:
         next_settings.baud_rate = payload.baud_rate
     if payload.kiss_port is not None:
@@ -441,6 +476,18 @@ def _apply_aprs_settings_update(current: AprsSettings, payload: AprsSettingsUpda
     if payload.rig_model is not None and payload.rig_model != previous_model and payload.hamlib_model_id is None:
         next_settings.hamlib_model_id = _hamlib_model_for_radio(payload.rig_model)
     return next_settings
+
+
+def _validate_aprs_gateway_settings(settings: AprsSettings) -> None:
+    if settings.igate.enabled:
+        if not settings.igate.server_host.strip():
+            raise ValueError("APRS iGate server host is required when iGate is enabled")
+        if not settings.igate.login_callsign.strip():
+            raise ValueError("APRS iGate login callsign is required when iGate is enabled")
+        if not settings.igate.passcode.strip():
+            raise ValueError("APRS iGate passcode is required when iGate is enabled")
+    if settings.digipeater.enabled and not [item for item in settings.digipeater.aliases if str(item).strip()]:
+        raise ValueError("At least one digipeater alias is required when digipeater mode is enabled")
 
 
 def _resolved_location_for_aprs():
@@ -884,6 +931,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        with suppress(Exception):
+            aprs_service.disconnect()
+        with suppress(Exception):
+            radio_control_service.disconnect()
+        with suppress(Exception):
+            await asyncio.sleep(0.35)
         if _refresh_task is not None:
             _refresh_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -930,14 +983,19 @@ def lite_settings_index() -> FileResponse:
 def settings_index() -> FileResponse:
     if lite_only_ui():
         return FileResponse("app/static/lite/settings.html")
-    return FileResponse("app/static/kiosk/settings.html")
+    return FileResponse("app/static/kiosk/settings-v2.html")
 
 
 @app.get("/settings-v2")
-def settings_v2_index() -> FileResponse:
+def settings_v2_index() -> Response:
+    return RedirectResponse(url="/settings", status_code=307)
+
+
+@app.get("/internal/settings-legacy")
+def settings_legacy_index() -> FileResponse:
     if lite_only_ui():
         return FileResponse("app/static/lite/settings.html")
-    return FileResponse("app/static/kiosk/settings-v2.html")
+    return FileResponse("app/static/kiosk/settings-legacy.html")
 
 
 @app.get("/radio")
@@ -947,6 +1005,16 @@ def radio_index() -> FileResponse:
 
 @app.get("/aprs")
 def aprs_index() -> FileResponse:
+    return FileResponse("app/static/kiosk/aprs.html")
+
+
+@app.get("/internal/radio")
+def internal_radio_index() -> FileResponse:
+    return FileResponse("app/static/kiosk/radio.html")
+
+
+@app.get("/internal/aprs")
+def internal_aprs_index() -> FileResponse:
     return FileResponse("app/static/kiosk/aprs.html")
 
 
@@ -1294,7 +1362,11 @@ def get_aprs_settings() -> dict:
 @app.post("/api/v1/settings/aprs")
 def post_aprs_settings(payload: AprsSettingsUpdate) -> dict:
     state = store.get()
-    state.aprs_settings = _apply_aprs_settings_update(state.aprs_settings, payload)
+    try:
+        state.aprs_settings = _apply_aprs_settings_update(state.aprs_settings, payload)
+        _validate_aprs_gateway_settings(state.aprs_settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     store.save(state)
     return {"state": state.aprs_settings}
 
@@ -1400,6 +1472,74 @@ def get_aprs_state() -> dict:
     except Exception:
         preview = None
     return {"settings": state.aprs_settings, "runtime": aprs_service.runtime(), "previewTarget": preview}
+
+
+@app.get("/api/v1/aprs/log/settings")
+def get_aprs_log_settings() -> dict:
+    settings = store.get().aprs_settings
+    return {
+        "log_enabled": settings.log_enabled,
+        "log_max_records": settings.log_max_records,
+        "notify_incoming_messages": settings.notify_incoming_messages,
+        "notify_all_packets": settings.notify_all_packets,
+        "digipeater": settings.digipeater,
+        "igate": settings.igate,
+        "future_digipeater_enabled": settings.future_digipeater_enabled,
+        "future_igate_enabled": settings.future_igate_enabled,
+    }
+
+
+@app.post("/api/v1/aprs/log/settings")
+def post_aprs_log_settings(payload: AprsLogSettingsUpdate) -> dict:
+    state = store.get()
+    state.aprs_settings.log_enabled = payload.log_enabled
+    state.aprs_settings.log_max_records = payload.log_max_records
+    state.aprs_settings.notify_incoming_messages = payload.notify_incoming_messages
+    state.aprs_settings.notify_all_packets = payload.notify_all_packets
+    if payload.digipeater is not None:
+        state.aprs_settings.digipeater = payload.digipeater
+    if payload.igate is not None:
+        state.aprs_settings.igate = payload.igate
+    state.aprs_settings.future_digipeater_enabled = payload.future_digipeater_enabled
+    state.aprs_settings.future_igate_enabled = payload.future_igate_enabled
+    state.aprs_settings.digipeater.enabled = payload.future_digipeater_enabled
+    state.aprs_settings.igate.enabled = payload.future_igate_enabled
+    try:
+        _validate_aprs_gateway_settings(state.aprs_settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    store.save(state)
+    return get_aprs_log_settings()
+
+
+@app.get("/api/v1/aprs/log")
+def get_aprs_log(limit: int = Query(50, ge=1, le=5000), packet_type: str = Query("all"), messages_only: bool = Query(False)) -> dict:
+    entries = aprs_log_store.list(limit=limit, packet_type=packet_type, messages_only=messages_only)
+    return {"items": entries}
+
+
+@app.post("/api/v1/aprs/log/clear")
+def clear_aprs_log(payload: AprsLogClearRequest) -> dict:
+    removed = aprs_log_store.clear(age_bucket=payload.age_bucket)
+    return {"ok": True, "removed": removed}
+
+
+@app.get("/api/v1/aprs/log/export.csv")
+def export_aprs_log_csv() -> PlainTextResponse:
+    return PlainTextResponse(
+        aprs_log_store.export_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="aprs-log.csv"'},
+    )
+
+
+@app.get("/api/v1/aprs/log/export.json")
+def export_aprs_log_json() -> Response:
+    return Response(
+        aprs_log_store.export_json(),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="aprs-log.json"'},
+    )
 
 
 @app.get("/api/v1/aprs/ports")
@@ -1546,6 +1686,7 @@ def connect_aprs() -> dict:
     state, location = _resolved_location_for_aprs()
     try:
         effective_settings = _effective_aprs_settings_for_connect(state)
+        _validate_aprs_gateway_settings(effective_settings)
         target = _resolve_aprs_target(effective_settings, location)
         if target.region_label is not None:
             state.aprs_settings.terrestrial_region_label = target.region_label
