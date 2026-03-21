@@ -42,10 +42,53 @@ const STARTUP_GET_RETRY_DELAYS_MS = [250, 750, 1500, 3000];
 const STARTUP_RECOVERY_RETRY_MS = 3000;
 const startupLines = [];
 let rotatorActionError = "";
-let aprsSceneState = { packetHighlights: new Map(), lastFeedKeys: [] };
+let aprsSceneState = {
+  packetHighlights: new Map(),
+  lastFeedKeys: [],
+  sendTab: "message",
+  selectedPacketKey: "",
+  composeFocused: false,
+  modalOpen: false,
+  digipeaterPending: null,
+  sourceIdentityDraft: {
+    callsign: "",
+    ssid: "",
+  },
+  drafts: {
+    messageTo: "",
+    messageText: "",
+    statusText: "",
+    positionComment: "",
+  },
+};
 let radioChannelDraftKey = "";
 let radioChannelPickerFocused = false;
+let radioChannelPickerAwaitingSelection = false;
+let radioChannelInteractionLockedUntil = 0;
+let radioChannelPickerOpen = false;
 let connectModalMode = "radio";
+let lastAprsSatelliteSelection = null;
+
+const RADIO_CHANNEL_INTERACTION_LOCK_MS = 15000;
+
+function lockRadioChannelInteraction(durationMs = RADIO_CHANNEL_INTERACTION_LOCK_MS) {
+  radioChannelInteractionLockedUntil = Date.now() + Math.max(0, Number(durationMs) || 0);
+}
+
+function unlockRadioChannelInteraction() {
+  radioChannelInteractionLockedUntil = 0;
+  radioChannelPickerFocused = false;
+  radioChannelPickerAwaitingSelection = false;
+  radioChannelPickerOpen = false;
+}
+
+function radioChannelInteractionLocked() {
+  return (
+    radioChannelPickerFocused
+    || radioChannelPickerAwaitingSelection
+    || radioChannelInteractionLockedUntil > Date.now()
+  );
+}
 
 function rigModelLabel(model) {
   if (model === "ic705") return "Icom IC-705";
@@ -158,12 +201,91 @@ function defaultSatelliteAprsPath(channel) {
   return String(channel?.path_default || configured || "ARISS").trim();
 }
 
+function rememberAprsSatelliteSelection(target) {
+  if (target?.operating_mode !== "satellite" || !target?.sat_id) return;
+  lastAprsSatelliteSelection = {
+    satId: target.sat_id,
+    satName: target.sat_name || "",
+  };
+}
+
+function preferredAprsSatelliteSelection(system) {
+  const runtimeTarget = system?.aprsRuntime?.target || null;
+  if (runtimeTarget?.operating_mode === "satellite" && runtimeTarget?.sat_id) {
+    return { satId: runtimeTarget.sat_id, satName: runtimeTarget.sat_name || "" };
+  }
+  const previewTarget = system?.aprsPreviewTarget || null;
+  if (previewTarget?.operating_mode === "satellite" && previewTarget?.sat_id) {
+    return { satId: previewTarget.sat_id, satName: previewTarget.sat_name || "" };
+  }
+  if (lastAprsSatelliteSelection?.satId && firstAprsChannelForSatellite(lastAprsSatelliteSelection.satId)) {
+    return lastAprsSatelliteSelection;
+  }
+  const settings = system?.aprsSettings || {};
+  if (settings.selected_satellite_id && firstAprsChannelForSatellite(settings.selected_satellite_id)) {
+    const sat = (state.sats || []).find((item) => item.sat_id === settings.selected_satellite_id);
+    return {
+      satId: settings.selected_satellite_id,
+      satName: sat?.name || "",
+    };
+  }
+  const passCandidate = (state.passes || []).find((pass) => firstAprsChannelForSatellite(pass?.sat_id));
+  if (passCandidate?.sat_id) {
+    return {
+      satId: passCandidate.sat_id,
+      satName: passCandidate.name || "",
+    };
+  }
+  const satCandidate = (state.sats || []).find((sat) => firstAprsChannelForSatellite(sat?.sat_id));
+  if (satCandidate?.sat_id) {
+    return {
+      satId: satCandidate.sat_id,
+      satName: satCandidate.name || "",
+    };
+  }
+  return null;
+}
+
+function currentAprsSourceIdentity(system) {
+  const settings = system?.aprsSettings || {};
+  const runtime = system?.aprsRuntime || {};
+  const callsign = String(runtime?.session_callsign_override || settings?.callsign || "N0CALL").trim().toUpperCase();
+  const rawSsid = runtime?.session_ssid_override;
+  const parsedRuntimeSsid = rawSsid == null ? NaN : Number(rawSsid);
+  const ssid = Number.isFinite(parsedRuntimeSsid) ? parsedRuntimeSsid : Number(settings?.ssid || 0);
+  const effective = runtime?.effective_source_call || (ssid > 0 ? `${callsign}-${ssid}` : callsign);
+  return { callsign, ssid, effective };
+}
+
+function openAprsIdentityModal(system) {
+  const identity = currentAprsSourceIdentity(system);
+  aprsSceneState.sourceIdentityDraft = {
+    callsign: identity.callsign || "",
+    ssid: String(Number.isFinite(identity.ssid) ? identity.ssid : 0),
+  };
+  aprsSceneState.modalOpen = true;
+  aprsSceneState.composeFocused = true;
+  chooseScene();
+}
+
+async function clearAprsIdentityOverride() {
+  await trackerApi.post("/api/v1/aprs/session/identity", { clear: true });
+  aprsSceneState.modalOpen = false;
+  aprsSceneState.composeFocused = false;
+  await refreshAprsOnly();
+  chooseScene();
+}
+
 function derivedAprsTarget(system) {
   const runtimeTarget = system?.aprsRuntime?.target || null;
-  if (runtimeTarget) return runtimeTarget;
   const previewTarget = system?.aprsPreviewTarget || null;
-  if (previewTarget) return previewTarget;
   const settings = system?.aprsSettings || {};
+  const runtimeMatchesSettings = runtimeTarget && (
+    runtimeTarget.operating_mode === settings.operating_mode
+    || !!system?.aprsRuntime?.session_active
+  );
+  if (runtimeMatchesSettings) return runtimeTarget;
+  if (previewTarget) return previewTarget;
   const developerEnabled = !!system?.settings?.developer_overrides?.enabled;
   if (settings.operating_mode === "satellite" && settings.selected_satellite_id) {
     const sat = (state.sats || []).find((item) => item.sat_id === settings.selected_satellite_id);
@@ -1331,11 +1453,12 @@ function renderAlternatesHtml(rows) {
     : '<div class="telemetry-alt-empty">No alternate channels parsed for this pass.</div>';
 }
 
-function renderOngoingRadioOps(primary, rows, variant = "inline", recommendation = null) {
+function renderOngoingRadioOps(primary, rows, variant = "inline", recommendation = null, pass = null, satName = "") {
   const rootClass = variant === "card"
     ? "telemetry-radio-card telemetry-ops-card"
     : "telemetry-inline-radio";
   const alternateCount = (rows || []).slice(1).filter(isUsefulAlternateRow).length;
+  const radioControl = radioControlSupportFromDisplay(pass?.sat_id || "", recommendation, rows);
   return `
     <section class="${rootClass}">
       <div class="telemetry-inline-radio-head">
@@ -1357,6 +1480,23 @@ function renderOngoingRadioOps(primary, rows, variant = "inline", recommendation
         <div class="telemetry-alt-list">
           ${renderAlternatesHtml(rows)}
         </div>
+      </div>
+      <div class="controls">
+        <button
+          type="button"
+          data-radio-action="select-session"
+          data-sat-id="${escapeHtml(pass?.sat_id || "")}"
+          data-sat-name="${escapeHtml(pass?.name || satName)}"
+          data-pass-aos="${escapeHtml(pass?.aos || "")}"
+          data-pass-los="${escapeHtml(pass?.los || "")}"
+          data-max-el="${escapeHtml(String(pass?.max_el_deg ?? ""))}"
+          data-fallback-label="${escapeHtml(radioControl.fallbackChoice?.label || "")}"
+          data-fallback-uplink-hz="${escapeHtml(String(radioControl.fallbackChoice?.uplink_hz || ""))}"
+          data-fallback-downlink-hz="${escapeHtml(String(radioControl.fallbackChoice?.downlink_hz || ""))}"
+          data-fallback-uplink-mode="${escapeHtml(radioControl.fallbackChoice?.uplink_mode || "")}"
+          data-fallback-downlink-mode="${escapeHtml(radioControl.fallbackChoice?.downlink_mode || "")}"
+          ${radioControl.availability.eligible && pass ? "" : " disabled"}
+        >Radio Control</button>
       </div>
     </section>
   `;
@@ -1448,7 +1588,7 @@ function renderOngoingTelemetryPanel({ track, pass, rows, isIss, hasVideo, url, 
         ${metricCardHtml("LOS", pass ? fmtLocal(pass.los) : "--", pass ? `AOS ${fmtLocal(pass.aos)}` : "")}
       </div>
 
-      ${renderOngoingRadioOps(primary, rows, "card", recommendation)}
+      ${renderOngoingRadioOps(primary, rows, "card", recommendation, pass, satName)}
 
     </section>
   `;
@@ -1548,6 +1688,15 @@ function selectOverridePass(passes, sceneMode, satId) {
       || null;
   }
   const qualified = satFiltered.filter(isRotatorAllowedSat).filter(isRotatorEligiblePass);
+  if (sceneMode === "ongoing") {
+    const issQualified = qualified.filter((p) => isIssPass(p) && passMeetsRotatorElevation(p));
+    const issOngoing = issQualified.find((p) => new Date(p.aos).getTime() <= Date.now() && new Date(p.los).getTime() >= Date.now());
+    if (issOngoing) return issOngoing;
+    if (issQualified.length) {
+      issQualified.sort((a, b) => new Date(a.aos).getTime() - new Date(b.aos).getTime());
+      return issQualified[0];
+    }
+  }
   const ongoing = qualified.find((p) => new Date(p.aos).getTime() <= Date.now() && new Date(p.los).getTime() >= Date.now());
   if (sceneMode === "ongoing" && ongoing) return ongoing;
   const upcoming = qualified
@@ -1976,6 +2125,7 @@ function renderPinnedRadioControl(session, pass, runtime) {
   savePersistedRadioChannelDraft(session, selectedChoiceKey);
   const showCommitChannel = !!selectedChoiceKey && selectedChoiceKey !== currentChoiceKey;
   const commitChannelLabel = connected ? "Commit Channel To Rig" : "Save Channel Choice";
+  const selectedChoice = channelChoices.find((choice) => choice.key === selectedChoiceKey) || currentChoice || channelChoices[0] || null;
   const groupedChannelOptions = ["Voice", "Monitoring"].map((group) => ({
     group,
     items: channelChoices.filter((choice) => (choice.group || "Voice") === group),
@@ -2019,18 +2169,35 @@ function renderPinnedRadioControl(session, pass, runtime) {
       ${channelChoices.length > 1 ? `
       <div class="radio-channel">
         <div class="radio-channel-mode">Channel Options</div>
-        <label class="radio-channel-picker">
-          <span class="label">Selectable pairs</span>
-          <select id="radioChannelSelect">
+        <div class="radio-channel-picker">
+          <div class="radio-channel-picker-head">
+            <span class="label">Selectable pairs</span>
+            <button id="radioChannelPickerToggleBtn" type="button">${radioChannelPickerOpen ? "Close List" : "Choose Pair"}</button>
+          </div>
+          <div class="radio-channel-picker-readout">
+            <strong>${escapeHtml(selectedChoice?.label || "No channel selected")}</strong>
+            <span class="mono">${escapeHtml(selectedChoice?.detail || "--")}</span>
+          </div>
+          ${radioChannelPickerOpen ? `
+          <div class="radio-channel-choice-list">
             ${groupedChannelOptions.map((section) => `
-              <optgroup label="${escapeHtml(section.group)}">
+              <div class="radio-channel-choice-group">
+                <div class="radio-channel-choice-group-label">${escapeHtml(section.group)}</div>
                 ${section.items.map((choice) => `
-                  <option value="${escapeHtml(choice.key)}"${choice.key === selectedChoiceKey ? " selected" : ""}>${escapeHtml(choice.label)} | ${escapeHtml(choice.detail)}</option>
+                  <button
+                    type="button"
+                    class="radio-channel-choice-btn${choice.key === selectedChoiceKey ? " radio-channel-choice-btn-active" : ""}"
+                    data-radio-channel-key="${escapeHtml(choice.key)}"
+                  >
+                    <strong>${escapeHtml(choice.label)}</strong>
+                    <span class="mono">${escapeHtml(choice.detail)}</span>
+                  </button>
                 `).join("")}
-              </optgroup>
+              </div>
             `).join("")}
-          </select>
-        </label>
+          </div>
+          ` : ""}
+        </div>
         ${showCommitChannel ? `<div class="controls radio-session-actions"><button id="radioCommitChannelBtn" type="button">${escapeHtml(commitChannelLabel)}</button></div>` : ""}
       </div>
       ` : ""}
@@ -2062,6 +2229,49 @@ function aprsPacketSummary(packet) {
   return packet.text || packet.raw_tnc2 || "--";
 }
 
+function aprsPacketTypeLabel(packet) {
+  const type = String(packet?.packet_type || "raw").toLowerCase();
+  if (type === "message") return "MESSAGE";
+  if (type === "position") return "POSITION";
+  if (type === "status") return "STATUS";
+  return "RAW";
+}
+
+function aprsPacketStatusBadges(packet) {
+  const badges = [];
+  if (packet?.digipeated) badges.push('<span class="aprs-status-badge">DIGI</span>');
+  if (packet?.igated) badges.push('<span class="aprs-status-badge">IGATE</span>');
+  return badges.join("");
+}
+
+function currentAprsDetailPacket(runtime) {
+  const packets = Array.isArray(runtime?.recent_packets) ? runtime.recent_packets : [];
+  if (!packets.length) return null;
+  const selected = packets.find((packet) => packetKey(packet) === aprsSceneState.selectedPacketKey) || null;
+  return selected || packets[0] || null;
+}
+
+function renderAprsPacketDetail(packet) {
+  if (!packet) {
+    return "";
+  }
+  const latLon = packet.latitude != null && packet.longitude != null
+    ? `${Number(packet.latitude).toFixed(4)}, ${Number(packet.longitude).toFixed(4)}`
+    : "--";
+  return `
+    <div class="aprs-detail-card">
+      <div class="aprs-detail-head">
+        <strong>${escapeHtml(packet.source || "--")}</strong>
+        <span class="mono">${escapeHtml(fmtLocal(packet.received_at))}</span>
+      </div>
+      <div class="aprs-detail-meta">${escapeHtml(aprsPacketTypeLabel(packet))} | DEST ${escapeHtml(packet.destination || "--")}${packet.addressee ? ` | TO ${escapeHtml(packet.addressee)}` : ""}</div>
+      <div class="aprs-detail-meta">PATH ${escapeHtml((packet.path || []).join(",") || "--")} | LAT/LON ${escapeHtml(latLon)}</div>
+      <div class="aprs-detail-text">${escapeHtml(aprsPacketSummary(packet))}</div>
+      <pre class="aprs-detail-raw mono">${escapeHtml(packet.raw_tnc2 || "--")}</pre>
+    </div>
+  `;
+}
+
 function renderAprsPacketFeed(runtime) {
   const packets = Array.isArray(runtime?.recent_packets) ? runtime.recent_packets.slice(0, 10) : [];
   const nowMs = Date.now();
@@ -2074,14 +2284,20 @@ function renderAprsPacketFeed(runtime) {
       const started = aprsSceneState.packetHighlights.get(key);
       const isNew = Number.isFinite(started) && (nowMs - started) < 4000;
       return `
-        <div class="aprs-packet-row${isNew ? " aprs-packet-row-new" : ""}">
+        <button type="button" class="aprs-packet-row${isNew ? " aprs-packet-row-new" : ""}${aprsSceneState.selectedPacketKey === key ? " aprs-packet-row-active" : ""}" data-aprs-packet-key="${escapeHtml(key)}">
           <div class="aprs-packet-head">
             <strong>${escapeHtml(packet.source || "--")}</strong>
-            <span class="mono">${escapeHtml(fmtLocal(packet.received_at))}</span>
+            <div class="aprs-packet-topline">
+              <span class="aprs-packet-meta">${escapeHtml(aprsPacketTypeLabel(packet))}</span>
+              <span class="mono">${escapeHtml(fmtLocal(packet.received_at))}</span>
+            </div>
           </div>
-          <div class="aprs-packet-meta">${escapeHtml((packet.packet_type || "raw").toUpperCase())}${packet.addressee ? ` | ${escapeHtml(packet.addressee)}` : ""}</div>
+          <div class="aprs-packet-meta-row">
+            <span class="aprs-packet-meta">${packet.addressee ? `TO ${escapeHtml(packet.addressee)}` : `DEST ${escapeHtml(packet.destination || "--")}`}</span>
+            <span class="aprs-status-badge-row">${aprsPacketStatusBadges(packet)}</span>
+          </div>
           <div class="aprs-packet-text">${escapeHtml(aprsPacketSummary(packet))}</div>
-        </div>
+        </button>
       `;
     }).join("")
     : '<div class="radio-empty">No APRS packets received yet.</div>';
@@ -2091,13 +2307,39 @@ function renderAprsSceneCard(system) {
   const runtime = system?.aprsRuntime || {};
   const settings = system?.aprsSettings || {};
   const target = derivedAprsTarget(system);
+  rememberAprsSatelliteSelection(target);
+  const detailPacket = currentAprsDetailPacket(runtime);
+  const hasPackets = Array.isArray(runtime?.recent_packets) && runtime.recent_packets.length > 0;
   const heard = Array.isArray(runtime?.heard_stations) ? runtime.heard_stations.slice(0, 5) : [];
   const connected = !!runtime?.connected;
   const isSatellite = target?.operating_mode === "satellite";
+  const satelliteChoice = preferredAprsSatelliteSelection(system);
   const modeLine = target?.mode || target?.channel_label || "--";
   const targetFreq = target?.corrected_frequency_hz || target?.frequency_hz || null;
   const uplinkFreq = target?.corrected_uplink_hz || target?.uplink_hz || null;
   const downlinkFreq = target?.corrected_downlink_hz || target?.downlink_hz || null;
+  const modeToggleLabel = isSatellite ? "Use Terrestrial APRS" : "Return to Satellite APRS";
+  const modeToggleDisabled = !isSatellite && !satelliteChoice?.satId;
+  const transportLabel = String(runtime?.transport_mode || settings?.transport_mode || "--").toUpperCase();
+  const digipeaterEnabled = !!(settings?.future_digipeater_enabled ?? settings?.digipeater?.enabled);
+  const digipeaterChecked = aprsSceneState.digipeaterPending == null ? digipeaterEnabled : !!aprsSceneState.digipeaterPending;
+  const sourceIdentity = currentAprsSourceIdentity(system);
+  const igateConnected = !!runtime?.igate_connected;
+  const igateActive = !!runtime?.igate_active;
+  const igateStatus = igateConnected
+    ? "iGate Connected"
+    : igateActive
+      ? `iGate ${String(runtime?.igate_status || "active").replaceAll("_", " ")}`
+      : "iGate Disabled";
+  const igateReason = runtime?.igate_last_error || runtime?.igate_reason || "";
+  const igateMetaPills = [
+    Number.isFinite(runtime?.packets_igated) ? `${runtime.packets_igated} Forwarded` : "",
+    runtime?.igate_server ? String(runtime.igate_server) : "",
+  ].filter(Boolean);
+  const modeActionLabel = isSatellite ? "Use Terrestrial APRS" : "Return to Satellite APRS";
+  const txReadyLine = target?.can_transmit
+    ? "TX ready for this APRS target"
+    : (target?.tx_block_reason || target?.reason || "Transmit blocked");
   const passText = isSatellite
     ? (target?.pass_active
       ? `Pass active until ${fmtLocal(target.pass_los)}`
@@ -2108,67 +2350,200 @@ function renderAprsSceneCard(system) {
   const correction = target?.correction_side
     ? `Doppler ${String(target.correction_side).replaceAll("_", " ")} | ${target.active_phase || "--"} | ${normalizeFreqToken(String(target.corrected_frequency_hz || target.frequency_hz || "--"))}`
     : "No Doppler correction required";
+  const lastTxLine = runtime?.last_tx_at
+    ? `${fmtLocal(runtime.last_tx_at)} | ${runtime.last_tx_packet_type || "packet"} | ${runtime.last_tx_text || runtime.last_tx_raw_tnc2 || "--"}`
+    : "No local transmission yet";
+  const lastRxLine = runtime?.last_packet_at
+    ? `${fmtLocal(runtime.last_packet_at)} | ${detailPacket ? `${detailPacket.source || "--"} | ${aprsPacketSummary(detailPacket)}` : "packet heard"}`
+    : "No APRS packet heard yet";
+  const terminalLines = [
+    ...(Array.isArray(runtime?.gateway_debug_lines) ? runtime.gateway_debug_lines : []),
+    ...(Array.isArray(runtime?.output_tail) ? runtime.output_tail : []),
+  ].slice(0, 12);
   return `
     <article class="radio-primary-card aprs-session-card">
-      <div class="radio-card-label">Pinned APRS</div>
-      <div class="radio-sat-name">${escapeHtml(target?.label || "No APRS target selected")}</div>
-      <div class="radio-pass-time mono">${escapeHtml(passText)}</div>
-      <div class="radio-channel">
-        <div class="radio-channel-mode">Session State</div>
-        <div class="radio-band-line">Mode: ${escapeHtml(settings.operating_mode || "--")} | ${connected ? "Connected" : "Disconnected"}</div>
-        <div class="radio-band-line">Channel: ${escapeHtml(modeLine)}</div>
-        <div class="radio-band-line">PATH: ${escapeHtml(target?.path_default || "--")}</div>
-        <div class="radio-band-line">Target: ${escapeHtml(normalizeFreqToken(String(targetFreq || "--")))}</div>
-        <div class="radio-band-line">Uplink: ${escapeHtml(normalizeFreqToken(String(uplinkFreq || "--")))}</div>
-        <div class="radio-band-line">Downlink: ${escapeHtml(normalizeFreqToken(String(downlinkFreq || "--")))}</div>
-        <div class="radio-band-line">${escapeHtml(target?.tx_block_reason || target?.reason || "Transmit allowed")}</div>
+      <section class="aprs-command-strip">
+        <div class="aprs-command-summary">
+          <div class="radio-card-label">APRS Command</div>
+          <div class="aprs-command-title">${escapeHtml(target?.label || "No APRS target selected")}</div>
+          <div class="aprs-command-subline mono">${escapeHtml(passText)}</div>
+          <div class="aprs-command-alert">${escapeHtml(txReadyLine)}</div>
+        </div>
+        <div class="aprs-pill-row">
+          <div class="aprs-status-pill">${escapeHtml(settings.operating_mode || "--")}</div>
+          <div class="aprs-status-pill">${connected ? "Connected" : "Disconnected"}</div>
+          <div class="aprs-status-pill">${escapeHtml(transportLabel)}</div>
+          <div class="aprs-status-pill">${escapeHtml(modeLine)}</div>
+          <div class="aprs-status-pill">${escapeHtml(igateStatus)}</div>
+          ${igateMetaPills.map((item) => `<div class="aprs-status-pill aprs-status-pill-meta">${escapeHtml(item)}</div>`).join("")}
+        </div>
+        <div class="controls radio-session-actions aprs-command-actions">
+          <button id="aprsModeToggleBtn" type="button"${modeToggleDisabled ? " disabled" : ""}>${escapeHtml(modeActionLabel)}</button>
+          <button id="aprsConnectBtn" type="button">${connected ? "Reconnect APRS" : "Connect APRS"}</button>
+          <button id="aprsDisconnectBtn" type="button"${connected ? "" : " disabled"}>Disconnect APRS</button>
+          <button id="aprsStopTxBtn" type="button"${connected ? "" : " disabled"}>Stop TX</button>
+          <button id="aprsSourceIdentityBtn" type="button">Session Callsign</button>
+          <button id="aprsBackBtn" type="button">Back to Rotator</button>
+        </div>
+      </section>
+      <div class="aprs-ops-grid">
+        <section class="radio-channel aprs-panel aprs-feed-panel">
+          <div class="aprs-panel-head">
+            <div class="radio-channel-mode">Packet Feed</div>
+            <div class="aprs-panel-meta mono">${escapeHtml(lastRxLine)}</div>
+          </div>
+          <div class="aprs-packet-feed">${renderAprsPacketFeed(runtime)}</div>
+          ${hasPackets ? `<div class="aprs-detail-wrap">${renderAprsPacketDetail(detailPacket)}</div>` : ""}
+        </section>
+
+        <section class="radio-channel aprs-panel aprs-send-panel">
+          <div class="aprs-panel-head">
+            <div class="radio-channel-mode">Quick Send</div>
+            <div class="aprs-panel-meta">Session Callsign ${escapeHtml(sourceIdentity.effective)}</div>
+          </div>
+          <div class="aprs-send-tabs" role="tablist" aria-label="Rotator APRS send tabs">
+            <button id="aprsSendTabMessageBtn" type="button" class="${aprsSceneState.sendTab === "message" ? "active" : ""}">Message</button>
+            <button id="aprsSendTabStatusBtn" type="button" class="${aprsSceneState.sendTab === "status" ? "active" : ""}">Status</button>
+            <button id="aprsSendTabPositionBtn" type="button" class="${aprsSceneState.sendTab === "position" ? "active" : ""}">Position</button>
+          </div>
+          <div class="aprs-send-workspace">
+            <div class="aprs-send-block ${aprsSceneState.sendTab === "message" ? "" : "hidden"}">
+              <div class="controls radio-session-actions aprs-inline-form">
+                <input id="aprsMessageToRotator" type="text" placeholder="VK4XYZ-7" value="${escapeHtml(aprsSceneState.drafts.messageTo)}" />
+                <textarea id="aprsMessageTextRotator" placeholder="Message" rows="2">${escapeHtml(aprsSceneState.drafts.messageText)}</textarea>
+                <button id="aprsSendMessageBtn" type="button"${target?.can_transmit === false ? " disabled" : ""}>Send</button>
+              </div>
+            </div>
+            <div class="aprs-send-block ${aprsSceneState.sendTab === "status" ? "" : "hidden"}">
+              <div class="controls radio-session-actions aprs-inline-form aprs-inline-form-single">
+                <textarea id="aprsStatusTextRotator" placeholder="Status" rows="2">${escapeHtml(aprsSceneState.drafts.statusText)}</textarea>
+                <button id="aprsSendStatusBtn" type="button"${target?.can_transmit === false ? " disabled" : ""}>Send</button>
+              </div>
+            </div>
+            <div class="aprs-send-block ${aprsSceneState.sendTab === "position" ? "" : "hidden"}">
+              <div class="controls radio-session-actions aprs-inline-form aprs-inline-form-single">
+                <textarea id="aprsPositionCommentRotator" placeholder="Position comment" rows="2">${escapeHtml(aprsSceneState.drafts.positionComment)}</textarea>
+                <button id="aprsSendPositionBtn" type="button"${target?.can_transmit === false ? " disabled" : ""}>Send</button>
+              </div>
+            </div>
+          </div>
+          <div class="aprs-send-note ${target?.can_transmit === false ? "is-blocked" : ""}">${escapeHtml(txReadyLine)}</div>
+        </section>
+
+        <section class="radio-channel aprs-panel aprs-target-panel">
+          <div class="aprs-panel-head">
+            <div class="radio-channel-mode">Target / Session</div>
+            <div class="aprs-panel-meta">${escapeHtml(target?.retune_active ? "Retune Active" : "Retune Idle")}</div>
+          </div>
+          <div class="aprs-stat-grid">
+            <div class="aprs-stat-tile">
+              <span>Target</span>
+              <strong>${escapeHtml(normalizeFreqToken(String(targetFreq || "--")))}</strong>
+            </div>
+            <div class="aprs-stat-tile">
+              <span>Last RX</span>
+              <strong>${escapeHtml(runtime?.last_packet_at ? fmtLocal(runtime.last_packet_at) : "--")}</strong>
+            </div>
+            <div class="aprs-stat-tile">
+              <span>Uplink</span>
+              <strong>${escapeHtml(normalizeFreqToken(String(uplinkFreq || "--")))}</strong>
+            </div>
+            <div class="aprs-stat-tile">
+              <span>Downlink</span>
+              <strong>${escapeHtml(normalizeFreqToken(String(downlinkFreq || "--")))}</strong>
+            </div>
+          </div>
+          <div class="aprs-fact-list">
+            <div class="aprs-fact-row"><span>Source</span><strong>${escapeHtml(sourceIdentity.effective)}</strong></div>
+            <div class="aprs-fact-row"><span>Path</span><strong>${escapeHtml(target?.path_default || "--")}</strong></div>
+            <div class="aprs-fact-row aprs-fact-row-control">
+              <span>Digipeater</span>
+              <strong>
+                <label class="aprs-inline-toggle${isSatellite ? " is-disabled" : ""}">
+                  <input id="aprsDigipeaterToggle" type="checkbox" ${digipeaterChecked ? "checked" : ""} ${isSatellite ? "disabled" : ""} />
+                  <span>${isSatellite ? "Unavailable in satellite mode" : "Enable digipeater"}</span>
+                </label>
+              </strong>
+            </div>
+            <div class="aprs-fact-row"><span>Transport</span><strong>${escapeHtml(`${transportLabel} | ${runtime?.modem_state || "--"}`)}</strong></div>
+            <div class="aprs-fact-row"><span>Pass</span><strong>${escapeHtml(target?.pass_aos ? `${fmtLocal(target.pass_aos)} to ${fmtLocal(target.pass_los)}` : passText)}</strong></div>
+            <div class="aprs-fact-row"><span>Doppler</span><strong>${escapeHtml(correction)}</strong></div>
+            <div class="aprs-fact-row"><span>Endpoint</span><strong>${escapeHtml(runtime?.control_endpoint || "Not available yet")}</strong></div>
+          </div>
+          ${igateReason ? `<div class="aprs-inline-status${runtime?.igate_last_error ? " is-error" : ""}">${escapeHtml(igateReason)}</div>` : ""}
+        </section>
+
+        <section class="radio-channel aprs-panel aprs-gateway-panel">
+          <div class="aprs-panel-head">
+            <div class="radio-channel-mode">Gateway / Traffic</div>
+            <div class="aprs-panel-meta">${escapeHtml(igateStatus)}</div>
+          </div>
+          <div class="aprs-gateway-grid">
+            <div class="aprs-stat-tile">
+              <span>Heard</span>
+              <strong>${escapeHtml(String(runtime?.heard_count || 0))}</strong>
+            </div>
+            <div class="aprs-stat-tile">
+              <span>Packets</span>
+              <strong>${escapeHtml(`${runtime?.packets_rx || 0} RX / ${runtime?.packets_tx || 0} TX`)}</strong>
+            </div>
+            <div class="aprs-stat-tile">
+              <span>Last TX</span>
+              <strong>${escapeHtml(runtime?.last_tx_at ? fmtLocal(runtime.last_tx_at) : "--")}</strong>
+            </div>
+            <div class="aprs-stat-tile">
+              <span>Forwarded</span>
+              <strong>${escapeHtml(String(runtime?.packets_igated || 0))}</strong>
+            </div>
+            <div class="aprs-stat-tile aprs-stat-tile-wide">
+              <span>Last Error</span>
+              <strong>${escapeHtml(runtime?.last_error || "None")}</strong>
+            </div>
+          </div>
+          <div class="aprs-summary-line">${escapeHtml(lastTxLine)}</div>
+          <div class="aprs-heard-list">
+            ${heard.length
+              ? heard.map((item) => `<div class="radio-band-line">${escapeHtml(item.callsign)} | ${escapeHtml(fmtLocal(item.last_heard_at))} | ${escapeHtml(item.last_text || "--")}</div>`).join("")
+              : '<div class="radio-band-line">No heard stations yet</div>'}
+          </div>
+          <pre class="aprs-terminal-log mono">${escapeHtml(terminalLines.length ? terminalLines.join("\n") : "Waiting for APRS sidecar and gateway feedback...")}</pre>
+        </section>
       </div>
-      <div class="radio-channel">
-        <div class="radio-channel-mode">Doppler</div>
-        <div class="radio-band-line">${escapeHtml(correction)}</div>
-        <div class="radio-band-line">${escapeHtml(target?.retune_active ? "Auto-tune active" : "Auto-tune idle")}</div>
-      </div>
-      <div class="radio-channel">
-        <div class="radio-channel-mode">Heard Summary</div>
-        <div class="radio-band-line">Packets RX: ${escapeHtml(String(runtime?.packets_rx || 0))} | TX: ${escapeHtml(String(runtime?.packets_tx || 0))}</div>
-        <div class="radio-band-line">Heard stations: ${escapeHtml(String(runtime?.heard_count || 0))}</div>
-        <div class="radio-band-line">Last packet: ${escapeHtml(runtime?.last_packet_at ? fmtLocal(runtime.last_packet_at) : "--")}</div>
-      </div>
-      <div class="controls radio-session-actions">
-        <button id="aprsUseTerrestrialBtn" type="button">Use Terrestrial APRS</button>
-        <button id="aprsConnectBtn" type="button">${connected ? "Reconnect APRS" : "Connect APRS"}</button>
-        <button id="aprsDisconnectBtn" type="button"${connected ? "" : " disabled"}>Disconnect APRS</button>
-        <button id="aprsPanicBtn" type="button"${connected ? "" : " disabled"}>Panic Unkey</button>
-        <button id="aprsBackBtn" type="button">Back to Rotator</button>
-      </div>
-      <div class="controls radio-session-actions">
-        <input id="aprsMessageToRotator" type="text" placeholder="VK4XYZ-7" />
-        <input id="aprsMessageTextRotator" type="text" placeholder="Message" />
-        <button id="aprsSendMessageBtn" type="button"${target?.can_transmit === false ? " disabled" : ""}>Send Message</button>
-      </div>
-      <div class="controls radio-session-actions">
-        <input id="aprsStatusTextRotator" type="text" placeholder="Status" />
-        <button id="aprsSendStatusBtn" type="button"${target?.can_transmit === false ? " disabled" : ""}>Send Status</button>
-        <input id="aprsPositionCommentRotator" type="text" placeholder="Position comment" />
-        <button id="aprsSendPositionBtn" type="button"${target?.can_transmit === false ? " disabled" : ""}>Send Position</button>
-      </div>
-      <div class="radio-channel">
-        <div class="radio-channel-mode">Recently Heard</div>
-        ${heard.length
-          ? heard.map((item) => `<div class="radio-band-line">${escapeHtml(item.callsign)} | ${escapeHtml(fmtLocal(item.last_heard_at))} | ${escapeHtml(item.last_text || "--")}</div>`).join("")
-          : '<div class="radio-band-line">No heard stations yet</div>'}
-      </div>
-      <div class="radio-channel">
-        <div class="radio-channel-mode">Live Packet Feed</div>
-        <div class="aprs-packet-feed">${renderAprsPacketFeed(runtime)}</div>
-      </div>
+      ${aprsSceneState.modalOpen ? `
+        <div class="aprs-modal-backdrop">
+          <section class="aprs-modal-card">
+            <div class="radio-channel-mode">Session Callsign</div>
+            <div class="aprs-summary-line">Applies only to this APRS session view and reverts when you leave or reselect the target.</div>
+            <div class="controls radio-session-actions aprs-inline-form">
+              <input id="aprsSessionCallsign" type="text" placeholder="VK4ABC" value="${escapeHtml(aprsSceneState.sourceIdentityDraft.callsign)}" />
+              <input id="aprsSessionSsid" type="number" min="0" max="15" placeholder="10" value="${escapeHtml(aprsSceneState.sourceIdentityDraft.ssid)}" />
+              <button id="aprsSessionIdentityApplyBtn" type="button">Apply</button>
+            </div>
+            <div class="aprs-summary-line">Current source ${escapeHtml(sourceIdentity.effective)}</div>
+            <div class="controls radio-session-actions aprs-modal-actions">
+              <button id="aprsSessionIdentityResetBtn" type="button">Reset to Settings</button>
+              <button id="aprsSessionIdentityCloseBtn" type="button">Close</button>
+            </div>
+          </section>
+        </div>
+      ` : ""}
     </article>
   `;
 }
 
 async function renderAprsScene() {
   setSceneVisible("sceneAprs");
+  const sceneRoot = trackerById("sceneAprs");
   const system = state.system || {};
+  const runtimePackets = Array.isArray(system.aprsRuntime?.recent_packets) ? system.aprsRuntime.recent_packets : [];
+  if (runtimePackets.length) {
+    const hasSelectedPacket = runtimePackets.some((packet) => packetKey(packet) === aprsSceneState.selectedPacketKey);
+    if (!hasSelectedPacket) {
+      aprsSceneState.selectedPacketKey = packetKey(runtimePackets[0]);
+    }
+  } else {
+    aprsSceneState.selectedPacketKey = "";
+  }
   const target = derivedAprsTarget(system);
   trackerById("aprsPrimary").textContent = target
     ? `APRS: ${target.label} | ${target.can_transmit ? "TX ready" : (target.tx_block_reason || "TX blocked")}`
@@ -2192,7 +2567,9 @@ async function renderAprsScene() {
   const track = target?.sat_id
     ? (system.tracks || []).find((item) => item.sat_id === target.sat_id) || null
     : null;
-  if (visuals) visuals.classList.toggle("hidden", !(track && pass));
+  const showVisuals = !!(track && pass);
+  if (visuals) visuals.classList.toggle("hidden", !showVisuals);
+  if (sceneRoot) sceneRoot.classList.toggle("aprs-has-visuals", showVisuals);
   if (track && pass && aux) {
     const pathItems = await ensurePathForDisplayedPass(system, pass);
     aux.innerHTML = renderUpcomingVisualAux({
@@ -2317,15 +2694,28 @@ async function applyCurrentRadioTarget(mode) {
 async function selectRadioControlSessionFromElement(target) {
   clearRotatorActionError();
   radioChannelDraftKey = "";
-  radioChannelPickerFocused = false;
+  unlockRadioChannelInteraction();
   try {
     const fallbackChoice = deriveFallbackRadioChoiceForSelection(target);
+    const developerOverrides = getDeveloperOverrides();
+    let selectedPass = (state.passes || []).find((pass) =>
+      pass.sat_id === (target.dataset.satId || "")
+      && pass.aos === (target.dataset.passAos || "")
+      && pass.los === (target.dataset.passLos || "")
+    ) || null;
+    if (
+      developerOverrides.enabled
+      && developerOverrides.force_scene === "ongoing"
+      && selectedPass
+    ) {
+      selectedPass = synthesizePassForPhase(selectedPass, "mid-pass");
+    }
     const payload = {
       sat_id: target.dataset.satId,
       sat_name: target.dataset.satName,
-      pass_aos: target.dataset.passAos,
-      pass_los: target.dataset.passLos,
-      max_el_deg: Number(target.dataset.maxEl),
+      pass_aos: selectedPass?.aos || target.dataset.passAos,
+      pass_los: selectedPass?.los || target.dataset.passLos,
+      max_el_deg: selectedPass?.max_el_deg ?? Number(target.dataset.maxEl),
     };
     const response = await trackerApi.post("/api/v1/radio/session/select", payload);
     const testPairPayload = buildRadioSessionTestPairPayload(fallbackChoice);
@@ -2357,6 +2747,7 @@ async function commitSelectedRadioChannel() {
   const choice = channelChoices.find((item) => item.key === radioChannelDraftKey);
   if (!session?.active || !choice) return;
   clearRotatorActionError();
+  unlockRadioChannelInteraction();
   try {
     const testPairPayload = buildRadioSessionTestPairPayload(choice);
     if (!testPairPayload) return;
@@ -2421,6 +2812,9 @@ async function runPinnedRadioAction(action, options = {}) {
 
 async function selectAprsSessionForSatellite(satId, satName = "") {
   try {
+    aprsSceneState.modalOpen = false;
+    aprsSceneState.composeFocused = false;
+    aprsSceneState.digipeaterPending = null;
     const channel = firstAprsChannelForSatellite(satId);
     if (!channel) {
       throw new Error(`No APRS channel available for ${satName || satId}`);
@@ -2464,6 +2858,9 @@ async function selectAprsSessionForSatellite(satId, satName = "") {
 
 async function selectAprsTerrestrial() {
   try {
+    aprsSceneState.modalOpen = false;
+    aprsSceneState.composeFocused = false;
+    aprsSceneState.digipeaterPending = null;
     clearRotatorActionError();
     setAprsPinnedEnabled(true);
     setPinnedViewPreference("aprs");
@@ -2487,6 +2884,16 @@ async function selectAprsTerrestrial() {
     setRotatorActionError(err?.message || String(err));
     chooseScene();
   }
+}
+
+async function selectPreferredAprsSatellite() {
+  const choice = preferredAprsSatelliteSelection(state.system || {});
+  if (!choice?.satId) {
+    setRotatorActionError("No APRS-capable satellite is available to restore right now.");
+    chooseScene();
+    return;
+  }
+  await selectAprsSessionForSatellite(choice.satId, choice.satName || "");
 }
 
 window.orbitDeckSelectAprsSession = (satId, satName = "") => {
@@ -2515,7 +2922,7 @@ async function runAprsAction(action) {
   const endpointMap = {
     connect: "/api/v1/aprs/connect",
     disconnect: "/api/v1/aprs/disconnect",
-    panic: "/api/v1/aprs/panic-unkey",
+    panic: "/api/v1/aprs/emergency-stop",
   };
   clearRotatorActionError();
   try {
@@ -2524,23 +2931,32 @@ async function runAprsAction(action) {
       return;
     }
     if (action === "back") {
+      aprsSceneState.modalOpen = false;
+      aprsSceneState.composeFocused = false;
+      aprsSceneState.digipeaterPending = null;
+      await trackerApi.post("/api/v1/aprs/session/identity", { clear: true });
+      await refreshAprsOnly();
       setAprsPinnedEnabled(false);
       chooseScene();
       return;
     }
     if (action === "message") {
-      await trackerApi.post("/api/v1/aprs/send/message", {
-        to: trackerById("aprsMessageToRotator").value,
-        text: trackerById("aprsMessageTextRotator").value,
-      });
+      const to = trackerById("aprsMessageToRotator").value;
+      const text = trackerById("aprsMessageTextRotator").value;
+      const identity = currentAprsSourceIdentity(state.system || {});
+      await trackerApi.post("/api/v1/aprs/send/message", { to, text, callsign: identity.callsign, ssid: identity.ssid });
+      aprsSceneState.drafts.messageTo = "";
+      aprsSceneState.drafts.messageText = "";
     } else if (action === "status") {
-      await trackerApi.post("/api/v1/aprs/send/status", {
-        text: trackerById("aprsStatusTextRotator").value,
-      });
+      const text = trackerById("aprsStatusTextRotator").value;
+      const identity = currentAprsSourceIdentity(state.system || {});
+      await trackerApi.post("/api/v1/aprs/send/status", { text, callsign: identity.callsign, ssid: identity.ssid });
+      aprsSceneState.drafts.statusText = "";
     } else if (action === "position") {
-      await trackerApi.post("/api/v1/aprs/send/position", {
-        comment: trackerById("aprsPositionCommentRotator").value,
-      });
+      const comment = trackerById("aprsPositionCommentRotator").value;
+      const identity = currentAprsSourceIdentity(state.system || {});
+      await trackerApi.post("/api/v1/aprs/send/position", { comment, callsign: identity.callsign, ssid: identity.ssid });
+      aprsSceneState.drafts.positionComment = "";
     } else {
       const endpoint = endpointMap[action];
       if (!endpoint) return;
@@ -2623,7 +3039,11 @@ function chooseScene() {
   const aprsPinned = isPinnedAprsControl(sys);
   const preferredPinnedView = pinnedViewPreference();
 
-  if (radioPinned && preferredPinnedView !== "aprs" && radioChannelPickerFocused) {
+  if (radioPinned && preferredPinnedView !== "aprs" && radioChannelInteractionLocked()) {
+    return;
+  }
+
+  if (aprsPinned && preferredPinnedView === "aprs" && aprsSceneState.composeFocused && !aprsSceneState.modalOpen) {
     updateTopMeta(sys);
     return;
   }
@@ -2756,59 +3176,119 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (!(clicked instanceof HTMLElement)) return;
       const target = clicked.closest("[data-radio-action], [data-aprs-action], button");
       if (!(target instanceof HTMLElement)) return;
-      if (target.dataset.radioAction === "select-session") {
-        void selectRadioControlSessionFromElement(target);
-      } else if (target.dataset.aprsAction === "select-session") {
-        void selectAprsSessionForSatellite(target.dataset.satId, target.dataset.satName || "");
-      } else if (target.id === "radioApplyBtn") {
+      const button = target.closest("button");
+      const radioSessionTarget = target.closest("[data-radio-action='select-session']");
+      const aprsSessionTarget = target.closest("[data-aprs-action='select-session']");
+      const packetTarget = target.closest("[data-aprs-packet-key]");
+      if (radioSessionTarget instanceof HTMLElement) {
+        void selectRadioControlSessionFromElement(radioSessionTarget);
+      } else if (aprsSessionTarget instanceof HTMLElement) {
+        void selectAprsSessionForSatellite(aprsSessionTarget.dataset.satId, aprsSessionTarget.dataset.satName || "");
+      } else if (button?.id === "radioApplyBtn") {
         void applyCurrentRadioTarget("apply");
-      } else if (target.id === "radioAutoStartBtn") {
+      } else if (button?.id === "radioAutoStartBtn") {
         void applyCurrentRadioTarget("start");
-      } else if (target.id === "radioAutoStopBtn") {
+      } else if (button?.id === "radioAutoStopBtn") {
         void applyCurrentRadioTarget("stop");
-      } else if (target.id === "radioSessionConnectBtn") {
+      } else if (button?.id === "radioSessionConnectBtn") {
         const connected = !!state.system?.radioRuntime?.connected;
         if (connected) {
           void runPinnedRadioAction("disconnect");
         } else {
           void openRadioConnectModal("radio");
         }
-      } else if (target.id === "radioSessionTestBtn") {
+      } else if (button?.id === "radioSessionTestBtn") {
         const inTest = state.system?.radioControlSession?.screen_state === "test";
         void runPinnedRadioAction(inTest ? "stop" : "test");
-      } else if (target.id === "radioSessionStartBtn") {
+      } else if (button?.id === "radioSessionStartBtn") {
         const screenState = state.system?.radioControlSession?.screen_state;
         void runPinnedRadioAction(screenState === "active" || screenState === "armed" ? "stop" : "start");
-      } else if (target.id === "radioSessionBackBtn") {
+      } else if (button?.id === "radioSessionBackBtn") {
         void runPinnedRadioAction("back");
-      } else if (target.id === "radioCommitChannelBtn") {
+      } else if (button?.id === "radioChannelPickerToggleBtn") {
+        if (radioChannelPickerOpen) {
+          unlockRadioChannelInteraction();
+        } else {
+          radioChannelPickerOpen = true;
+          lockRadioChannelInteraction();
+        }
+        chooseScene();
+      } else if (button?.dataset.radioChannelKey) {
+        radioChannelDraftKey = button.dataset.radioChannelKey || "";
+        savePersistedRadioChannelDraft(state.system?.radioControlSession, radioChannelDraftKey);
+        unlockRadioChannelInteraction();
+        chooseScene();
+      } else if (button?.id === "radioCommitChannelBtn") {
         void commitSelectedRadioChannel();
-      } else if (target.id === "aprsUseTerrestrialBtn") {
-        void runAprsAction("terrestrial");
-      } else if (target.id === "aprsConnectBtn") {
+      } else if (button?.id === "aprsModeToggleBtn") {
+        const aprsTarget = derivedAprsTarget(state.system || {});
+        if (aprsTarget?.operating_mode === "satellite") {
+          void runAprsAction("terrestrial");
+        } else {
+          void selectPreferredAprsSatellite();
+        }
+      } else if (button?.id === "aprsConnectBtn") {
         const radioConnected = !!state.system?.radioRuntime?.connected;
         if (radioConnected) {
           void runAprsAction("connect");
         } else {
           void openRadioConnectModal("aprs");
         }
-      } else if (target.id === "aprsDisconnectBtn") {
+      } else if (button?.id === "aprsDisconnectBtn") {
         void runAprsAction("disconnect");
-      } else if (target.id === "aprsPanicBtn") {
+      } else if (button?.id === "aprsStopTxBtn") {
         void runAprsAction("panic");
-      } else if (target.id === "aprsBackBtn") {
+      } else if (button?.id === "aprsSourceIdentityBtn") {
+        openAprsIdentityModal(state.system || {});
+      } else if (button?.id === "aprsSessionIdentityCloseBtn") {
+        aprsSceneState.modalOpen = false;
+        aprsSceneState.composeFocused = false;
+        chooseScene();
+      } else if (button?.id === "aprsSessionIdentityApplyBtn") {
+        const callsign = String(aprsSceneState.sourceIdentityDraft.callsign || "").trim().toUpperCase();
+        const ssid = Number.parseInt(String(aprsSceneState.sourceIdentityDraft.ssid || "0"), 10);
+        void trackerApi.post("/api/v1/aprs/session/identity", {
+          callsign,
+          ssid: Number.isFinite(ssid) ? ssid : 0,
+        }).then(async () => {
+          aprsSceneState.modalOpen = false;
+          aprsSceneState.composeFocused = false;
+          await refreshAprsOnly();
+          chooseScene();
+        }).catch((err) => {
+          setRotatorActionError(err?.message || String(err));
+          chooseScene();
+        });
+      } else if (button?.id === "aprsSessionIdentityResetBtn") {
+        void clearAprsIdentityOverride().catch((err) => {
+          setRotatorActionError(err?.message || String(err));
+          chooseScene();
+        });
+      } else if (button?.id === "aprsBackBtn") {
         void runAprsAction("back");
-      } else if (target.id === "aprsSendMessageBtn") {
+      } else if (button?.id === "aprsSendTabMessageBtn") {
+        aprsSceneState.sendTab = "message";
+        chooseScene();
+      } else if (button?.id === "aprsSendTabStatusBtn") {
+        aprsSceneState.sendTab = "status";
+        chooseScene();
+      } else if (button?.id === "aprsSendTabPositionBtn") {
+        aprsSceneState.sendTab = "position";
+        chooseScene();
+      } else if (button?.id === "aprsSendMessageBtn") {
         void runAprsAction("message");
-      } else if (target.id === "aprsSendStatusBtn") {
+      } else if (button?.id === "aprsSendStatusBtn") {
         void runAprsAction("status");
-      } else if (target.id === "aprsSendPositionBtn") {
+      } else if (button?.id === "aprsSendPositionBtn") {
         void runAprsAction("position");
-      } else if (target.id === "radioConnectModalCloseBtn") {
+      } else if (packetTarget instanceof HTMLElement && packetTarget.dataset.aprsPacketKey) {
+        aprsSceneState.selectedPacketKey = packetTarget.dataset.aprsPacketKey;
+        chooseScene();
+      } else if (button?.id === "radioConnectModalCloseBtn") {
         closeRadioConnectModal();
-      } else if (target.id === "radioConnectRefreshPortsBtn") {
-        void openRadioConnectModal();
-      } else if (target.id === "radioConnectConfirmBtn") {
+      } else if (button?.id === "radioConnectRefreshPortsBtn") {
+        void openRadioConnectModal(connectModalMode);
+      } else if (button?.id === "radioConnectConfirmBtn") {
         void submitRadioConnectModal();
       }
     });
@@ -2816,9 +3296,57 @@ window.addEventListener("DOMContentLoaded", async () => {
       const changed = event.target;
       if (!(changed instanceof HTMLElement)) return;
       if (changed.id === "radioChannelSelect") {
+        unlockRadioChannelInteraction();
         radioChannelDraftKey = changed.value || "";
         savePersistedRadioChannelDraft(state.system?.radioControlSession, radioChannelDraftKey);
         chooseScene();
+      } else if (changed.id === "aprsDigipeaterToggle") {
+        const nextChecked = !!changed.checked;
+        aprsSceneState.digipeaterPending = nextChecked;
+        aprsSceneState.composeFocused = true;
+        void trackerApi.post("/api/v1/settings/aprs", {
+          future_digipeater_enabled: nextChecked,
+        }).then(async () => {
+          aprsSceneState.digipeaterPending = null;
+          aprsSceneState.composeFocused = aprsSceneState.modalOpen;
+          await refreshAprsOnly();
+          await fetchState();
+          chooseScene();
+        }).catch((err) => {
+          aprsSceneState.digipeaterPending = null;
+          aprsSceneState.composeFocused = aprsSceneState.modalOpen;
+          setRotatorActionError(err?.message || String(err));
+          chooseScene();
+        });
+      } else if (changed.id === "aprsMessageToRotator") {
+        aprsSceneState.drafts.messageTo = changed.value || "";
+      } else if (changed.id === "aprsMessageTextRotator") {
+        aprsSceneState.drafts.messageText = changed.value || "";
+      } else if (changed.id === "aprsStatusTextRotator") {
+        aprsSceneState.drafts.statusText = changed.value || "";
+      } else if (changed.id === "aprsPositionCommentRotator") {
+        aprsSceneState.drafts.positionComment = changed.value || "";
+      } else if (changed.id === "aprsSessionCallsign") {
+        aprsSceneState.sourceIdentityDraft.callsign = changed.value || "";
+      } else if (changed.id === "aprsSessionSsid") {
+        aprsSceneState.sourceIdentityDraft.ssid = changed.value || "";
+      }
+    });
+    document.body.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.id === "aprsMessageToRotator") {
+        aprsSceneState.drafts.messageTo = target.value || "";
+      } else if (target.id === "aprsMessageTextRotator") {
+        aprsSceneState.drafts.messageText = target.value || "";
+      } else if (target.id === "aprsStatusTextRotator") {
+        aprsSceneState.drafts.statusText = target.value || "";
+      } else if (target.id === "aprsPositionCommentRotator") {
+        aprsSceneState.drafts.positionComment = target.value || "";
+      } else if (target.id === "aprsSessionCallsign") {
+        aprsSceneState.sourceIdentityDraft.callsign = target.value || "";
+      } else if (target.id === "aprsSessionSsid") {
+        aprsSceneState.sourceIdentityDraft.ssid = target.value || "";
       }
     });
     document.body.addEventListener("focusin", (event) => {
@@ -2826,6 +3354,18 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (!(focused instanceof HTMLElement)) return;
       if (focused.id === "radioChannelSelect") {
         radioChannelPickerFocused = true;
+        radioChannelPickerAwaitingSelection = true;
+        lockRadioChannelInteraction();
+      } else if (
+        focused.id === "aprsMessageToRotator"
+        || focused.id === "aprsMessageTextRotator"
+        || focused.id === "aprsStatusTextRotator"
+        || focused.id === "aprsPositionCommentRotator"
+        || focused.id === "aprsDigipeaterToggle"
+        || focused.id === "aprsSessionCallsign"
+        || focused.id === "aprsSessionSsid"
+      ) {
+        aprsSceneState.composeFocused = true;
       }
     });
     document.body.addEventListener("focusout", (event) => {
@@ -2833,6 +3373,26 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (!(blurred instanceof HTMLElement)) return;
       if (blurred.id === "radioChannelSelect") {
         radioChannelPickerFocused = false;
+      } else if (
+        blurred.id === "aprsMessageToRotator"
+        || blurred.id === "aprsMessageTextRotator"
+        || blurred.id === "aprsStatusTextRotator"
+        || blurred.id === "aprsPositionCommentRotator"
+        || blurred.id === "aprsDigipeaterToggle"
+        || blurred.id === "aprsSessionCallsign"
+        || blurred.id === "aprsSessionSsid"
+      ) {
+        if (aprsSceneState.digipeaterPending == null && !aprsSceneState.modalOpen) {
+          aprsSceneState.composeFocused = false;
+        }
+      }
+    });
+    document.body.addEventListener("pointerdown", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.id === "radioChannelSelect" || target.closest("#radioChannelSelect")) {
+        radioChannelPickerAwaitingSelection = true;
+        lockRadioChannelInteraction();
       }
     });
     const pinnedViewSelect = trackerById("pinnedViewSelect");
@@ -2857,6 +3417,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }, 1000);
     setInterval(async () => {
       try {
+        if (radioChannelPickerOpen || radioChannelInteractionLocked()) return;
         await fetchState();
         chooseScene();
       } catch (_) {}

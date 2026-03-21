@@ -795,19 +795,31 @@ class AprsTargetSelectRequest(BaseModel):
     terrestrial_frequency_hz: int | None = Field(default=None, ge=1000)
 
 
+class AprsSessionIdentityUpdateRequest(BaseModel):
+    clear: bool = False
+    callsign: str | None = None
+    ssid: int | None = Field(default=None, ge=0, le=15)
+
+
 class AprsSendMessageRequest(BaseModel):
     to: str = Field(min_length=1, max_length=9)
     text: str = Field(min_length=1, max_length=67)
+    callsign: str | None = None
+    ssid: int | None = Field(default=None, ge=0, le=15)
 
 
 class AprsSendStatusRequest(BaseModel):
     text: str = Field(min_length=1, max_length=67)
+    callsign: str | None = None
+    ssid: int | None = Field(default=None, ge=0, le=15)
 
 
 class AprsSendPositionRequest(BaseModel):
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
     comment: str = Field(default="", max_length=40)
+    callsign: str | None = None
+    ssid: int | None = Field(default=None, ge=0, le=15)
 
 
 class AprsLogSettingsUpdate(BaseModel):

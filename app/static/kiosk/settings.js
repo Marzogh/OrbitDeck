@@ -64,6 +64,11 @@ function getDevSettings() {
   };
 }
 
+function getDevModeSelection() {
+  const dev = getDevSettings();
+  return dev.enabled ? (dev.forceScene || "auto") : "disabled";
+}
+
 function ensureTimezoneSelector() {
   const select = trackerById("displayTimezone");
   const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -93,21 +98,18 @@ function syncLocationModeUi() {
 }
 
 function syncDeveloperOverridesUi() {
-  const dev = getDevSettings();
-  trackerById("devOverridesEnabled").checked = dev.enabled;
-  trackerById("devOverridesPanel").classList.toggle("hidden", !dev.enabled);
-  trackerById("devForceScene").value = dev.forceScene;
-}
-
-function syncDeveloperOverridesDraftUi() {
-  const enabled = trackerById("devOverridesEnabled").checked;
-  trackerById("devOverridesPanel").classList.toggle("hidden", !enabled);
+  trackerById("devForceScene").value = getDevModeSelection();
 }
 
 function saveDevSettings() {
-  const enabled = trackerById("devOverridesEnabled").checked;
-  localStorage.setItem(DEV_MODE_KEY, enabled ? "1" : "0");
-  localStorage.setItem(DEV_FORCE_SCENE_KEY, enabled ? (trackerById("devForceScene").value || "auto") : "auto");
+  const selection = trackerById("devForceScene").value || "disabled";
+  if (selection === "disabled") {
+    localStorage.removeItem(DEV_MODE_KEY);
+    localStorage.removeItem(DEV_FORCE_SCENE_KEY);
+    return;
+  }
+  localStorage.setItem(DEV_MODE_KEY, "1");
+  localStorage.setItem(DEV_FORCE_SCENE_KEY, selection);
 }
 
 function loadVideoSources() {
@@ -323,10 +325,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   trackerById("disconnectRadio").addEventListener("click", async () => {
     await trackerApi.post("/api/v1/radio/disconnect", {});
     await loadRadioState();
-  });
-
-  trackerById("devOverridesEnabled").addEventListener("change", () => {
-    syncDeveloperOverridesDraftUi();
   });
 
   trackerById("saveDevOverrides").addEventListener("click", () => {

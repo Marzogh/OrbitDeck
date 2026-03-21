@@ -168,9 +168,21 @@ export function getDevSettings() {
   };
 }
 
-export function saveDevSettings({ enabled, forceScene }) {
-  localStorage.setItem(DEV_MODE_KEY, enabled ? "1" : "0");
-  localStorage.setItem(DEV_FORCE_SCENE_KEY, enabled ? (forceScene || "auto") : "auto");
+export function getDevModeSelection() {
+  const dev = getDevSettings();
+  return dev.enabled ? (dev.forceScene || "auto") : "disabled";
+}
+
+export function saveDevSettings({ enabled, forceScene, selection } = {}) {
+  const requested = String(selection || "").trim();
+  const nextSelection = requested || (enabled ? (forceScene || "auto") : "disabled");
+  if (nextSelection === "disabled") {
+    localStorage.removeItem(DEV_MODE_KEY);
+    localStorage.removeItem(DEV_FORCE_SCENE_KEY);
+    return;
+  }
+  localStorage.setItem(DEV_MODE_KEY, "1");
+  localStorage.setItem(DEV_FORCE_SCENE_KEY, nextSelection || forceScene || "auto");
 }
 
 export function setRuntime(action, value) {

@@ -824,7 +824,7 @@ Representative response:
 }
 ```
 
-### `POST /api/v1/aprs/panic-unkey`
+### `POST /api/v1/aprs/emergency-stop`
 
 Representative response:
 

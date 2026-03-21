@@ -1,7 +1,6 @@
-import { escapeHtml, getDevSettings } from "./shared.js";
+import { escapeHtml, getDevModeSelection } from "./shared.js";
 
 export function renderDeveloperSection({ stateCache }) {
-  const dev = getDevSettings();
   return `
     <section class="settings-v2-screen">
       <header class="settings-v2-screen-head">
@@ -17,10 +16,11 @@ export function renderDeveloperSection({ stateCache }) {
           <h3>Diagnostics</h3>
           <div class="settings-v2-form-grid">
             <label>
-              <span>Force Scene</span>
-              <select id="v2DevForceScene">
+              <span>Developer Mode</span>
+              <select id="v2DevModeSelection">
+                <option value="disabled">Disabled</option>
                 <option value="auto">Auto</option>
-                <option value="ongoing">Ongoing pass</option>
+                <option value="ongoing">Fake live pass</option>
                 <option value="upcoming">Upcoming pass</option>
                 <option value="iss-upcoming">ISS upcoming</option>
                 <option value="passes">Passes console</option>
@@ -29,8 +29,8 @@ export function renderDeveloperSection({ stateCache }) {
               </select>
             </label>
           </div>
-          <div class="settings-v2-toggle-grid">
-            <label class="settings-v2-toggle"><input id="v2DevOverridesEnabled" type="checkbox" ${dev.enabled ? "checked" : ""} /> <span>Developer Overrides</span></label>
+          <div class="settings-v2-inline-note">
+            Disabled clears the kiosk override keys. Fake live pass matches the documented console shortcut and synthesizes a mid-pass view when needed.
           </div>
         </article>
       </div>
@@ -55,8 +55,7 @@ export function renderDeveloperSection({ stateCache }) {
 }
 
 export function bindDeveloperSection(ctx) {
-  const dev = getDevSettings();
-  document.getElementById("v2DevForceScene").value = dev.forceScene;
+  document.getElementById("v2DevModeSelection").value = getDevModeSelection();
   document.querySelector("[data-save-developer]").addEventListener("click", ctx.saveDeveloperSection);
   document.querySelector("[data-discard-section='developer']").addEventListener("click", () => ctx.discardSection("developer"));
   document.getElementById("v2RefreshPassCache").addEventListener("click", async () => {

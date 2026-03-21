@@ -153,13 +153,13 @@ Check:
 
 The local APRS receive log lives at `data/aprs/received_log.jsonl` and only stores packets received while logging is enabled.
 
-## `Panic Unkey` was needed after an APRS session
+## `Stop TX` was needed after an APRS session
 
 This indicates OrbitDeck believed the transport or sidecar might still be keyed after disconnect or send activity.
 
 If this happens:
 
-1. use `Panic Unkey`
+1. use `Stop TX`
 2. disconnect APRS cleanly
 3. reconnect only after the runtime state settles
 

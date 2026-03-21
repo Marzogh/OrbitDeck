@@ -140,8 +140,8 @@
     return api.post("/api/v1/aprs/disconnect", {});
   }
 
-  async function panicUnkey(api) {
-    return api.post("/api/v1/aprs/panic-unkey", {});
+  async function emergencyStop(api) {
+    return api.post("/api/v1/aprs/emergency-stop", {});
   }
 
   async function sendMessage(api, payload) {
@@ -186,7 +186,7 @@
     selectTarget,
     connect,
     disconnect,
-    panicUnkey,
+    emergencyStop,
     sendMessage,
     sendStatus,
     sendPosition,

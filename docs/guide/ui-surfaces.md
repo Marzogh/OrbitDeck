@@ -91,7 +91,7 @@ Primary content:
 - station identity and operating-mode controls
 - terrestrial or satellite APRS target selection
 - Dire Wolf install and status checks
-- connect, disconnect, and panic-unkey controls
+- connect, disconnect, and emergency-stop controls
 - message, status, and position send tools
 - heard-packet summaries and stored-log export/clear actions
 - digipeater and iGate settings

@@ -105,6 +105,19 @@ class RigControlService:
     def _effective_rig_model(self, settings: RadioSettings | None = None) -> RadioRigModel:
         return self._runtime.rig_model or (settings.rig_model if settings is not None else None) or RadioRigModel.id5100
 
+    @staticmethod
+    def _same_recommendation(a: FrequencyRecommendation | None, b: FrequencyRecommendation | None) -> bool:
+        if a is None or b is None:
+            return False
+        return (
+            a.sat_id == b.sat_id
+            and a.selected_column_index == b.selected_column_index
+            and a.uplink_mhz == b.uplink_mhz
+            and a.downlink_mhz == b.downlink_mhz
+            and a.uplink_mode == b.uplink_mode
+            and a.downlink_mode == b.downlink_mode
+        )
+
     def _recommendation_supported(
         self,
         recommendation: FrequencyRecommendation | None,
@@ -505,6 +518,13 @@ class RigControlService:
         recommendation, pass_event = resolver(payload.sat_id, payload.location_source, payload.selected_column_index)
         if recommendation is None or (recommendation.uplink_mhz is None and recommendation.downlink_mhz is None):
             raise ValueError("recommendation is unavailable for the selected target")
+        if self._same_recommendation(self._runtime.last_applied_recommendation, recommendation):
+            self._runtime.active_sat_id = payload.sat_id
+            self._runtime.active_pass_aos = payload.pass_aos or (pass_event.aos if pass_event else None)
+            self._runtime.active_pass_los = payload.pass_los or (pass_event.los if pass_event else None)
+            self._runtime.selected_column_index = recommendation.selected_column_index
+            self._runtime.last_applied_recommendation = recommendation
+            return self.runtime(), recommendation, {}
         state, mapping = self._controller.apply_target(
             recommendation,
             settings.default_apply_mode_and_tone if payload.apply_mode_and_tone is None else payload.apply_mode_and_tone,

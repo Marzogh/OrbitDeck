@@ -565,11 +565,11 @@ class AprsService:
         return self.runtime()
 
     def send_status(self, settings: AprsSettings, payload: AprsSendStatusRequest) -> AprsRuntimeState:
-        self._send_frame(settings, format_status_payload(payload.text))
+        self._send_frame(settings, format_status_payload(payload.text), callsign_override=payload.callsign, ssid_override=payload.ssid)
         return self.runtime()
 
     def send_message(self, settings: AprsSettings, payload: AprsSendMessageRequest) -> AprsRuntimeState:
-        self._send_frame(settings, format_message_payload(payload.to, payload.text))
+        self._send_frame(settings, format_message_payload(payload.to, payload.text), callsign_override=payload.callsign, ssid_override=payload.ssid)
         return self.runtime()
 
     def send_position(self, settings: AprsSettings, payload: AprsSendPositionRequest, location) -> AprsRuntimeState:
@@ -591,13 +591,15 @@ class AprsService:
         self._send_frame(
             settings,
             format_position_payload(lat, lon, symbol_table, symbol_code, payload.comment or default_comment or ""),
+            callsign_override=payload.callsign,
+            ssid_override=payload.ssid,
         )
         return self.runtime()
 
-    def _send_frame(self, settings: AprsSettings, text: str) -> None:
+    def _send_frame(self, settings: AprsSettings, text: str, *, callsign_override: str | None = None, ssid_override: int | None = None) -> None:
         if self._runtime.target and not self._runtime.target.can_transmit:
             raise RuntimeError(self._runtime.target.tx_block_reason or "APRS transmit is not currently allowed")
-        source = self._source_call(settings)
+        source = self._source_call(settings, callsign_override=callsign_override, ssid_override=ssid_override)
         if settings.listen_only:
             path = []
         else:
@@ -654,9 +656,10 @@ class AprsService:
             except Exception:
                 pass
 
-    def _source_call(self, settings: AprsSettings) -> str:
-        call = settings.callsign.strip().upper() or "N0CALL"
-        return call if settings.ssid <= 0 else f"{call}-{settings.ssid}"
+    def _source_call(self, settings: AprsSettings, *, callsign_override: str | None = None, ssid_override: int | None = None) -> str:
+        call = str(callsign_override if callsign_override is not None else settings.callsign).strip().upper() or "N0CALL"
+        ssid = settings.ssid if ssid_override is None else int(ssid_override)
+        return call if ssid <= 0 else f"{call}-{ssid}"
 
     def _packet_type_for_text(self, text: str) -> str:
         if text.startswith(":") and len(text) >= 11:

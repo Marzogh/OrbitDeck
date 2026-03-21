@@ -280,8 +280,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     await runAction("POST /api/v1/aprs/disconnect", () => aprsClient.disconnect(trackerApi));
     await loadAprsPage();
   });
-  trackerById("panicUnkeyAprsPage").addEventListener("click", async () => {
-    await runAction("POST /api/v1/aprs/panic-unkey", () => aprsClient.panicUnkey(trackerApi));
+  trackerById("stopTxAprsPage").addEventListener("click", async () => {
+    await runAction("POST /api/v1/aprs/emergency-stop", () => aprsClient.emergencyStop(trackerApi));
     await loadAprsPage();
   });
   trackerById("sendAprsMessagePage").addEventListener("click", async () => {

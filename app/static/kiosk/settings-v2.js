@@ -10,6 +10,7 @@ import {
   loadVideoSources,
   saveVideoSourcesLocal,
   getDevSettings,
+  getDevModeSelection,
   saveDevSettings,
   runAction,
   setRuntime,
@@ -585,12 +586,12 @@ async function saveAprsLogSettingsSection() {
 }
 
 async function saveDeveloperSection() {
+  const selection = trackerById("v2DevModeSelection").value || "disabled";
   saveDevSettings({
-    enabled: trackerById("v2DevOverridesEnabled").checked,
-    forceScene: trackerById("v2DevForceScene").value || "auto",
+    selection,
   });
   setRuntime("local developer settings", { status: "ok", response: getDevSettings() });
-  recordEvent("Developer settings saved", trackerById("v2DevForceScene").value || "auto");
+  recordEvent("Developer settings saved", selection);
   await refreshState({ preserveDraft: true });
 }
 
@@ -636,6 +637,7 @@ function buildContext() {
     isHamFrequencySatellite,
     loadVideoSources,
     getDevSettings,
+    getDevModeSelection,
     saveRadioSection,
     toggleRadioConnection,
     saveLocationSection,

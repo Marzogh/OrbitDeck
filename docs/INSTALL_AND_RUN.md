@@ -240,7 +240,7 @@ Recommended sequence:
 5. Connect APRS.
 6. Verify runtime state, target summary, and heard-packet feed.
 7. Send a test message, status, or position packet.
-8. Disconnect cleanly, or use `Panic Unkey` if the sidecar or PTT path does not release as expected.
+8. Disconnect cleanly, or use `Stop TX` if the sidecar or PTT path does not release as expected.
 
 ### Dire Wolf integration
 
@@ -441,7 +441,7 @@ APRS APIs:
 - `POST /api/v1/aprs/session/select`
 - `POST /api/v1/aprs/connect`
 - `POST /api/v1/aprs/disconnect`
-- `POST /api/v1/aprs/panic-unkey`
+- `POST /api/v1/aprs/emergency-stop`
 - `POST /api/v1/aprs/send/message`
 - `POST /api/v1/aprs/send/status`
 - `POST /api/v1/aprs/send/position`

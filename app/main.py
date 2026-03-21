@@ -28,8 +28,10 @@ from app.models import (
     AprsLogSettingsUpdate,
     AprsSendMessageRequest,
     AprsSendPositionRequest,
+    AprsSessionIdentityUpdateRequest,
     AprsSendStatusRequest,
     AprsSettings,
+    AprsRuntimeState,
     AprsSettingsUpdate,
     AprsTargetSelectRequest,
     CachePolicyUpdate,
@@ -101,6 +103,7 @@ aprs_service = AprsService(packet_received_callback=_handle_aprs_received_packet
 _refresh_task: asyncio.Task | None = None
 _lite_snapshot_cache: dict[tuple, tuple[datetime, dict]] = {}
 _CALLSIGN_PATTERN = re.compile(r"^[A-Z0-9]{3,10}$")
+_APRS_SESSION_IDENTITY_OVERRIDE: dict[str, object | None] = {"callsign": None, "ssid": None}
 
 
 def _pass_cache_retention(state) -> timedelta:
@@ -503,10 +506,14 @@ def _resolved_location_for_aprs():
 
 
 def _effective_aprs_settings_for_connect(state) -> AprsSettings:
-    settings = state.aprs_settings.model_copy(deep=True)
-    if settings.igate_auto_enable_with_internet and not settings.future_igate_enabled and not settings.igate.enabled:
-        has_igate_credentials = bool(settings.igate.login_callsign.strip() and settings.igate.passcode.strip())
-        settings.igate.enabled = bool(state.network.internet_available and has_igate_credentials)
+    settings = _apply_aprs_session_identity_override(state.aprs_settings)
+    has_igate_credentials = bool(settings.igate.login_callsign.strip() and settings.igate.passcode.strip())
+    if state.network.internet_available and has_igate_credentials:
+        settings.igate.enabled = True
+        settings.igate.gate_terrestrial_rx = True
+        settings.igate.gate_satellite_rx = True
+    elif settings.igate_auto_enable_with_internet and not settings.future_igate_enabled and not settings.igate.enabled:
+        settings.igate.enabled = False
     radio_runtime = radio_control_service.runtime()
     if radio_runtime.connected:
         settings.rig_model = state.radio_settings.rig_model
@@ -649,6 +656,52 @@ def _normalized_station_callsign(value: str | None) -> str:
     return str(value or "").strip().upper()
 
 
+def _clear_aprs_session_identity_override() -> None:
+    _APRS_SESSION_IDENTITY_OVERRIDE["callsign"] = None
+    _APRS_SESSION_IDENTITY_OVERRIDE["ssid"] = None
+
+
+def _current_aprs_session_identity_override() -> tuple[str | None, int | None]:
+    callsign = _normalized_station_callsign(_APRS_SESSION_IDENTITY_OVERRIDE.get("callsign"))
+    raw_ssid = _APRS_SESSION_IDENTITY_OVERRIDE.get("ssid")
+    ssid = int(raw_ssid) if raw_ssid is not None else None
+    return callsign or None, ssid
+
+
+def _format_aprs_source_call(callsign: str | None, ssid: int | None) -> str:
+    call = _normalized_station_callsign(callsign) or "N0CALL"
+    return call if ssid is None or int(ssid) <= 0 else f"{call}-{int(ssid)}"
+
+
+def _apply_aprs_session_identity_override(settings: AprsSettings) -> AprsSettings:
+    effective = settings.model_copy(deep=True)
+    override_callsign, override_ssid = _current_aprs_session_identity_override()
+    if override_callsign:
+        effective.callsign = override_callsign
+    if override_ssid is not None:
+        effective.ssid = int(override_ssid)
+    return effective
+
+
+def _validated_aprs_session_identity(callsign: str | None, ssid: int | None) -> tuple[str, int]:
+    normalized = _normalized_station_callsign(callsign)
+    if not normalized or not _CALLSIGN_PATTERN.fullmatch(normalized):
+        raise HTTPException(status_code=400, detail="Session callsign must be 3-10 letters or numbers.")
+    if ssid is None or int(ssid) < 0 or int(ssid) > 15:
+        raise HTTPException(status_code=400, detail="Session SSID must be between 0 and 15.")
+    return normalized, int(ssid)
+
+
+def _aprs_runtime_response(runtime: AprsRuntimeState, settings: AprsSettings) -> dict:
+    payload = runtime.model_dump(mode="python")
+    session_callsign, session_ssid = _current_aprs_session_identity_override()
+    effective_settings = _apply_aprs_session_identity_override(settings)
+    payload["session_callsign_override"] = session_callsign
+    payload["session_ssid_override"] = session_ssid
+    payload["effective_source_call"] = _format_aprs_source_call(effective_settings.callsign, effective_settings.ssid)
+    return payload
+
+
 def _station_identity_ready(settings: AprsSettings) -> bool:
     callsign = _normalized_station_callsign(settings.callsign)
     return bool(callsign and callsign != "N0CALL" and _CALLSIGN_PATTERN.fullmatch(callsign))
@@ -675,6 +728,33 @@ def _ensure_station_identity_ready() -> None:
     identity = _station_identity_status(state.aprs_settings)
     if not identity["configured"]:
         raise HTTPException(status_code=403, detail=str(identity["reason"]))
+
+
+def _ensure_wifi_host_reachable(settings: RadioSettings) -> None:
+    if settings.transport_mode != settings.transport_mode.wifi:
+        return
+    host = str(settings.wifi_host or "").strip()
+    if not host:
+        return
+    ping_path = shutil.which("ping")
+    if not ping_path:
+        raise HTTPException(status_code=400, detail="Unable to verify IC-705 Wi-Fi reachability because the system ping command is unavailable")
+    command = [ping_path, "-n", "1", host] if platform.system() == "Windows" else [ping_path, "-c", "1", host]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2.5,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=400, detail=f"IC-705 Wi-Fi host {host} did not respond to ping") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        if detail:
+            raise HTTPException(status_code=400, detail=f"IC-705 Wi-Fi host {host} is unreachable: {detail}")
+        raise HTTPException(status_code=400, detail=f"IC-705 Wi-Fi host {host} did not respond to ping")
 
 
 def _pick_focus_pass(passes, sat_id: str | None):
@@ -1500,7 +1580,7 @@ def get_aprs_state() -> dict:
         preview = _resolve_aprs_target(state.aprs_settings, location)
     except Exception:
         preview = None
-    return {"settings": state.aprs_settings, "runtime": aprs_service.runtime(), "previewTarget": preview}
+    return {"settings": state.aprs_settings, "runtime": _aprs_runtime_response(aprs_service.runtime(), state.aprs_settings), "previewTarget": preview}
 
 
 @app.get("/api/v1/aprs/log/settings")
@@ -1541,6 +1621,26 @@ def post_aprs_log_settings(payload: AprsLogSettingsUpdate) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     store.save(state)
     return get_aprs_log_settings()
+
+
+@app.post("/api/v1/aprs/session/identity")
+def post_aprs_session_identity(payload: AprsSessionIdentityUpdateRequest) -> dict:
+    state = store.get()
+    if payload.clear:
+        _clear_aprs_session_identity_override()
+    else:
+        callsign = payload.callsign if payload.callsign is not None else state.aprs_settings.callsign
+        ssid = payload.ssid if payload.ssid is not None else state.aprs_settings.ssid
+        normalized_callsign, normalized_ssid = _validated_aprs_session_identity(callsign, ssid)
+        if (
+            normalized_callsign == _normalized_station_callsign(state.aprs_settings.callsign)
+            and normalized_ssid == int(state.aprs_settings.ssid)
+        ):
+            _clear_aprs_session_identity_override()
+        else:
+            _APRS_SESSION_IDENTITY_OVERRIDE["callsign"] = normalized_callsign
+            _APRS_SESSION_IDENTITY_OVERRIDE["ssid"] = normalized_ssid
+    return {"runtime": _aprs_runtime_response(aprs_service.runtime(), state.aprs_settings)}
 
 
 @app.get("/api/v1/aprs/log")
@@ -1667,6 +1767,7 @@ def get_aprs_targets() -> dict:
 
 def _select_aprs_target(payload: AprsTargetSelectRequest) -> dict:
     state, location = _resolved_location_for_aprs()
+    _clear_aprs_session_identity_override()
     next_settings = state.aprs_settings.model_copy(deep=True)
     next_settings.operating_mode = payload.operating_mode
     if payload.operating_mode == AprsOperatingMode.satellite:
@@ -1682,6 +1783,8 @@ def _select_aprs_target(payload: AprsTargetSelectRequest) -> dict:
         next_settings.selected_channel_id = channel.channel_id
         next_settings.terrestrial_region_label = None
         next_settings.terrestrial_last_suggested_frequency_hz = None
+        next_settings.future_digipeater_enabled = False
+        next_settings.digipeater.enabled = False
     else:
         next_settings.selected_satellite_id = None
         next_settings.selected_channel_id = None
@@ -1698,7 +1801,7 @@ def _select_aprs_target(payload: AprsTargetSelectRequest) -> dict:
         preview = _resolve_aprs_target(state.aprs_settings, location)
     except Exception:
         preview = None
-    return {"state": state.aprs_settings, "runtime": aprs_service.runtime(), "previewTarget": preview}
+    return {"state": state.aprs_settings, "runtime": _aprs_runtime_response(aprs_service.runtime(), state.aprs_settings), "previewTarget": preview}
 
 
 @app.post("/api/v1/aprs/select-target")
@@ -1717,6 +1820,7 @@ def connect_aprs() -> dict:
     state, location = _resolved_location_for_aprs()
     try:
         effective_settings = _effective_aprs_settings_for_connect(state)
+        _ensure_wifi_host_reachable(state.radio_settings)
         _validate_aprs_gateway_settings(effective_settings)
         target = _resolve_aprs_target(effective_settings, location)
         if target.region_label is not None:
@@ -1736,18 +1840,20 @@ def connect_aprs() -> dict:
         store.save(state)
     except (RuntimeError, ValueError, TimeoutError, OSError, subprocess.SubprocessError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"settings": state.aprs_settings, "runtime": runtime, "target": target}
+    return {"settings": state.aprs_settings, "runtime": _aprs_runtime_response(runtime, state.aprs_settings), "target": target}
 
 
 @app.post("/api/v1/aprs/disconnect")
 def disconnect_aprs() -> dict:
-    return {"runtime": aprs_service.disconnect()}
+    state = store.get()
+    return {"runtime": _aprs_runtime_response(aprs_service.disconnect(), state.aprs_settings)}
 
 
-@app.post("/api/v1/aprs/panic-unkey")
-def panic_unkey_aprs() -> dict:
+@app.post("/api/v1/aprs/emergency-stop")
+def emergency_stop_aprs() -> dict:
+    state = store.get()
     runtime = aprs_service.disconnect()
-    return {"ok": True, "runtime": runtime}
+    return {"ok": True, "runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
 @app.post("/api/v1/aprs/send/message")
@@ -1755,10 +1861,21 @@ def send_aprs_message(payload: AprsSendMessageRequest) -> dict:
     _ensure_station_identity_ready()
     state = store.get()
     try:
-        runtime = aprs_service.send_message(state.aprs_settings, payload)
+        override_callsign, override_ssid = _current_aprs_session_identity_override()
+        send_payload = payload.model_copy(update={
+            "callsign": payload.callsign if payload.callsign is not None else override_callsign,
+            "ssid": payload.ssid if payload.ssid is not None else override_ssid,
+        })
+        if send_payload.callsign is not None or send_payload.ssid is not None:
+            normalized_callsign, normalized_ssid = _validated_aprs_session_identity(
+                send_payload.callsign if send_payload.callsign is not None else state.aprs_settings.callsign,
+                send_payload.ssid if send_payload.ssid is not None else state.aprs_settings.ssid,
+            )
+            send_payload = send_payload.model_copy(update={"callsign": normalized_callsign, "ssid": normalized_ssid})
+        runtime = aprs_service.send_message(state.aprs_settings, send_payload)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"runtime": runtime}
+    return {"runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
 @app.post("/api/v1/aprs/send/status")
@@ -1766,10 +1883,21 @@ def send_aprs_status(payload: AprsSendStatusRequest) -> dict:
     _ensure_station_identity_ready()
     state = store.get()
     try:
-        runtime = aprs_service.send_status(state.aprs_settings, payload)
+        override_callsign, override_ssid = _current_aprs_session_identity_override()
+        send_payload = payload.model_copy(update={
+            "callsign": payload.callsign if payload.callsign is not None else override_callsign,
+            "ssid": payload.ssid if payload.ssid is not None else override_ssid,
+        })
+        if send_payload.callsign is not None or send_payload.ssid is not None:
+            normalized_callsign, normalized_ssid = _validated_aprs_session_identity(
+                send_payload.callsign if send_payload.callsign is not None else state.aprs_settings.callsign,
+                send_payload.ssid if send_payload.ssid is not None else state.aprs_settings.ssid,
+            )
+            send_payload = send_payload.model_copy(update={"callsign": normalized_callsign, "ssid": normalized_ssid})
+        runtime = aprs_service.send_status(state.aprs_settings, send_payload)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"runtime": runtime}
+    return {"runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
 @app.post("/api/v1/aprs/send/position")
@@ -1777,10 +1905,21 @@ def send_aprs_position(payload: AprsSendPositionRequest) -> dict:
     _ensure_station_identity_ready()
     state, location = _resolved_location_for_aprs()
     try:
-        runtime = aprs_service.send_position(state.aprs_settings, payload, location)
+        override_callsign, override_ssid = _current_aprs_session_identity_override()
+        send_payload = payload.model_copy(update={
+            "callsign": payload.callsign if payload.callsign is not None else override_callsign,
+            "ssid": payload.ssid if payload.ssid is not None else override_ssid,
+        })
+        if send_payload.callsign is not None or send_payload.ssid is not None:
+            normalized_callsign, normalized_ssid = _validated_aprs_session_identity(
+                send_payload.callsign if send_payload.callsign is not None else state.aprs_settings.callsign,
+                send_payload.ssid if send_payload.ssid is not None else state.aprs_settings.ssid,
+            )
+            send_payload = send_payload.model_copy(update={"callsign": normalized_callsign, "ssid": normalized_ssid})
+        runtime = aprs_service.send_position(state.aprs_settings, send_payload, location)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"runtime": runtime}
+    return {"runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
 @app.get("/api/v1/radio/state")
@@ -1848,6 +1987,7 @@ def connect_radio() -> dict:
     _ensure_radio_available_for_manual_control()
     _ensure_station_identity_ready()
     state = store.get()
+    _ensure_wifi_host_reachable(state.radio_settings)
     runtime = radio_control_service.connect(state.radio_settings)
     return {"settings": state.radio_settings, "runtime": runtime, "session": radio_control_service.session_state()}
 

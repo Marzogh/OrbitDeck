@@ -76,7 +76,7 @@
 ## 2026-03-15T09:10:00Z - Settings-V2 APRS UI Shell And Session Flow Complete
 ### Implemented
 - Replaced the old APRS settings form in `settings-v2` with the five-band console structure.
-- Added terrestrial/satellite mode pills, single connect/disconnect button, panic unkey, target refresh, send tabs, live heard list, and inbox/log drawer.
+- Added terrestrial/satellite mode pills, single connect/disconnect button, emergency stop TX, target refresh, send tabs, live heard list, and inbox/log drawer.
 - Added live position preview, last TX/last RX cards, heard packet filters, packet detail viewer, and APRS toasts.
 - Added log controls for local storage, notifications, max records, export, clear, and future digipeater/iGate placeholders.
 

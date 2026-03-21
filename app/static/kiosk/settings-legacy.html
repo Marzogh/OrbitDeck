@@ -111,20 +111,17 @@
       </section>
 
       <section class="card controls">
-        <label for="devOverridesEnabled">Developer Overrides</label>
-        <input id="devOverridesEnabled" type="checkbox" />
-        <div id="devOverridesPanel" class="inline-editor hidden">
-          <label for="devForceScene">Force Scene</label>
-          <select id="devForceScene">
-            <option value="auto">Auto</option>
-            <option value="ongoing">Ongoing pass</option>
-            <option value="upcoming">Upcoming pass</option>
-            <option value="iss-upcoming">ISS upcoming</option>
-            <option value="passes">Passes console</option>
-            <option value="radio">Radio ops</option>
-            <option value="video">Video</option>
-          </select>
-        </div>
+        <label for="devForceScene">Developer Mode</label>
+        <select id="devForceScene">
+          <option value="disabled">Disabled</option>
+          <option value="auto">Auto</option>
+          <option value="ongoing">Fake live pass</option>
+          <option value="upcoming">Upcoming pass</option>
+          <option value="iss-upcoming">ISS upcoming</option>
+          <option value="passes">Passes console</option>
+          <option value="radio">Radio ops</option>
+          <option value="video">Video</option>
+        </select>
         <button id="saveDevOverrides">Save Overrides</button>
       </section>
 

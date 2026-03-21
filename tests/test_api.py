@@ -6,6 +6,7 @@ from time import sleep
 from types import MethodType
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import app.main as main
@@ -1114,7 +1115,7 @@ def test_ic705_apply_target_supports_receive_only_downlink():
     assert state.raw_state["selected_vfo"] == "B"
 
 
-def test_aprs_panic_unkey_disconnects_runtime(tmp_path):
+def test_aprs_emergency_stop_disconnects_runtime(tmp_path):
     client = make_client(tmp_path)
     main.aprs_service = FakeAprsService()
 
@@ -1142,7 +1143,7 @@ def test_aprs_panic_unkey_disconnects_runtime(tmp_path):
     )
     client.post("/api/v1/aprs/connect")
 
-    resp = client.post("/api/v1/aprs/panic-unkey")
+    resp = client.post("/api/v1/aprs/emergency-stop")
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["ok"] is True
@@ -2220,6 +2221,87 @@ def test_aprs_connect_auto_enables_igate_when_internet_is_available(tmp_path):
     assert captured["settings"].igate.enabled is True
 
 
+def test_aprs_satellite_session_select_disables_digipeater(tmp_path):
+    client = make_client(tmp_path)
+    configure_station_identity(client)
+    client.post(
+        "/api/v1/aprs/log/settings",
+        json={
+            "log_enabled": False,
+            "log_max_records": 500,
+            "notify_incoming_messages": True,
+            "notify_all_packets": False,
+            "future_digipeater_enabled": True,
+            "future_igate_enabled": False,
+        },
+    )
+    client.post("/api/v1/aprs/session/select", json={"operating_mode": "terrestrial"})
+
+    resp = client.post(
+        "/api/v1/aprs/session/select",
+        json={"operating_mode": "satellite", "sat_id": "iss-zarya", "channel_id": "iss-zarya:seed:1"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["state"]["future_digipeater_enabled"] is False
+    state = main.store.get()
+    assert state.aprs_settings.future_digipeater_enabled is False
+    assert state.aprs_settings.digipeater.enabled is False
+
+
+def test_aprs_session_identity_override_applies_only_to_sent_frames(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_service = FakeAprsService()
+
+    client.post(
+        "/api/v1/location",
+        json={
+            "source_mode": "manual",
+            "add_profile": {
+                "id": "brisbane",
+                "name": "Brisbane",
+                "point": {"lat": -27.4698, "lon": 153.0251, "alt_m": 25},
+            },
+            "selected_profile_id": "brisbane",
+        },
+    )
+    client.post(
+        "/api/v1/settings/aprs",
+        json={
+            "enabled": True,
+            "callsign": "VK4ABC",
+            "ssid": 10,
+            "operating_mode": "terrestrial",
+            "serial_device": "/dev/ttyUSB0",
+            "audio_input_device": "default",
+            "audio_output_device": "default",
+        },
+    )
+    identity = client.post("/api/v1/aprs/session/identity", json={"callsign": "VK4ZZZ", "ssid": 7})
+    assert identity.status_code == 200
+    assert identity.json()["runtime"]["effective_source_call"] == "VK4ZZZ-7"
+
+    client.post("/api/v1/aprs/connect")
+    send = client.post("/api/v1/aprs/send/status", json={"text": "portable ops"})
+
+    assert send.status_code == 200
+    assert send.json()["runtime"]["last_tx_raw_tnc2"].startswith("VK4ZZZ-7>APOD01")
+    state = client.get("/api/v1/aprs/state").json()
+    assert state["settings"]["callsign"] == "VK4ABC"
+    assert state["settings"]["ssid"] == 10
+    assert state["runtime"]["effective_source_call"] == "VK4ZZZ-7"
+
+
+def test_aprs_session_select_clears_identity_override(tmp_path):
+    client = make_client(tmp_path)
+    client.post("/api/v1/aprs/session/identity", json={"callsign": "VK4ZZZ", "ssid": 7})
+    client.post("/api/v1/aprs/session/select", json={"operating_mode": "terrestrial"})
+
+    state = client.get("/api/v1/aprs/state").json()
+    assert state["runtime"]["session_callsign_override"] is None
+    assert state["runtime"]["session_ssid_override"] is None
+
+
 def test_aprs_connect_auto_igate_stays_disabled_without_internet(tmp_path):
     client = make_client(tmp_path)
     configure_station_identity(client)
@@ -2260,6 +2342,50 @@ def test_aprs_connect_auto_igate_stays_disabled_without_internet(tmp_path):
     resp = client.post("/api/v1/aprs/connect")
     assert resp.status_code == 200
     assert captured["settings"].igate.enabled is False
+
+
+def test_aprs_connect_forces_session_igate_when_internet_and_credentials_exist(tmp_path):
+    client = make_client(tmp_path)
+    configure_station_identity(client)
+    captured = {}
+
+    class CapturingAprsService(FakeAprsService):
+        def connect(self, settings, target, *, radio_settings=None, retune_resolver=None, interval_s=1.0):
+            captured["settings"] = settings
+            return super().connect(settings, target, radio_settings=radio_settings, retune_resolver=retune_resolver, interval_s=interval_s)
+
+    main.aprs_service = CapturingAprsService()
+    client.post("/api/v1/network", json={"internet_available": True})
+    client.post(
+        "/api/v1/aprs/log/settings",
+        json={
+            "log_enabled": False,
+            "log_max_records": 500,
+            "notify_incoming_messages": True,
+            "notify_all_packets": False,
+            "future_digipeater_enabled": False,
+            "future_igate_enabled": True,
+            "igate_auto_enable_with_internet": True,
+            "igate": {
+                "enabled": False,
+                "server_host": "rotate.aprs2.net",
+                "server_port": 14580,
+                "login_callsign": "VK4ABC-10",
+                "passcode": "12345",
+                "filter": "m/25",
+                "connect_timeout_s": 10,
+                "gate_terrestrial_rx": False,
+                "gate_satellite_rx": False,
+            },
+        },
+    )
+    client.post("/api/v1/aprs/session/select", json={"operating_mode": "satellite", "sat_id": "iss-zarya"})
+
+    resp = client.post("/api/v1/aprs/connect")
+    assert resp.status_code == 200
+    assert captured["settings"].igate.enabled is True
+    assert captured["settings"].igate.gate_terrestrial_rx is True
+    assert captured["settings"].igate.gate_satellite_rx is True
 
 
 def test_aprs_log_captures_received_packets_when_enabled(tmp_path):
@@ -2545,6 +2671,7 @@ def test_direwolf_network_decoder_command_uses_udp_source(tmp_path):
 def test_aprs_connect_passes_wifi_radio_settings_to_service(tmp_path):
     client = make_client(tmp_path)
     configure_station_identity(client)
+    main._ensure_wifi_host_reachable = lambda settings: None
 
     captured = {}
 
@@ -2576,6 +2703,7 @@ def test_aprs_connect_passes_wifi_radio_settings_to_service(tmp_path):
 def test_radio_wifi_connect_runtime_exposes_endpoint(tmp_path):
     client = make_client(tmp_path)
     configure_station_identity(client)
+    main._ensure_wifi_host_reachable = lambda settings: None
     main.radio_control_service = RigControlService(
         controller_factory=lambda settings: FakeRigController(None, 0xA4)  # type: ignore[arg-type]
     )
@@ -2603,9 +2731,37 @@ def test_radio_wifi_connect_runtime_exposes_endpoint(tmp_path):
     assert runtime["endpoint"] == "192.168.2.70:50001"
 
 
-def test_aprs_connect_reuses_connected_radio_settings(tmp_path):
+def test_radio_wifi_connect_requires_reachable_host(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    configure_station_identity(client)
+    client.post(
+        "/api/v1/settings/radio",
+        json={
+            "enabled": True,
+            "rig_model": "ic705",
+            "transport_mode": "wifi",
+            "wifi_host": "192.168.2.70",
+            "wifi_username": "demo-user",
+            "wifi_password": "secret-pass",
+            "wifi_control_port": 50001,
+            "civ_address": "0xA4",
+        },
+    )
+
+    def fail_ping(_settings):
+        raise HTTPException(status_code=400, detail="IC-705 Wi-Fi host 192.168.2.70 did not respond to ping")
+
+    monkeypatch.setattr(main, "_ensure_wifi_host_reachable", fail_ping)
+
+    resp = client.post("/api/v1/radio/connect")
+    assert resp.status_code == 400
+    assert "did not respond to ping" in resp.json()["detail"]
+
+
+def test_aprs_connect_reuses_connected_radio_settings(tmp_path, monkeypatch):
     client = make_client(tmp_path)
     main.aprs_service = FakeAprsService()
+    monkeypatch.setattr(main, "_ensure_wifi_host_reachable", lambda settings: None)
     client.post("/api/v1/settings/aprs", json={"callsign": "VK4ABC", "serial_device": "/dev/ttyUSB0"})
     client.post(
         "/api/v1/settings/radio",
@@ -2635,6 +2791,35 @@ def test_aprs_connect_reuses_connected_radio_settings(tmp_path):
     resp = client.post("/api/v1/aprs/connect")
     assert resp.status_code == 200
     assert resp.json()["settings"]["serial_device"] == "/dev/cu.usbmodem114201"
+
+
+def test_aprs_wifi_connect_requires_reachable_host(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    configure_station_identity(client)
+    main.aprs_service = FakeAprsService()
+    client.post(
+        "/api/v1/settings/radio",
+        json={
+            "enabled": True,
+            "rig_model": "ic705",
+            "transport_mode": "wifi",
+            "wifi_host": "192.168.2.70",
+            "wifi_username": "demo-user",
+            "wifi_password": "secret-pass",
+            "wifi_control_port": 50001,
+            "civ_address": "0xA4",
+        },
+    )
+    client.post("/api/v1/aprs/session/select", json={"operating_mode": "terrestrial"})
+
+    def fail_ping(_settings):
+        raise HTTPException(status_code=400, detail="IC-705 Wi-Fi host 192.168.2.70 did not respond to ping")
+
+    monkeypatch.setattr(main, "_ensure_wifi_host_reachable", fail_ping)
+
+    resp = client.post("/api/v1/aprs/connect")
+    assert resp.status_code == 400
+    assert "did not respond to ping" in resp.json()["detail"]
 
 
 def test_aprs_direwolf_status_reports_missing_binary(tmp_path, monkeypatch):
@@ -3194,11 +3379,28 @@ def test_aprs_developer_override_allows_satellite_tx_outside_pass(tmp_path):
 def test_aprs_connect_reapplies_uhf_doppler_tuning(tmp_path):
     client = make_client(tmp_path)
     main.aprs_service = FakeAprsService()
+    main.radio_control_service = RigControlService()
     original_live_tracks = main.tracking_service.live_tracks
     original_pass_predictions = main.tracking_service.pass_predictions
     calls = {"count": 0}
 
-    client.post("/api/v1/settings/aprs", json={"callsign": "VK4ABC"})
+    client.post(
+        "/api/v1/settings/aprs",
+        json={
+            "callsign": "VK4ABC",
+            "future_digipeater_enabled": False,
+            "future_igate_enabled": False,
+            "igate_auto_enable_with_internet": False,
+            "digipeater": {"enabled": False},
+            "igate": {
+                "enabled": False,
+                "login_callsign": "",
+                "passcode": "",
+            },
+        },
+    )
+    client.post("/api/v1/settings/radio", json={"transport_mode": "usb"})
+    client.post("/api/v1/network", json={"internet_available": False})
 
     def fake_live_tracks(self, now, location):
         calls["count"] += 1
