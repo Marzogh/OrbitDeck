@@ -5,7 +5,7 @@ OrbitDeck runs from one Python codebase across macOS and Raspberry Pi.
 - macOS: supported for local development and windowed use, and tested in that mode
 - Raspberry Pi: intended kiosk deployment target
 - Pi Zero-class hardware: automatically serves lite mode instead of the full kiosk and rotator surfaces
-- Standard UI surfaces on non-lite-only hardware: rotator landing (`/`), kiosk (`/kiosk`), lite (`/lite`), lite settings (`/lite/settings`), APRS (`/aprs`), radio control (`/radio`), rotator (`/kiosk-rotator`), and settings-v2 (`/settings`)
+- Standard UI surfaces on non-lite-only hardware: rotator landing (`/`), lite (`/lite`), lite settings (`/lite/settings`), APRS (`/aprs`), radio control (`/radio`), rotator (`/kiosk-rotator`), and settings-v2 (`/settings`)
 
 For the short version, start with the [docs home](index.md). This guide goes deeper on installation, operator setup, and deployment.
 
@@ -52,7 +52,6 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 Useful local URLs:
 
 - Rotator landing UI: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
-- Kiosk UI: [http://127.0.0.1:8000/kiosk](http://127.0.0.1:8000/kiosk)
 - Lite UI: [http://127.0.0.1:8000/lite](http://127.0.0.1:8000/lite)
 - Lite settings UI: [http://127.0.0.1:8000/lite/settings](http://127.0.0.1:8000/lite/settings)
 - APRS console: [http://127.0.0.1:8000/aprs](http://127.0.0.1:8000/aprs)
@@ -95,7 +94,6 @@ python3 scripts/run_tracker.py --mode kiosk --ui kiosk --host 0.0.0.0 --port 800
 Open from another device on the network:
 
 - Rotator landing UI: `http://<pi-ip>:8000/`
-- Kiosk UI: `http://<pi-ip>:8000/kiosk`
 - Lite UI: `http://<pi-ip>:8000/lite`
 - APRS console: `http://<pi-ip>:8000/aprs`
 - Radio control UI: `http://<pi-ip>:8000/radio`
@@ -379,14 +377,12 @@ AMSAT refresh is throttled to a minimum 12-hour interval.
 UI routes:
 
 - `/`
-- `/kiosk`
 - `/lite`
 - `/lite/settings`
 - `/aprs`
 - `/radio`
 - `/settings`
 - `/settings-v2`
-- `/internal/settings-legacy`
 - `/kiosk-rotator`
 
 Standard settings surface:
@@ -484,7 +480,6 @@ Optional frontend JS syntax checks:
 ```bash
 node --check app/static/lite/lite.js
 node --check app/static/lite/sw.js
-node --check app/static/kiosk/kiosk.js
 node --check app/static/kiosk/rotator.js
 node --check app/static/kiosk/radio.js
 node --check app/static/kiosk/aprs.js
@@ -495,6 +490,5 @@ node --check app/static/kiosk/settings-v2.js
 
 - The rotator globe/hemisphere view depends on `app/static/common/hemisphere.js` and `app/static/common/hemisphere-land.js`
 - Kiosk, rotator, lite, radio control, and APRS satellite targets all use the shared Doppler/frequency-guidance backend model where applicable
-- `settings-v2` is the standard non-lite settings surface; the older settings page remains under `/internal/settings-legacy`
 - The `references/` tree is design and research material, not a runtime dependency
 - When README changes alter run/support guidance, this guide should be updated in the same change

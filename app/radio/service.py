@@ -16,6 +16,7 @@ from app.models import (
     RadioControlScreenState,
     RadioControlSessionSelectRequest,
     RadioControlSessionState,
+    RadioControlSessionTestPairUpdateRequest,
     RadioFrequencySetRequest,
     RadioPairSetRequest,
     RadioRigModel,
@@ -35,14 +36,24 @@ from app.radio.transport import SerialTransport
 
 ControllerFactory = Callable[[RadioSettings], BaseIcomController]
 RecommendationResolver = Callable[[str, LocationSourceMode | None, int | None], tuple[FrequencyRecommendation | None, PassEvent | None]]
-DefaultPairResolver = Callable[[str], FrequencyRecommendation | None]
+DefaultPairResolver = Callable[[RadioControlSessionSelectRequest], FrequencyRecommendation | None]
 
 
 class RigControlService:
-    VHF_MIN_MHZ = 144.0
-    VHF_MAX_MHZ = 148.0
-    UHF_MIN_MHZ = 420.0
-    UHF_MAX_MHZ = 450.0
+    TX_RANGES_MHZ = (
+        (144.0, 148.0),
+        (420.0, 450.0),
+    )
+    RX_RANGES_MHZ: dict[RadioRigModel, tuple[tuple[float, float], ...]] = {
+        RadioRigModel.ic705: (
+            (0.030, 199.999),
+            (400.0, 470.0),
+        ),
+        RadioRigModel.id5100: (
+            (118.0, 174.0),
+            (375.0, 550.0),
+        ),
+    }
 
     def __init__(self, controller_factory: ControllerFactory | None = None) -> None:
         self._controller_factory = controller_factory or self._default_controller_factory
@@ -80,31 +91,51 @@ class RigControlService:
         return Id5100Controller(transport, civ_address)
 
     @classmethod
-    def _freq_supported_by_vhf_uhf_rig(cls, freq_mhz: float | None) -> bool:
+    def _freq_supported_for_transmit(cls, freq_mhz: float | None) -> bool:
         if freq_mhz is None:
             return False
-        return (
-            cls.VHF_MIN_MHZ <= freq_mhz <= cls.VHF_MAX_MHZ
-            or cls.UHF_MIN_MHZ <= freq_mhz <= cls.UHF_MAX_MHZ
-        )
+        return any(lo <= freq_mhz <= hi for lo, hi in cls.TX_RANGES_MHZ)
 
     @classmethod
-    def _recommendation_supported(cls, recommendation: FrequencyRecommendation | None) -> tuple[bool, str | None]:
+    def _freq_supported_for_receive(cls, freq_mhz: float | None, rig_model: RadioRigModel) -> bool:
+        if freq_mhz is None:
+            return False
+        return any(lo <= freq_mhz <= hi for lo, hi in cls.RX_RANGES_MHZ.get(rig_model, ()))
+
+    def _effective_rig_model(self, settings: RadioSettings | None = None) -> RadioRigModel:
+        return self._runtime.rig_model or (settings.rig_model if settings is not None else None) or RadioRigModel.id5100
+
+    def _recommendation_supported(
+        self,
+        recommendation: FrequencyRecommendation | None,
+        settings: RadioSettings | None = None,
+    ) -> tuple[bool, str | None]:
         if recommendation is None:
             return False, "No usable radio frequency is defined for this satellite"
-        uplink_ok = cls._freq_supported_by_vhf_uhf_rig(recommendation.uplink_mhz)
-        downlink_ok = cls._freq_supported_by_vhf_uhf_rig(recommendation.downlink_mhz)
-        if uplink_ok or downlink_ok:
+        rig_model = self._effective_rig_model(settings)
+        has_uplink = recommendation.uplink_mhz is not None
+        has_downlink = recommendation.downlink_mhz is not None
+        uplink_ok = self._freq_supported_for_transmit(recommendation.uplink_mhz)
+        downlink_ok = self._freq_supported_for_receive(recommendation.downlink_mhz, rig_model)
+        if has_uplink and has_downlink and uplink_ok and downlink_ok:
             return True, None
-        if recommendation.uplink_mhz is None and recommendation.downlink_mhz is None:
+        if has_downlink and not has_uplink and downlink_ok:
+            return True, None
+        if has_uplink and not has_downlink and uplink_ok:
+            return True, None
+        if not has_uplink and not has_downlink:
             return False, "No usable radio frequency is defined for this satellite"
-        if recommendation.uplink_mhz is not None and recommendation.downlink_mhz is None:
-            return False, f"Uplink {recommendation.uplink_mhz:.3f} MHz is outside supported VHF/UHF range"
-        if recommendation.downlink_mhz is not None and recommendation.uplink_mhz is None:
-            return False, f"Downlink {recommendation.downlink_mhz:.3f} MHz is outside supported VHF/UHF range"
+        if has_uplink and not uplink_ok and not has_downlink:
+            return False, f"Uplink {recommendation.uplink_mhz:.3f} MHz is outside the allowed amateur transmit ranges"
+        if has_downlink and not downlink_ok and not has_uplink:
+            return False, f"Downlink {recommendation.downlink_mhz:.3f} MHz is outside {rig_model.value.upper()} receive coverage"
+        if has_uplink and has_downlink and not uplink_ok and downlink_ok:
+            return False, f"Uplink {recommendation.uplink_mhz:.3f} MHz is outside the allowed amateur transmit ranges"
+        if has_uplink and has_downlink and uplink_ok and not downlink_ok:
+            return False, f"Downlink {recommendation.downlink_mhz:.3f} MHz is outside {rig_model.value.upper()} receive coverage"
         return (
             False,
-            f"Uplink {recommendation.uplink_mhz:.3f} MHz and downlink {recommendation.downlink_mhz:.3f} MHz are outside supported VHF/UHF range",
+            f"Uplink {recommendation.uplink_mhz:.3f} MHz is outside the allowed amateur transmit ranges and downlink {recommendation.downlink_mhz:.3f} MHz is outside {rig_model.value.upper()} receive coverage",
         )
 
     def runtime(self) -> RadioRuntimeState:
@@ -266,9 +297,10 @@ class RigControlService:
         self,
         payload: RadioControlSessionSelectRequest,
         default_pair_resolver: DefaultPairResolver,
+        settings: RadioSettings | None = None,
     ) -> RadioControlSessionState:
-        recommendation = default_pair_resolver(payload.sat_id)
-        is_eligible, eligibility_reason = self._recommendation_supported(recommendation)
+        recommendation = default_pair_resolver(payload)
+        is_eligible, eligibility_reason = self._recommendation_supported(recommendation, settings)
         self._session = RadioControlSessionState(
             active=True,
             selected_sat_id=payload.sat_id,
@@ -292,6 +324,45 @@ class RigControlService:
         self.stop_auto_track()
         self._restore_previous_radio_state()
         self._reset_session()
+        return self.session_state()
+
+    def set_session_test_pair(
+        self,
+        payload: RadioControlSessionTestPairUpdateRequest,
+        settings: RadioSettings | None = None,
+    ) -> RadioControlSessionState:
+        self._refresh_session_status()
+        if not self._session.active or not self._session.selected_sat_id:
+            raise RuntimeError("radio control session is not selected")
+        recommendation = FrequencyRecommendation(
+            sat_id=self._session.selected_sat_id,
+            mode=FrequencyGuideMode.fm,
+            phase=GuidePassPhase.aos,
+            label=payload.label or "Operator-selected channel",
+            is_upcoming=True,
+            is_ongoing=False,
+            correction_side=(
+                CorrectionSide.full_duplex
+                if payload.uplink_hz and payload.downlink_hz
+                else CorrectionSide.downlink_only
+            ),
+            doppler_direction=DopplerDirection.high_to_low,
+            uplink_mhz=(payload.uplink_hz / 1_000_000) if payload.uplink_hz else None,
+            downlink_mhz=(payload.downlink_hz / 1_000_000) if payload.downlink_hz else None,
+            uplink_mode=(payload.uplink_mode or "FM").upper() if payload.uplink_hz else None,
+            downlink_mode=(payload.downlink_mode or "FM").upper() if payload.downlink_hz else None,
+        )
+        is_eligible, reason = self._recommendation_supported(recommendation, settings)
+        self._session.is_eligible = is_eligible
+        self._session.eligibility_reason = reason
+        self._session.has_test_pair = is_eligible
+        self._session.test_pair = recommendation if is_eligible else None
+        self._session.test_pair_reason = (
+            f"Operator-selected channel ready: {recommendation.label}"
+            if is_eligible
+            else reason
+        )
+        self._refresh_session_status()
         return self.session_state()
 
     def run_test_control(self, settings: RadioSettings) -> tuple[RadioControlSessionState, RadioRuntimeState, FrequencyRecommendation, dict[str, object]]:
@@ -365,7 +436,7 @@ class RigControlService:
     def _apply_session_tracking_once(self, settings: RadioSettings, resolver: RecommendationResolver) -> None:
         payload = self._session_payload()
         runtime, recommendation, _ = self.apply(payload, settings, resolver)
-        is_supported, reason = self._recommendation_supported(recommendation)
+        is_supported, reason = self._recommendation_supported(recommendation, settings)
         if not is_supported:
             raise ValueError(reason or "Selected recommendation is outside supported VHF/UHF range")
         self._runtime = runtime
@@ -507,6 +578,8 @@ class RigControlService:
     def apply_manual_pair(self, payload: RadioPairSetRequest, settings: RadioSettings) -> tuple[RadioRuntimeState, FrequencyRecommendation, dict[str, object]]:
         if not self._runtime.connected or self._controller is None:
             raise RuntimeError("radio is not connected")
+        if payload.uplink_hz is None and payload.downlink_hz is None:
+            raise ValueError("Manual pair must include at least one radio frequency")
         recommendation = FrequencyRecommendation(
             sat_id="manual-pair",
             mode=FrequencyGuideMode.fm,
@@ -514,16 +587,20 @@ class RigControlService:
             label="Manual pair",
             is_upcoming=False,
             is_ongoing=True,
-            correction_side=CorrectionSide.full_duplex,
+            correction_side=(
+                CorrectionSide.full_duplex
+                if payload.uplink_hz is not None and payload.downlink_hz is not None
+                else CorrectionSide.downlink_only
+            ),
             doppler_direction=DopplerDirection.high_to_low,
-            uplink_mhz=payload.uplink_hz / 1_000_000,
-            downlink_mhz=payload.downlink_hz / 1_000_000,
+            uplink_mhz=(payload.uplink_hz / 1_000_000) if payload.uplink_hz is not None else None,
+            downlink_mhz=(payload.downlink_hz / 1_000_000) if payload.downlink_hz is not None else None,
             uplink_label="Uplink",
             downlink_label="Downlink",
-            uplink_mode=(payload.uplink_mode or "FM").upper(),
-            downlink_mode=(payload.downlink_mode or "FM").upper(),
+            uplink_mode=(payload.uplink_mode or "FM").upper() if payload.uplink_hz is not None else None,
+            downlink_mode=(payload.downlink_mode or "FM").upper() if payload.downlink_hz is not None else None,
         )
-        is_supported, reason = self._recommendation_supported(recommendation)
+        is_supported, reason = self._recommendation_supported(recommendation, settings)
         if not is_supported:
             raise ValueError(reason or "Manual pair is outside supported VHF/UHF range")
         state, mapping = self._controller.apply_target(

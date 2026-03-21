@@ -15,14 +15,12 @@ Replace that host and port as needed.
 ## UI routes
 
 - [`GET /`](http://127.0.0.1:8000/)
-- [`GET /kiosk`](http://127.0.0.1:8000/kiosk)
 - [`GET /lite`](http://127.0.0.1:8000/lite)
 - [`GET /lite/settings`](http://127.0.0.1:8000/lite/settings)
 - [`GET /aprs`](http://127.0.0.1:8000/aprs)
 - [`GET /radio`](http://127.0.0.1:8000/radio)
 - [`GET /settings`](http://127.0.0.1:8000/settings)
 - [`GET /settings-v2`](http://127.0.0.1:8000/settings-v2)
-- [`GET /internal/settings-legacy`](http://127.0.0.1:8000/internal/settings-legacy)
 - [`GET /kiosk-rotator`](http://127.0.0.1:8000/kiosk-rotator)
 
 ## Health

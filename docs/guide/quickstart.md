@@ -16,7 +16,6 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 Open:
 
 - Rotator landing UI: <http://127.0.0.1:8000/>
-- Kiosk UI: <http://127.0.0.1:8000/kiosk>
 - Lite UI: <http://127.0.0.1:8000/lite>
 - Lite settings UI: <http://127.0.0.1:8000/lite/settings>
 - Radio control UI: <http://127.0.0.1:8000/radio>
@@ -44,7 +43,6 @@ python3 scripts/run_tracker.py --mode kiosk --ui kiosk --host 0.0.0.0 --port 800
 Open from another device:
 
 - Rotator landing UI: `http://<pi-ip>:8000/`
-- Kiosk UI: `http://<pi-ip>:8000/kiosk`
 - Lite UI: `http://<pi-ip>:8000/lite`
 - Lite settings UI: `http://<pi-ip>:8000/lite/settings`
 - Radio control UI: `http://<pi-ip>:8000/radio`

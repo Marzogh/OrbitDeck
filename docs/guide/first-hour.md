@@ -16,7 +16,6 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 After startup, the launcher should open a browser window. If it does not, open these routes manually:
 
 - <http://127.0.0.1:8000/>
-- <http://127.0.0.1:8000/kiosk>
 - <http://127.0.0.1:8000/lite>
 - <http://127.0.0.1:8000/docs>
 
@@ -31,10 +30,6 @@ Primary uses:
 - tracking one current or upcoming pass
 - seeing where the pass moves through the sky
 - reading the Doppler guidance and RF details for a pass
-
-### Kiosk dashboard: `/kiosk`
-
-This route presents broader status information on larger displays.
 
 ### Lite: `/lite`
 

@@ -43,11 +43,13 @@ from app.models import (
     LocationSourceMode,
     LocationUpdate,
     NetworkUpdate,
+    PassEvent,
     PassFilterUpdate,
     PassProfileMode,
     RadioApplyRequest,
     RadioAutoTrackStartRequest,
     RadioControlSessionSelectRequest,
+    RadioControlSessionTestPairUpdateRequest,
     RadioFrequencySetRequest,
     RadioPairSetRequest,
     RadioRigModel,
@@ -761,13 +763,46 @@ def _resolve_recommendation_for_radio(
     return recommendation, focus_pass
 
 
-def _resolve_default_test_pair_for_radio(sat_id: str):
+def _resolve_default_test_pair_for_radio(payload: RadioControlSessionSelectRequest):
+    _, location = _resolve_location(None)
+    now = datetime.now(UTC)
+    sat_id = payload.sat_id
+    tracks = tracking_service.live_tracks(now, location, sat_ids={sat_id})
+    current_track = tracks[0] if tracks else None
+    passes = tracking_service.pass_predictions(
+        now,
+        24,
+        location,
+        sat_ids={sat_id},
+        include_ongoing=True,
+    )
+    focus_pass = next(
+        (
+            pass_event
+            for pass_event in passes
+            if pass_event.sat_id == sat_id
+            and pass_event.aos == payload.pass_aos
+            and pass_event.los == payload.pass_los
+        ),
+        None,
+    )
+    if focus_pass is None:
+        midpoint = payload.pass_aos + ((payload.pass_los - payload.pass_aos) / 2)
+        focus_pass = PassEvent(
+            sat_id=sat_id,
+            name=payload.sat_name or sat_id,
+            aos=payload.pass_aos,
+            tca=midpoint,
+            los=payload.pass_los,
+            max_el_deg=payload.max_el_deg or 0.0,
+        )
+    track_path = _focus_track_path(location, focus_pass, sat_id)
     recommendation = frequency_guide_service.recommendation(
         sat_id,
-        None,
-        current_track=None,
-        track_path=None,
-        now=datetime.now(UTC),
+        focus_pass,
+        current_track=current_track,
+        track_path=track_path,
+        now=now,
     )
     if recommendation is None or (recommendation.uplink_mhz is None and recommendation.downlink_mhz is None):
         return None
@@ -969,14 +1004,6 @@ def kiosk_index() -> FileResponse:
         return FileResponse("app/static/lite/index.html")
     return FileResponse("app/static/kiosk/rotator.html")
 
-
-@app.get("/kiosk")
-def legacy_kiosk_index() -> FileResponse:
-    if lite_only_ui():
-        return FileResponse("app/static/lite/index.html")
-    return FileResponse("app/static/kiosk/index.html")
-
-
 @app.get("/lite")
 def lite_index() -> FileResponse:
     return FileResponse("app/static/lite/index.html")
@@ -997,13 +1024,6 @@ def settings_index() -> FileResponse:
 @app.get("/settings-v2")
 def settings_v2_index() -> Response:
     return RedirectResponse(url="/settings", status_code=307)
-
-
-@app.get("/internal/settings-legacy")
-def settings_legacy_index() -> FileResponse:
-    if lite_only_ui():
-        return FileResponse("app/static/lite/settings.html")
-    return FileResponse("app/static/kiosk/settings-legacy.html")
 
 
 @app.get("/radio")
@@ -1800,7 +1820,20 @@ def get_radio_session() -> dict:
 def select_radio_session(payload: RadioControlSessionSelectRequest) -> dict:
     _ensure_radio_available_for_manual_control()
     _ensure_station_identity_ready()
-    session = radio_control_service.select_session(payload, _resolve_default_test_pair_for_radio)
+    state = store.get()
+    session = radio_control_service.select_session(payload, _resolve_default_test_pair_for_radio, state.radio_settings)
+    return {"session": session, "runtime": radio_control_service.runtime()}
+
+
+@app.post("/api/v1/radio/session/test-pair")
+def update_radio_session_test_pair(payload: RadioControlSessionTestPairUpdateRequest) -> dict:
+    _ensure_radio_available_for_manual_control()
+    _ensure_station_identity_ready()
+    state = store.get()
+    try:
+        session = radio_control_service.set_session_test_pair(payload, state.radio_settings)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"session": session, "runtime": radio_control_service.runtime()}
 
 

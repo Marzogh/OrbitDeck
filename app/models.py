@@ -765,8 +765,8 @@ class RadioFrequencySetRequest(BaseModel):
 
 
 class RadioPairSetRequest(BaseModel):
-    uplink_hz: int = Field(ge=1000)
-    downlink_hz: int = Field(ge=1000)
+    uplink_hz: int | None = Field(default=None, ge=1000)
+    downlink_hz: int | None = Field(default=None, ge=1000)
     uplink_mode: str | None = None
     downlink_mode: str | None = None
     apply_mode_and_tone: bool | None = None
@@ -778,6 +778,14 @@ class RadioControlSessionSelectRequest(BaseModel):
     pass_aos: datetime
     pass_los: datetime
     max_el_deg: float | None = Field(default=None, ge=0.0, le=90.0)
+
+
+class RadioControlSessionTestPairUpdateRequest(BaseModel):
+    uplink_hz: int | None = Field(default=None, ge=1000)
+    downlink_hz: int | None = Field(default=None, ge=1000)
+    uplink_mode: str | None = None
+    downlink_mode: str | None = None
+    label: str | None = None
 
 
 class AprsTargetSelectRequest(BaseModel):

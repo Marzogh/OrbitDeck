@@ -13,7 +13,7 @@ Likely causes:
 Try:
 
 1. hard reload the page
-2. reopen `/lite` or `/kiosk`
+2. reopen `/lite` or `/`
 3. if testing lite, revisit `/lite/settings` and `/lite`
 4. restart the FastAPI process if frontend and backend changed together
 

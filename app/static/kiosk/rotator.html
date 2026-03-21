@@ -181,7 +181,7 @@
           <div class="rotator-modal-head">
             <div>
               <div class="rotator-modal-kicker mono">Radio Connection</div>
-              <h2 class="rotator-modal-title">Choose rig and USB port</h2>
+              <h2 id="radioConnectModalTitle" class="rotator-modal-title">Review profile and connect</h2>
             </div>
             <button id="radioConnectModalCloseBtn" type="button" class="rotator-modal-close">Close</button>
           </div>
@@ -194,14 +194,67 @@
               </select>
             </label>
             <label class="rotator-modal-field">
+              <span>Connection Type</span>
+              <select id="radioConnectTransportMode">
+                <option value="usb">USB</option>
+                <option value="wifi">Wi-Fi</option>
+              </select>
+            </label>
+          </div>
+          <div id="radioConnectUsbFields" class="rotator-modal-grid">
+            <label class="rotator-modal-field">
               <span>USB Port</span>
               <select id="radioConnectPortSelect"></select>
             </label>
+            <label class="rotator-modal-field">
+              <span>Manual Port Override</span>
+              <input id="radioConnectPortManual" type="text" placeholder="/dev/cu.usbmodem..." />
+            </label>
           </div>
-          <label class="rotator-modal-field">
-            <span>Manual Port Override</span>
-            <input id="radioConnectPortManual" type="text" placeholder="/dev/cu.usbmodem..." />
-          </label>
+          <div id="radioConnectWifiFields" class="rotator-modal-grid hidden">
+            <label class="rotator-modal-field">
+              <span>Wi-Fi Host</span>
+              <input id="radioConnectWifiHost" type="text" placeholder="192.168.2.70" />
+            </label>
+            <label class="rotator-modal-field">
+              <span>Control Port</span>
+              <input id="radioConnectWifiControlPort" type="number" min="1" max="65535" step="1" />
+            </label>
+            <label class="rotator-modal-field">
+              <span>Username</span>
+              <input id="radioConnectWifiUsername" type="text" placeholder="demo-user" />
+            </label>
+            <label class="rotator-modal-field">
+              <span>Password</span>
+              <input id="radioConnectWifiPassword" type="password" />
+            </label>
+          </div>
+          <details id="radioConnectAdvanced" class="rotator-modal-advanced">
+            <summary>Advanced Radio Settings</summary>
+            <div class="rotator-modal-grid">
+              <label class="rotator-modal-field">
+                <span>Baud Rate</span>
+                <input id="radioConnectBaudRate" type="number" min="4800" max="19200" step="1" />
+              </label>
+              <label class="rotator-modal-field">
+                <span>CI-V Address</span>
+                <input id="radioConnectCivAddress" type="text" placeholder="0xA4" />
+              </label>
+              <label class="rotator-modal-field">
+                <span>Status Refresh (ms)</span>
+                <input id="radioConnectPollInterval" type="number" min="100" max="10000" step="100" />
+              </label>
+              <label class="rotator-modal-field">
+                <span>Tracking Refresh (ms)</span>
+                <input id="radioConnectAutoTrackInterval" type="number" min="200" max="10000" step="100" />
+              </label>
+            </div>
+            <div class="rotator-modal-toggle-grid">
+              <label class="rotator-modal-toggle"><input id="radioConnectAutoConnect" type="checkbox" /> <span>Auto Connect On Launch</span></label>
+              <label class="rotator-modal-toggle"><input id="radioConnectApplyModeTone" type="checkbox" /> <span>Apply Mode And Tone</span></label>
+              <label class="rotator-modal-toggle"><input id="radioConnectSafeTxGuard" type="checkbox" /> <span>Safe TX Guard</span></label>
+            </div>
+          </details>
           <div id="radioConnectModalStatus" class="rotator-modal-status mono">Loading available USB ports...</div>
           <div class="controls rotator-modal-actions">
             <button id="radioConnectRefreshPortsBtn" type="button">Refresh Ports</button>

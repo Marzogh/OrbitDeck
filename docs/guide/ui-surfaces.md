@@ -14,16 +14,6 @@ Primary content:
 - a denser layout than the original kiosk dashboard
 - pinned radio-control workflow when a pass is selected for rig control
 
-## `/kiosk`
-
-The kiosk UI is the large-display dashboard surface.
-
-Primary content:
-
-- a station display on a larger screen
-- ISS state visibility
-- broad pass/radio visibility without centering the entire layout on one active pass
-
 ## `/kiosk-rotator`
 
 This route serves the same tracking screen as `/` on standard hardware.
@@ -78,10 +68,6 @@ On Pi Zero-class hardware, `/settings` serves the lite settings surface instead.
 ## `/settings-v2`
 
 This route redirects to `/settings`. Use it when you are following older notes or bookmarks.
-
-## `/internal/settings-legacy`
-
-This route serves the previous kiosk settings page on standard hardware. It is kept for internal reference while `settings-v2` remains the standard operator settings surface.
 
 ## `/radio`
 

@@ -33,7 +33,6 @@ Frontend syntax checks:
 ```bash
 node --check app/static/lite/lite.js
 node --check app/static/lite/sw.js
-node --check app/static/kiosk/kiosk.js
 node --check app/static/kiosk/rotator.js
 ```
 

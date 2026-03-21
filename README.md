@@ -4,7 +4,6 @@ OrbitDeck is a cross-platform amateur-satellite operations dashboard. It combine
 
 OrbitDeck currently supports:
 - rotator/operator landing UI at `/`
-- kiosk UI at `/kiosk`
 - lite/mobile UI at `/lite`
 - lite settings UI at `/lite/settings`
 - APRS console at `/aprs`
@@ -77,13 +76,11 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 - `settings-v2` groups overview, radio, location, tracking, display, APRS, and developer controls into one operator surface
 
 ### UI surfaces
-- Main kiosk screen for large displays
 - Rotator/operator screen for tracking-focused presentation, including the pass globe/hemisphere view and radio-ops telemetry layout
 - Dedicated APRS console for target selection, send actions, log export, and Dire Wolf install/status checks
 - Dedicated radio-control screen for rig validation and CI-V state inspection
 - Lite/mobile screen optimized for remote use on phones and low-powered devices
 - Separate lite settings screen for tracked satellites, focus, timezone, and location/GPS configuration
-- `settings-v2` replaces the old standard settings page while `/internal/settings-legacy` keeps the older kiosk settings UI available for internal reference
 - Lite includes a first-run setup gate, a single focus-card sky compass, and selected-pass AOS cues for upcoming passes
 - Lite offline shell/API caching with stale snapshot fallback behavior
 
@@ -104,7 +101,6 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 
 Open:
 - Rotator landing UI: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
-- Kiosk UI: [http://127.0.0.1:8000/kiosk](http://127.0.0.1:8000/kiosk)
 - Lite UI: [http://127.0.0.1:8000/lite](http://127.0.0.1:8000/lite)
 - Lite settings UI: [http://127.0.0.1:8000/lite/settings](http://127.0.0.1:8000/lite/settings)
 - APRS console: [http://127.0.0.1:8000/aprs](http://127.0.0.1:8000/aprs)
@@ -130,7 +126,6 @@ python3 scripts/run_tracker.py --mode kiosk --ui kiosk --host 0.0.0.0 --port 800
 
 Open from another device on your network:
 - Rotator landing UI: `http://<pi-ip>:8000/`
-- Kiosk UI: `http://<pi-ip>:8000/kiosk`
 - Lite UI: `http://<pi-ip>:8000/lite`
 - APRS console: `http://<pi-ip>:8000/aprs`
 - Radio control UI: `http://<pi-ip>:8000/radio`
@@ -155,7 +150,6 @@ OrbitDeck exposes a broader API than the UI uses directly. Full schema details a
 
 ### UI routes
 - `/` rotator/operator landing UI
-- `/kiosk` main kiosk UI
 - `/lite` lite/mobile UI
 - `/lite/settings` lite settings UI
 - `/aprs` APRS console
@@ -298,7 +292,6 @@ Optional frontend JS syntax checks:
 ```bash
 node --check app/static/lite/lite.js
 node --check app/static/lite/sw.js
-node --check app/static/kiosk/kiosk.js
 node --check app/static/kiosk/rotator.js
 node --check app/static/kiosk/radio.js
 node --check app/static/kiosk/aprs.js

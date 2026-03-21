@@ -791,7 +791,8 @@ def test_radio_session_select_marks_non_vhf_uhf_satellite_ineligible(tmp_path):
     payload = resp.json()["session"]
     assert payload["active"] is True
     assert payload["is_eligible"] is False
-    assert "outside supported VHF/UHF range" in payload["eligibility_reason"]
+    assert "outside the allowed amateur transmit ranges" in payload["eligibility_reason"]
+    assert "outside ID5100 receive coverage" in payload["eligibility_reason"]
 
 
 def test_radio_session_select_marks_downlink_only_satellite_eligible(tmp_path):

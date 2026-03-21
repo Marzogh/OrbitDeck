@@ -33,16 +33,14 @@ That flag is used by the route layer in `app/main.py`.
 On standard hardware:
 
 - `/` serves `app/static/kiosk/rotator.html`
-- `/kiosk` serves `app/static/kiosk/index.html`
 - `/lite` serves `app/static/lite/index.html`
 - `/lite/settings` serves `app/static/lite/settings.html`
-- `/settings` serves `app/static/kiosk/settings.html`
+- `/settings` serves `app/static/kiosk/settings-v2.html`
 - `/kiosk-rotator` serves `app/static/kiosk/rotator.html`
 
 On Pi Zero-class hardware:
 
 - `/` serves lite
-- `/kiosk` serves lite
 - `/lite` still serves lite
 - `/lite/settings` still serves lite settings
 - `/settings` serves lite settings

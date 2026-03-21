@@ -43,6 +43,9 @@ const STARTUP_RECOVERY_RETRY_MS = 3000;
 const startupLines = [];
 let rotatorActionError = "";
 let aprsSceneState = { packetHighlights: new Map(), lastFeedKeys: [] };
+let radioChannelDraftKey = "";
+let radioChannelPickerFocused = false;
+let connectModalMode = "radio";
 
 function rigModelLabel(model) {
   if (model === "ic705") return "Icom IC-705";
@@ -365,7 +368,12 @@ function pinnedRadioStatusLine(session, runtime) {
 
 let radioConnectController = null;
 
-async function openRadioConnectModal() {
+function setConnectModalMode(mode) {
+  connectModalMode = mode === "aprs" ? "aprs" : "radio";
+}
+
+async function openRadioConnectModal(mode = "radio") {
+  setConnectModalMode(mode);
   if (!radioConnectController) return;
   await radioConnectController.open();
 }
@@ -738,6 +746,228 @@ function describeBandPair(up, down) {
   return "Band unknown";
 }
 
+function inferRadioMode(...texts) {
+  const joined = texts.map((text) => String(text || "").toUpperCase()).join(" ");
+  if (/\bD-STAR\b/.test(joined)) return "D-STAR";
+  if (/\bUSB\b/.test(joined)) return "USB";
+  if (/\bLSB\b/.test(joined)) return "LSB";
+  if (/\bAM\b/.test(joined)) return "AM";
+  if (/\bCW\b/.test(joined)) return "CW";
+  return "FM";
+}
+
+function mhzToHz(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? Math.round(num * 1_000_000) : null;
+}
+
+function radioChannelChoiceKey(choice) {
+  return [
+    choice.uplink_hz || 0,
+    choice.downlink_hz || 0,
+    choice.uplink_mode || "",
+    choice.downlink_mode || "",
+  ].join("|");
+}
+
+function radioChannelDraftStorageKey(session) {
+  if (!session?.selected_sat_id || !session?.selected_pass_aos || !session?.selected_pass_los) return "";
+  return `rotatorRadioChannelDraft:${session.selected_sat_id}:${session.selected_pass_aos}:${session.selected_pass_los}`;
+}
+
+function loadPersistedRadioChannelDraft(session) {
+  const key = radioChannelDraftStorageKey(session);
+  if (!key) return "";
+  try {
+    return localStorage.getItem(key) || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+function savePersistedRadioChannelDraft(session, value) {
+  const key = radioChannelDraftStorageKey(session);
+  if (!key) return;
+  try {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch (_) {}
+}
+
+function choiceFromRecommendation(recommendation, prefix = "Recommended") {
+  if (!recommendation || (!Number.isFinite(Number(recommendation.uplink_mhz)) && !Number.isFinite(Number(recommendation.downlink_mhz)))) {
+    return null;
+  }
+  const uplink_hz = mhzToHz(recommendation.uplink_mhz);
+  const downlink_hz = mhzToHz(recommendation.downlink_mhz);
+  const uplink_mode = uplink_hz ? String(recommendation.uplink_mode || inferRadioMode(recommendation.label, recommendation.note)).toUpperCase() : null;
+  const downlink_mode = downlink_hz ? String(recommendation.downlink_mode || inferRadioMode(recommendation.label, recommendation.note)).toUpperCase() : null;
+  return {
+    key: "",
+    group: uplink_hz && downlink_hz ? "Voice" : "Monitoring",
+    label: `${prefix}: ${recommendation.label || "Channel"}`,
+    detail: [
+      uplink_hz ? `TX ${normalizeFreqToken(String(uplink_hz))} ${uplink_mode}` : "TX —",
+      downlink_hz ? `RX ${normalizeFreqToken(String(downlink_hz))} ${downlink_mode}` : "RX —",
+    ].join(" | "),
+    uplink_hz,
+    downlink_hz,
+    uplink_mode,
+    downlink_mode,
+  };
+}
+
+function choiceFromFrequencyRow(row) {
+  const uplink_mhz = extractFirstMHz(row.up);
+  const downlink_mhz = extractFirstMHz(row.down);
+  if (!Number.isFinite(uplink_mhz) && !Number.isFinite(downlink_mhz)) return null;
+  const uplink_hz = mhzToHz(uplink_mhz);
+  const downlink_hz = mhzToHz(downlink_mhz);
+  const uplink_mode = uplink_hz ? inferRadioMode(row.mode, row.up) : null;
+  const downlink_mode = downlink_hz ? inferRadioMode(row.mode, row.down) : null;
+  return {
+    key: "",
+    group: "Voice",
+    label: row.mode || "Channel",
+    detail: [
+      row.up !== "—" ? `TX ${row.up}${uplink_mode ? ` ${uplink_mode}` : ""}` : "TX —",
+      row.down !== "—" ? `RX ${row.down}${downlink_mode ? ` ${downlink_mode}` : ""}` : "RX —",
+      row.bands || "",
+    ].filter(Boolean).join(" | "),
+    uplink_hz,
+    downlink_hz,
+    uplink_mode,
+    downlink_mode,
+  };
+}
+
+function isAprsChannelRow(row) {
+  const text = `${row.mode} ${row.up} ${row.down} ${row.bands}`.toLowerCase();
+  return /aprs|packet|afsk/.test(text);
+}
+
+function isAnalogVoiceChannelRow(row) {
+  const text = `${row.mode} ${row.up} ${row.down} ${row.bands}`.toLowerCase();
+  if (isAprsChannelRow(row)) return false;
+  return (/(voice repeater|repeater|ctcss|fm)/.test(text) && row.up !== "—" && row.down !== "—");
+}
+
+function isMonitoringChannelRow(row) {
+  const text = `${row.mode} ${row.up} ${row.down} ${row.bands}`.toLowerCase();
+  if (isAprsChannelRow(row)) return false;
+  return /(sstv|cw|beacon)/.test(text) && row.down !== "—";
+}
+
+function choiceFromMonitoringRow(row) {
+  const downlink_mhz = extractFirstMHz(row.down);
+  if (!Number.isFinite(downlink_mhz)) return null;
+  const downlink_hz = mhzToHz(downlink_mhz);
+  const downlink_mode = downlink_hz ? inferRadioMode(row.mode, row.down) : null;
+  return {
+    key: "",
+    group: "Monitoring",
+    label: `${row.mode || "Monitor"} | RX only`,
+    detail: [
+      downlink_hz ? `RX ${row.down}${downlink_mode ? ` ${downlink_mode}` : ""}` : "RX —",
+      "Downlink only",
+      row.bands || "",
+    ].filter(Boolean).join(" | "),
+    uplink_hz: null,
+    downlink_hz,
+    uplink_mode: null,
+    downlink_mode,
+  };
+}
+
+function currentRigModel() {
+  return state.system?.radioRuntime?.rig_model || state.system?.radioSettings?.rig_model || "id5100";
+}
+
+function choiceSupportedByRig(choice) {
+  if (!choice) return false;
+  const uplinkMhz = choice.uplink_hz ? (choice.uplink_hz / 1_000_000) : null;
+  const downlinkMhz = choice.downlink_hz ? (choice.downlink_hz / 1_000_000) : null;
+  const hasUplink = Number.isFinite(uplinkMhz);
+  const hasDownlink = Number.isFinite(downlinkMhz);
+  const uplinkOk = !hasUplink || supportsAmateurTx(uplinkMhz);
+  const downlinkOk = !hasDownlink || supportsRigReceive(downlinkMhz, currentRigModel());
+  return (hasUplink || hasDownlink) && uplinkOk && downlinkOk;
+}
+
+function radioControlChoiceFromRow(row) {
+  const direct = choiceFromFrequencyRow(row);
+  if (choiceSupportedByRig(direct)) return direct;
+  const monitoring = choiceFromMonitoringRow(row);
+  if (choiceSupportedByRig(monitoring)) return monitoring;
+  return null;
+}
+
+function recommendationFromChannelChoice(satId, choice) {
+  if (!choice || (!choice.uplink_hz && !choice.downlink_hz)) return null;
+  return {
+    sat_id: satId || "",
+    label: choice.label || "Channel",
+    uplink_mhz: choice.uplink_hz ? (choice.uplink_hz / 1_000_000) : null,
+    downlink_mhz: choice.downlink_hz ? (choice.downlink_hz / 1_000_000) : null,
+    uplink_mode: choice.uplink_mode || null,
+    downlink_mode: choice.downlink_mode || null,
+  };
+}
+
+function radioControlSupportFromDisplay(satId, recommendation, rows = []) {
+  const fallbackChoice = (rows || []).map(radioControlChoiceFromRow).find(Boolean) || null;
+  const recommendationCandidate = choiceSupportedByRig(choiceFromRecommendation(recommendation))
+    ? recommendation
+    : null;
+  const candidate = recommendationCandidate || recommendationFromChannelChoice(satId, fallbackChoice);
+  return {
+    availability: radioControlAvailability(candidate),
+    fallbackChoice,
+  };
+}
+
+function deriveFallbackRadioChoiceForSelection(target) {
+  const fallbackUplinkText = String(target?.dataset?.fallbackUplinkHz || "").trim();
+  const fallbackDownlinkText = String(target?.dataset?.fallbackDownlinkHz || "").trim();
+  if (fallbackUplinkText || fallbackDownlinkText) {
+    const fallbackUplinkHz = fallbackUplinkText ? Number(fallbackUplinkText) : NaN;
+    const fallbackDownlinkHz = fallbackDownlinkText ? Number(fallbackDownlinkText) : NaN;
+    if (Number.isFinite(fallbackUplinkHz) || Number.isFinite(fallbackDownlinkHz)) {
+      return {
+        label: target.dataset.fallbackLabel || "Fallback channel",
+        uplink_hz: Number.isFinite(fallbackUplinkHz) ? fallbackUplinkHz : null,
+        downlink_hz: Number.isFinite(fallbackDownlinkHz) ? fallbackDownlinkHz : null,
+        uplink_mode: target.dataset.fallbackUplinkMode || null,
+        downlink_mode: target.dataset.fallbackDownlinkMode || null,
+      };
+    }
+  }
+
+  const syntheticSession = {
+    selected_sat_id: target?.dataset?.satId || "",
+    selected_sat_name: target?.dataset?.satName || target?.dataset?.satId || "",
+    selected_pass_aos: target?.dataset?.passAos || "",
+    selected_pass_los: target?.dataset?.passLos || "",
+    selected_max_el_deg: Number(target?.dataset?.maxEl || 0),
+  };
+  const pass = findSessionPass(state.passes, syntheticSession);
+  const sat = (state.sats || []).find((item) => item.sat_id === syntheticSession.selected_sat_id);
+  const guideRows = rowsFromGuide(pass?.frequencyRecommendation, pass?.frequencyMatrix, "real-time");
+  const rows = guideRows.length ? [...guideRows, ...frequencyEntriesForSatellite(sat)] : frequencyEntriesForSatellite(sat);
+  return rows.map(radioControlChoiceFromRow).find(Boolean) || null;
+}
+
+function buildRadioSessionTestPairPayload(choice) {
+  if (!choice) return null;
+  const uplink_hz = Number.isFinite(Number(choice.uplink_hz)) ? Math.round(Number(choice.uplink_hz)) : null;
+  const downlink_hz = Number.isFinite(Number(choice.downlink_hz)) ? Math.round(Number(choice.downlink_hz)) : null;
+  const uplink_mode = uplink_hz ? String(choice.uplink_mode || "").trim().toUpperCase() || null : null;
+  const downlink_mode = downlink_hz ? String(choice.downlink_mode || "").trim().toUpperCase() || null : null;
+  const label = String(choice.label || "Fallback channel").trim() || "Fallback channel";
+  if (!uplink_hz && !downlink_hz) return null;
+  return { label, uplink_hz, downlink_hz, uplink_mode, downlink_mode };
+}
+
 function modeLongName(modeText) {
   const mode = String(modeText || "").replace(/^Mode\s*/i, "").trim();
   const map = { V: "VHF 2m", U: "UHF 70cm", L: "L 23cm", S: "S 13cm", X: "X 3cm" };
@@ -755,10 +985,22 @@ function modeLongName(modeText) {
   return mode || "General";
 }
 
-function supportsVhfUhfRig(freqMhz) {
+function supportsAmateurTx(freqMhz) {
   const value = Number(freqMhz);
   if (!Number.isFinite(value)) return false;
   return (value >= 144 && value <= 148) || (value >= 420 && value <= 450);
+}
+
+function supportsRigReceive(freqMhz, rigModel = currentRigModel()) {
+  const value = Number(freqMhz);
+  if (!Number.isFinite(value)) return false;
+  if (rigModel === "ic705") {
+    return (value >= 0.030 && value <= 199.999) || (value >= 400 && value <= 470);
+  }
+  if (rigModel === "id5100") {
+    return (value >= 118 && value <= 174) || (value >= 375 && value <= 550);
+  }
+  return supportsAmateurTx(value);
 }
 
 function radioControlAvailability(recommendation) {
@@ -770,17 +1012,37 @@ function radioControlAvailability(recommendation) {
       reason: "Radio control unavailable: no usable in-range uplink or downlink is defined for this pass.",
     };
   }
-  if (!supportsVhfUhfRig(recommendation.uplink_mhz) && !supportsVhfUhfRig(recommendation.downlink_mhz)) {
+  const uplinkOk = !hasUplink || supportsAmateurTx(recommendation.uplink_mhz);
+  const downlinkOk = !hasDownlink || supportsRigReceive(recommendation.downlink_mhz);
+  if (!uplinkOk && !hasDownlink) {
     return {
       eligible: false,
-      reason: "Radio control unavailable: this pass uses frequencies outside the VHF/UHF range supported by the Icom IC-705 and ID-5100.",
+      reason: `Radio control unavailable: uplink ${Number(recommendation.uplink_mhz).toFixed(3)} MHz is outside the allowed amateur transmit ranges.`,
+    };
+  }
+  if (!downlinkOk && !hasUplink) {
+    return {
+      eligible: false,
+      reason: `Radio control unavailable: downlink ${Number(recommendation.downlink_mhz).toFixed(3)} MHz is outside ${rigModelLabel(currentRigModel())} receive coverage.`,
+    };
+  }
+  if (!uplinkOk) {
+    return {
+      eligible: false,
+      reason: `Radio control unavailable: uplink ${Number(recommendation.uplink_mhz).toFixed(3)} MHz is outside the allowed amateur transmit ranges.`,
+    };
+  }
+  if (!downlinkOk) {
+    return {
+      eligible: false,
+      reason: `Radio control unavailable: downlink ${Number(recommendation.downlink_mhz).toFixed(3)} MHz is outside ${rigModelLabel(currentRigModel())} receive coverage.`,
     };
   }
   return {
     eligible: true,
     reason: hasUplink && hasDownlink
-      ? "This pass is supported by the Icom IC-705 and ID-5100 radio-control workflow."
-      : "Receive-only radio control is available for this pass on the Icom IC-705 and ID-5100.",
+      ? "This pass is supported by the current radio-control workflow."
+      : `Receive-only radio control is available for this pass on ${rigModelLabel(currentRigModel())}.`,
   };
 }
 
@@ -885,6 +1147,40 @@ function isUsefulAlternateRow(row) {
   return scoreHamUsefulness(row) >= 60;
 }
 
+function buildRadioChannelChoices(session, pass) {
+  const sat = (state.sats || []).find((item) => item.sat_id === session?.selected_sat_id);
+  const guideRows = rowsFromGuide(pass?.frequencyRecommendation, pass?.frequencyMatrix, "real-time");
+  const rawChoices = [];
+  const currentChoice = choiceFromRecommendation(session?.test_pair, "Active test pair");
+  if (choiceSupportedByRig(currentChoice)) rawChoices.push(currentChoice);
+  guideRows
+    .filter(isAnalogVoiceChannelRow)
+    .forEach((row) => {
+      const choice = choiceFromFrequencyRow(row);
+      if (choiceSupportedByRig(choice)) rawChoices.push(choice);
+    });
+  frequencyEntriesForSatellite(sat)
+    .filter(isAnalogVoiceChannelRow)
+    .forEach((row) => {
+      const choice = choiceFromFrequencyRow(row);
+      if (choiceSupportedByRig(choice)) rawChoices.push(choice);
+    });
+  frequencyEntriesForSatellite(sat)
+    .filter(isMonitoringChannelRow)
+    .forEach((row) => {
+      const choice = choiceFromMonitoringRow(row);
+      if (choiceSupportedByRig(choice)) rawChoices.push(choice);
+    });
+  return rawChoices.reduce((items, choice) => {
+    const key = radioChannelChoiceKey(choice);
+    if (!key) return items;
+    if (!items.some((item) => item.key === key)) {
+      items.push({ ...choice, key });
+    }
+    return items;
+  }, []);
+}
+
 function telemetryState(track, pass, mode) {
   const now = Date.now();
   const aosMs = new Date(pass?.aos || 0).getTime();
@@ -955,7 +1251,7 @@ function renderUpcomingTelemetryPanel({ track, pass, rows, scene, recommendation
   const heroTags = [sunlit, `MaxEl ${maxEl.toFixed(1)}°`];
   if (primary?.bands && primary.bands !== "Band unknown") heroTags.push(primary.bands);
   const upcomingRows = rows.slice(0, 4);
-  const radioControl = radioControlAvailability(recommendation);
+  const radioControl = radioControlSupportFromDisplay(pass?.sat_id, recommendation, rows);
   return `
     <section class="telemetry-panel telemetry-panel-upcoming">
       <div class="telemetry-hero-card telemetry-tone-${status.tone}">
@@ -988,7 +1284,7 @@ function renderUpcomingTelemetryPanel({ track, pass, rows, scene, recommendation
           <div><span>Bands</span><strong>${escapeHtml(primary?.bands || "Unknown")}</strong></div>
         </div>
         ${recommendation?.note ? `<div class="telemetry-metric-meta">${escapeHtml(recommendation.note)}</div>` : ""}
-        <div class="telemetry-metric-meta">${escapeHtml(radioControl.reason)}</div>
+        <div class="telemetry-metric-meta">${escapeHtml(radioControl.availability.reason)}</div>
         <div class="controls">
           <button
             type="button"
@@ -998,7 +1294,12 @@ function renderUpcomingTelemetryPanel({ track, pass, rows, scene, recommendation
             data-pass-aos="${escapeHtml(pass?.aos || "")}"
             data-pass-los="${escapeHtml(pass?.los || "")}"
             data-max-el="${escapeHtml(String(pass?.max_el_deg ?? ""))}"
-            ${radioControl.eligible && pass ? "" : " disabled"}
+            data-fallback-label="${escapeHtml(radioControl.fallbackChoice?.label || "")}"
+            data-fallback-uplink-hz="${escapeHtml(String(radioControl.fallbackChoice?.uplink_hz || ""))}"
+            data-fallback-downlink-hz="${escapeHtml(String(radioControl.fallbackChoice?.downlink_hz || ""))}"
+            data-fallback-uplink-mode="${escapeHtml(radioControl.fallbackChoice?.uplink_mode || "")}"
+            data-fallback-downlink-mode="${escapeHtml(radioControl.fallbackChoice?.downlink_mode || "")}"
+            ${radioControl.availability.eligible && pass ? "" : " disabled"}
           >Radio Control</button>
         </div>
       </section>
@@ -1662,6 +1963,23 @@ function renderPinnedRadioControl(session, pass, runtime) {
   const showBack = !inArmed && !inActive;
   const testTx = testPair?.uplink_mhz ? normalizeFreqToken(String(Math.round(testPair.uplink_mhz * 1_000_000))) : "--";
   const testRx = testPair?.downlink_mhz ? normalizeFreqToken(String(Math.round(testPair.downlink_mhz * 1_000_000))) : "--";
+  const channelChoices = buildRadioChannelChoices(session, pass);
+  const currentChoice = choiceFromRecommendation(testPair, "Active test pair");
+  const currentChoiceKey = currentChoice ? radioChannelChoiceKey(currentChoice) : "";
+  const persistedDraftKey = loadPersistedRadioChannelDraft(session);
+  const selectedChoiceKey = channelChoices.some((choice) => choice.key === radioChannelDraftKey)
+    ? radioChannelDraftKey
+    : channelChoices.some((choice) => choice.key === persistedDraftKey)
+      ? persistedDraftKey
+      : currentChoiceKey;
+  radioChannelDraftKey = selectedChoiceKey;
+  savePersistedRadioChannelDraft(session, selectedChoiceKey);
+  const showCommitChannel = !!selectedChoiceKey && selectedChoiceKey !== currentChoiceKey;
+  const commitChannelLabel = connected ? "Commit Channel To Rig" : "Save Channel Choice";
+  const groupedChannelOptions = ["Voice", "Monitoring"].map((group) => ({
+    group,
+    items: channelChoices.filter((choice) => (choice.group || "Voice") === group),
+  })).filter((section) => section.items.length);
   trackerById("radioPrimary").textContent = `Radio Control: ${session?.selected_sat_name || session?.selected_sat_id || "--"} | ${passState.toUpperCase()} | ${session?.screen_state || "idle"}`;
   trackerById("radioBoard").innerHTML = `
     <article class="radio-primary-card radio-session-card">
@@ -1698,6 +2016,24 @@ function renderPinnedRadioControl(session, pass, runtime) {
         </div>
         <div class="radio-band-line">${escapeHtml(session?.test_pair_reason || "Default profile voice pair ready")}</div>
       </div>
+      ${channelChoices.length > 1 ? `
+      <div class="radio-channel">
+        <div class="radio-channel-mode">Channel Options</div>
+        <label class="radio-channel-picker">
+          <span class="label">Selectable pairs</span>
+          <select id="radioChannelSelect">
+            ${groupedChannelOptions.map((section) => `
+              <optgroup label="${escapeHtml(section.group)}">
+                ${section.items.map((choice) => `
+                  <option value="${escapeHtml(choice.key)}"${choice.key === selectedChoiceKey ? " selected" : ""}>${escapeHtml(choice.label)} | ${escapeHtml(choice.detail)}</option>
+                `).join("")}
+              </optgroup>
+            `).join("")}
+          </select>
+        </label>
+        ${showCommitChannel ? `<div class="controls radio-session-actions"><button id="radioCommitChannelBtn" type="button">${escapeHtml(commitChannelLabel)}</button></div>` : ""}
+      </div>
+      ` : ""}
       <div class="controls radio-session-actions">
         <button id="radioSessionConnectBtn" type="button">${escapeHtml(connectLabel)}</button>
         <button id="radioSessionTestBtn" type="button"${inTest || canTest ? "" : " disabled"}>${escapeHtml(testLabel)}</button>
@@ -1980,7 +2316,10 @@ async function applyCurrentRadioTarget(mode) {
 
 async function selectRadioControlSessionFromElement(target) {
   clearRotatorActionError();
+  radioChannelDraftKey = "";
+  radioChannelPickerFocused = false;
   try {
+    const fallbackChoice = deriveFallbackRadioChoiceForSelection(target);
     const payload = {
       sat_id: target.dataset.satId,
       sat_name: target.dataset.satName,
@@ -1989,6 +2328,11 @@ async function selectRadioControlSessionFromElement(target) {
       max_el_deg: Number(target.dataset.maxEl),
     };
     const response = await trackerApi.post("/api/v1/radio/session/select", payload);
+    const testPairPayload = buildRadioSessionTestPairPayload(fallbackChoice);
+    if (testPairPayload && !response.session?.has_test_pair) {
+      const updated = await trackerApi.post("/api/v1/radio/session/test-pair", testPairPayload);
+      response.session = updated.session;
+    }
     state.system = state.system || {};
     state.system.radioControlSession = response.session;
     chooseScene();
@@ -2005,7 +2349,42 @@ async function selectRadioControlSessionFromElement(target) {
   }
 }
 
-async function runPinnedRadioAction(action) {
+async function commitSelectedRadioChannel() {
+  const session = state.system?.radioControlSession;
+  const runtime = state.system?.radioRuntime;
+  const pass = findSessionPass(state.passes, session);
+  const channelChoices = buildRadioChannelChoices(session, pass);
+  const choice = channelChoices.find((item) => item.key === radioChannelDraftKey);
+  if (!session?.active || !choice) return;
+  clearRotatorActionError();
+  try {
+    const testPairPayload = buildRadioSessionTestPairPayload(choice);
+    if (!testPairPayload) return;
+    const sessionResp = await trackerApi.post("/api/v1/radio/session/test-pair", testPairPayload);
+    state.system = state.system || {};
+    state.system.radioControlSession = sessionResp.session;
+    savePersistedRadioChannelDraft(sessionResp.session, choice.key);
+    chooseScene();
+    if (runtime?.connected) {
+      const pairResp = await trackerApi.post("/api/v1/radio/pair", {
+        uplink_hz: choice.uplink_hz,
+        downlink_hz: choice.downlink_hz,
+        uplink_mode: choice.uplink_mode,
+        downlink_mode: choice.downlink_mode,
+      });
+      state.system.radioRuntime = pairResp.runtime;
+      state.system.radioControlSession = pairResp.session || state.system.radioControlSession;
+    }
+    await fetchState();
+    chooseScene();
+  } catch (err) {
+    setRotatorActionError(err?.message || String(err));
+    chooseScene();
+  }
+}
+
+async function runPinnedRadioAction(action, options = {}) {
+  const { rethrow = false } = options;
   const endpointMap = {
     connect: "/api/v1/radio/connect",
     disconnect: "/api/v1/radio/disconnect",
@@ -2020,6 +2399,9 @@ async function runPinnedRadioAction(action) {
   clearRotatorActionError();
   try {
     const response = await trackerApi.post(endpoint, {});
+    if (action === "connect" && response?.runtime?.connected !== true) {
+      throw new Error(response?.runtime?.last_error || "Connection attempt did not succeed.");
+    }
     if (response?.session && state.system) {
       state.system.radioControlSession = response.session;
     }
@@ -2029,9 +2411,11 @@ async function runPinnedRadioAction(action) {
     chooseScene();
     await fetchState();
     chooseScene();
+    return response;
   } catch (err) {
     setRotatorActionError(err?.message || String(err));
     chooseScene();
+    if (rethrow) throw err;
   }
 }
 
@@ -2239,6 +2623,11 @@ function chooseScene() {
   const aprsPinned = isPinnedAprsControl(sys);
   const preferredPinnedView = pinnedViewPreference();
 
+  if (radioPinned && preferredPinnedView !== "aprs" && radioChannelPickerFocused) {
+    updateTopMeta(sys);
+    return;
+  }
+
   if (radioPinned || aprsPinned) {
     updateTopMeta(sys);
     lastOverride = preferredPinnedView;
@@ -2315,26 +2704,44 @@ window.addEventListener("DOMContentLoaded", async () => {
       modalId: "radioConnectModal",
       statusId: "radioConnectModalStatus",
       rigModelId: "radioConnectRigModel",
+      transportModeId: "radioConnectTransportMode",
       portSelectId: "radioConnectPortSelect",
       manualId: "radioConnectPortManual",
+      usbFieldsId: "radioConnectUsbFields",
+      wifiFieldsId: "radioConnectWifiFields",
+      wifiHostId: "radioConnectWifiHost",
+      wifiUsernameId: "radioConnectWifiUsername",
+      wifiPasswordId: "radioConnectWifiPassword",
+      wifiControlPortId: "radioConnectWifiControlPort",
+      baudRateId: "radioConnectBaudRate",
+      civAddressId: "radioConnectCivAddress",
+      pollIntervalId: "radioConnectPollInterval",
+      autoTrackIntervalId: "radioConnectAutoTrackInterval",
+      autoConnectId: "radioConnectAutoConnect",
+      applyModeToneId: "radioConnectApplyModeTone",
+      safeTxGuardId: "radioConnectSafeTxGuard",
+      titleId: "radioConnectModalTitle",
       loadCurrent: async () => {
         const settingsResp = await trackerApi.get("/api/v1/settings/radio");
-        const settings = settingsResp.state || {};
-        return {
-          rigModel: settings.rig_model || "ic705",
-          selectedDevice: settings.serial_device || "",
-        };
+        return settingsResp.state || {};
       },
-      saveSelection: async ({ rigModel, serialDevice }) => {
-        await trackerApi.post("/api/v1/settings/radio", {
-          enabled: true,
-          rig_model: rigModel,
-          serial_device: serialDevice,
-        });
+      saveSelection: async (payload) => {
+        await trackerApi.post("/api/v1/settings/radio", payload);
       },
-      connectingMessage: (rigModel) => `Saving ${rigModelLabel(rigModel)} settings and connecting...`,
+      connectingMessage: (profile) => {
+        const rig = rigModelLabel(profile.rig_model);
+        const transport = String(profile.transport_mode || "usb").toUpperCase();
+        if (connectModalMode === "aprs") {
+          return `Saving ${rig} ${transport} profile and connecting APRS...`;
+        }
+        return `Saving ${rig} ${transport} profile and connecting radio...`;
+      },
       onConnected: async () => {
-        await runPinnedRadioAction("connect");
+        if (connectModalMode === "aprs") {
+          await runAprsAction("connect");
+          return;
+        }
+        await runPinnedRadioAction("connect", { rethrow: true });
       },
     });
     radioConnectController.bind();
@@ -2364,7 +2771,7 @@ window.addEventListener("DOMContentLoaded", async () => {
         if (connected) {
           void runPinnedRadioAction("disconnect");
         } else {
-          void openRadioConnectModal();
+          void openRadioConnectModal("radio");
         }
       } else if (target.id === "radioSessionTestBtn") {
         const inTest = state.system?.radioControlSession?.screen_state === "test";
@@ -2374,10 +2781,17 @@ window.addEventListener("DOMContentLoaded", async () => {
         void runPinnedRadioAction(screenState === "active" || screenState === "armed" ? "stop" : "start");
       } else if (target.id === "radioSessionBackBtn") {
         void runPinnedRadioAction("back");
+      } else if (target.id === "radioCommitChannelBtn") {
+        void commitSelectedRadioChannel();
       } else if (target.id === "aprsUseTerrestrialBtn") {
         void runAprsAction("terrestrial");
       } else if (target.id === "aprsConnectBtn") {
-        void runAprsAction("connect");
+        const radioConnected = !!state.system?.radioRuntime?.connected;
+        if (radioConnected) {
+          void runAprsAction("connect");
+        } else {
+          void openRadioConnectModal("aprs");
+        }
       } else if (target.id === "aprsDisconnectBtn") {
         void runAprsAction("disconnect");
       } else if (target.id === "aprsPanicBtn") {
@@ -2396,6 +2810,29 @@ window.addEventListener("DOMContentLoaded", async () => {
         void openRadioConnectModal();
       } else if (target.id === "radioConnectConfirmBtn") {
         void submitRadioConnectModal();
+      }
+    });
+    document.body.addEventListener("change", (event) => {
+      const changed = event.target;
+      if (!(changed instanceof HTMLElement)) return;
+      if (changed.id === "radioChannelSelect") {
+        radioChannelDraftKey = changed.value || "";
+        savePersistedRadioChannelDraft(state.system?.radioControlSession, radioChannelDraftKey);
+        chooseScene();
+      }
+    });
+    document.body.addEventListener("focusin", (event) => {
+      const focused = event.target;
+      if (!(focused instanceof HTMLElement)) return;
+      if (focused.id === "radioChannelSelect") {
+        radioChannelPickerFocused = true;
+      }
+    });
+    document.body.addEventListener("focusout", (event) => {
+      const blurred = event.target;
+      if (!(blurred instanceof HTMLElement)) return;
+      if (blurred.id === "radioChannelSelect") {
+        radioChannelPickerFocused = false;
       }
     });
     const pinnedViewSelect = trackerById("pinnedViewSelect");

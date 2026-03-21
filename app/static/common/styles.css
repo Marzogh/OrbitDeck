@@ -3032,6 +3032,15 @@ body.kiosk .radio-session-actions button {
   font-size: 0.92rem;
 }
 
+body.kiosk .radio-channel-picker {
+  display: grid;
+  gap: 6px;
+}
+
+body.kiosk .radio-channel-picker select {
+  width: 100%;
+}
+
 body.kiosk #pinnedViewWrap {
   display: inline-flex;
   align-items: center;
@@ -3431,6 +3440,31 @@ body.kiosk .rotator-modal-status {
 
 body.kiosk .rotator-modal-actions {
   justify-content: flex-end;
+}
+
+body.kiosk .rotator-modal-advanced {
+  display: grid;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+body.kiosk .rotator-modal-advanced > summary {
+  cursor: pointer;
+  color: #ffcf96;
+}
+
+body.kiosk .rotator-modal-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+body.kiosk .rotator-modal-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #f3e4d7;
+  font-size: 0.92rem;
 }
 
 body.lite {

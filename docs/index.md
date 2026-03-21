@@ -15,13 +15,12 @@ This documentation set covers:
 - Use [Core Concepts](guide/concepts.md) when you want the app explained in plain terms.
 - Use [Glossary](guide/glossary.md) if a radio or satellite term is unfamiliar.
 - Use [Platforms](guide/platforms.md) for the macOS and Raspberry Pi deployment model.
-- Use [UI Surfaces](guide/ui-surfaces.md) to understand what `/`, `/kiosk`, `/lite`, `/lite/settings`, `/aprs`, and `/settings` are each for.
+- Use [UI Surfaces](guide/ui-surfaces.md) to understand what `/`, `/lite`, `/lite/settings`, `/aprs`, and `/settings` are each for.
 - Use [HTTP API](api/http-api.md) for the current public route map.
 
 ## Product Summary
 
 - `/` opens the focused tracking screen on standard hardware.
-- `/kiosk` opens the wider dashboard screen.
 - `/lite` opens the phone-friendly and low-power screen.
 - `/lite/settings` opens the lite setup and configuration screen.
 - `/aprs` opens the APRS console and test surface.
