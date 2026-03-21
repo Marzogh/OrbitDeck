@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from datetime import UTC, datetime
+import re
 from socket import AF_INET, SOCK_DGRAM, socket
 from threading import Event, Thread
 from time import sleep
@@ -10,6 +11,7 @@ from typing import Callable
 from app.aprs.afsk import SAMPLE_RATE, ax25_to_afsk
 from app.aprs.codec import (
     decode_ui_frame,
+    decode_tnc2,
     encode_ui_frame,
     format_message_payload,
     format_position_payload,
@@ -53,6 +55,11 @@ class AprsService:
     WIFI_PROFILE_VERIFY_ATTEMPTS = 5
     WIFI_PROFILE_VERIFY_DELAY_S = 0.2
     WIFI_STATE_KEY = "_orbitdeck_wifi_aprs"
+    SIDECAR_PACKET_RE = re.compile(r"^\[\d+(?:\.\d+)?\]\s+(.+>.+:.+)$")
+    SIDECAR_MIC_E_POSITION_RE = re.compile(
+        r"^(?P<lat_hemi>[NS])\s+(?P<lat_deg>\d{1,2})\s+(?P<lat_min>\d{1,2}(?:\.\d+)?),\s+"
+        r"(?P<lon_hemi>[EW])\s+(?P<lon_deg>\d{1,3})\s+(?P<lon_min>\d{1,2}(?:\.\d+)?)(?:,\s*(?P<detail>.*))?$"
+    )
 
     def __init__(
         self,
@@ -77,6 +84,9 @@ class AprsService:
         self._retune_worker: Thread | None = None
         self._runtime = AprsRuntimeState()
         self._heard_index: OrderedDict[str, AprsHeardStation] = OrderedDict()
+        self._packet_index: OrderedDict[str, str] = OrderedDict()
+        self._pending_sidecar_packet_raw_tnc2: str | None = None
+        self._pending_sidecar_packet_lines_remaining = 0
 
     def runtime(self) -> AprsRuntimeState:
         if self._sidecar is not None:
@@ -129,6 +139,8 @@ class AprsService:
         self._runtime.digipeater_reason = None
         self._runtime.igate_requested = False
         self._runtime.igate_active = False
+        self._runtime.igate_auto_enabled = False
+        self._runtime.igate_status = "disabled"
         self._runtime.igate_connected = False
         self._runtime.igate_reason = None
         self._runtime.igate_server = None
@@ -138,25 +150,187 @@ class AprsService:
         self._runtime.packets_igated = 0
         self._runtime.packets_dropped_policy = 0
         self._runtime.packets_dropped_duplicate = 0
+        self._runtime.gateway_debug_lines = []
 
     def _handle_sidecar_output(self, line: str) -> None:
         text = str(line or "").strip()
         lower = text.lower()
         if not lower:
             return
-        if "ig" in lower and ("login" in lower or "server" in lower or "aprs-is" in lower or "igate" in lower):
+        packet = self._parse_sidecar_packet_line(text)
+        if packet is not None:
+            if not any(item.raw_tnc2 == packet.raw_tnc2 for item in self._runtime.recent_packets):
+                self._runtime.recent_packets = [packet] + self._runtime.recent_packets[:49]
+            self._register_recent_packet(packet)
+            self._pending_sidecar_packet_raw_tnc2 = packet.raw_tnc2
+            self._pending_sidecar_packet_lines_remaining = 4
+            return
+        if self._consume_pending_sidecar_packet_translation(text):
+            return
+        if (
+            (
+                "aprs-is" in lower
+                or "igate" in lower
+                or "igserver" in lower
+                or "iglogin" in lower
+                or "logresp" in lower
+            )
+            and (
+                "login" in lower
+                or "server" in lower
+                or "connected" in lower
+                or "accepted" in lower
+                or "verified" in lower
+            )
+        ):
             self._runtime.igate_connected = True
+            self._runtime.igate_status = "connected"
             self._runtime.igate_last_connect_at = self._runtime.igate_last_connect_at or datetime.now(UTC)
+            self._runtime.igate_last_error = None
         if "digipeat" in lower and ("queued" in lower or "retransmit" in lower or "transmit" in lower or "via" in lower):
             self._runtime.packets_digipeated += 1
+            self._mark_recent_packet_gateway(digipeated=True)
+            self._append_gateway_debug(text)
         if ("igate" in lower or "aprs-is" in lower) and ("send" in lower or "gate" in lower or "tx" in lower or "forward" in lower):
             self._runtime.packets_igated += 1
+            self._mark_recent_packet_gateway(igated=True)
+            self._append_gateway_debug(text)
         if "duplicate" in lower:
             self._runtime.packets_dropped_duplicate += 1
         if "drop" in lower or "reject" in lower or "blocked" in lower:
             self._runtime.packets_dropped_policy += 1
         if "error" in lower or "failed" in lower:
+            if self._runtime.igate_active and ("igate" in lower or "aprs-is" in lower or "login" in lower or "server" in lower):
+                self._runtime.igate_status = "error"
             self._runtime.igate_last_error = text
+            if "igate" in lower or "aprs-is" in lower or "digipeat" in lower or "forward" in lower or "gate" in lower:
+                self._append_gateway_debug(text)
+
+    def _mark_recent_packet_gateway(self, *, digipeated: bool = False, igated: bool = False) -> None:
+        if not self._runtime.recent_packets:
+            return
+        packet = self._runtime.recent_packets[0]
+        self._runtime.recent_packets[0] = packet.model_copy(
+            update={
+                "digipeated": bool(packet.digipeated or digipeated),
+                "igated": bool(packet.igated or igated),
+            }
+        )
+
+    def _append_gateway_debug(self, text: str) -> None:
+        line = str(text or "").strip()
+        if not line:
+            return
+        self._runtime.gateway_debug_lines = [line] + [
+            item for item in self._runtime.gateway_debug_lines if item != line
+        ][:19]
+
+    def _parse_sidecar_packet_line(self, text: str) -> AprsPacketEvent | None:
+        match = self.SIDECAR_PACKET_RE.match(text)
+        if not match:
+            return None
+        try:
+            return decode_tnc2(match.group(1), received_at=datetime.now(UTC))
+        except Exception:
+            return None
+
+    def _consume_pending_sidecar_packet_translation(self, text: str) -> bool:
+        raw_tnc2 = self._pending_sidecar_packet_raw_tnc2
+        if not raw_tnc2 or self._pending_sidecar_packet_lines_remaining <= 0:
+            self._pending_sidecar_packet_raw_tnc2 = None
+            self._pending_sidecar_packet_lines_remaining = 0
+            return False
+        self._pending_sidecar_packet_lines_remaining -= 1
+        handled = False
+        mic_e_match = self.SIDECAR_MIC_E_POSITION_RE.match(text)
+        if text.startswith("MIC-E,"):
+            bits = [part.strip() for part in text.split(",") if part.strip()]
+            status = bits[-1] if len(bits) >= 2 else None
+
+            def updater(packet: AprsPacketEvent) -> AprsPacketEvent:
+                summary = "Mic-E position"
+                if status and status.upper() != "UNKNOWN VENDOR/MODEL":
+                    summary = f"{summary} | {status}"
+                return packet.model_copy(
+                    update={
+                        "packet_type": "position",
+                        "text": summary,
+                    }
+                )
+
+            handled = self._update_recent_packet(raw_tnc2, updater)
+        elif mic_e_match:
+            lat = self._deg_min_to_decimal(
+                mic_e_match.group("lat_deg"),
+                mic_e_match.group("lat_min"),
+                mic_e_match.group("lat_hemi"),
+            )
+            lon = self._deg_min_to_decimal(
+                mic_e_match.group("lon_deg"),
+                mic_e_match.group("lon_min"),
+                mic_e_match.group("lon_hemi"),
+            )
+            detail = str(mic_e_match.group("detail") or "").strip()
+
+            def updater(packet: AprsPacketEvent) -> AprsPacketEvent:
+                summary = str(packet.text or "").strip()
+                if not summary or summary.startswith(("`", "'")):
+                    summary = "Mic-E position"
+                if detail:
+                    summary = f"{summary} | {detail}"
+                return packet.model_copy(
+                    update={
+                        "packet_type": "position",
+                        "latitude": lat,
+                        "longitude": lon,
+                        "text": summary,
+                    }
+                )
+
+            handled = self._update_recent_packet(raw_tnc2, updater)
+        if handled:
+            self._pending_sidecar_packet_lines_remaining = 4
+            return True
+        if self._pending_sidecar_packet_lines_remaining <= 0:
+            self._pending_sidecar_packet_raw_tnc2 = None
+        return False
+
+    def _update_recent_packet(
+        self,
+        raw_tnc2: str,
+        updater: Callable[[AprsPacketEvent], AprsPacketEvent],
+    ) -> bool:
+        for index, packet in enumerate(self._runtime.recent_packets):
+            if packet.raw_tnc2 != raw_tnc2:
+                continue
+            updated = updater(packet)
+            self._runtime.recent_packets[index] = updated
+            self._register_recent_packet(updated)
+            return True
+        return False
+
+    def _deg_min_to_decimal(self, degrees: str, minutes: str, hemisphere: str) -> float:
+        value = int(str(degrees)) + (float(str(minutes)) / 60.0)
+        if str(hemisphere).upper() in {"S", "W"}:
+            value *= -1
+        return value
+
+    def _packet_correlation_key(self, packet: AprsPacketEvent | AprsLogEntry) -> str:
+        source = str(packet.source or "").strip().upper()
+        destination = str(packet.destination or "").strip().upper()
+        path = ",".join(str(item or "").strip().upper().rstrip("*") for item in (packet.path or []) if str(item or "").strip())
+        packet_type = str(packet.packet_type or "").strip().lower()
+        text = str(packet.text or "").strip()
+        latitude = "" if packet.latitude is None else f"{float(packet.latitude):.5f}"
+        longitude = "" if packet.longitude is None else f"{float(packet.longitude):.5f}"
+        return "|".join([source, destination, path, packet_type, text, latitude, longitude])
+
+    def _register_recent_packet(self, packet: AprsPacketEvent) -> None:
+        key = self._packet_correlation_key(packet)
+        self._packet_index[key] = packet.raw_tnc2
+        self._packet_index.move_to_end(key, last=False)
+        while len(self._packet_index) > 100:
+            self._packet_index.popitem(last=True)
 
     def _aprs_channels(self, sat: Satellite) -> list[SatelliteRadioChannel]:
         return [channel for channel in (sat.radio_channels or []) if channel.kind == "aprs" and (channel.downlink_hz or channel.uplink_hz)]
@@ -285,13 +459,26 @@ class AprsService:
     ) -> AprsRuntimeState:
         self.disconnect()
         effective_settings, policy = self._feature_policy(settings, target)
+        auto_enabled_igate = bool(
+            settings.igate_auto_enable_with_internet
+            and not settings.future_igate_enabled
+            and effective_settings.igate.enabled
+        )
         self._reset_gateway_runtime()
         self._runtime.digipeater_requested = bool(policy["digipeater_requested"])
         self._runtime.digipeater_active = bool(policy["digipeater_active"])
         self._runtime.digipeater_reason = str(policy["digipeater_reason"] or "") or None
         self._runtime.igate_requested = bool(policy["igate_requested"])
         self._runtime.igate_active = bool(policy["igate_active"])
+        self._runtime.igate_auto_enabled = auto_enabled_igate
+        self._runtime.igate_status = "connecting" if self._runtime.igate_active else "disabled"
         self._runtime.igate_reason = str(policy["igate_reason"] or "") or None
+        if self._runtime.igate_active and auto_enabled_igate:
+            self._runtime.igate_reason = (
+                "RX-only iGate auto-enabled because internet is available"
+                if target.operating_mode == AprsOperatingMode.satellite
+                else "RX-only iGate auto-enabled because internet is available"
+            )
         if effective_settings.igate.enabled:
             self._runtime.igate_server = f"{effective_settings.igate.server_host.strip()}:{effective_settings.igate.server_port}"
         transport_mode = radio_settings.transport_mode if radio_settings is not None else RadioTransportMode.usb
@@ -320,8 +507,8 @@ class AprsService:
         self._runtime.last_error = None
         self._runtime.last_started_at = datetime.now(UTC)
         self._runtime.target = target
-        self._runtime.igate_connected = bool(effective_settings.igate.enabled)
-        self._runtime.igate_last_connect_at = datetime.now(UTC) if effective_settings.igate.enabled else None
+        self._runtime.igate_connected = False
+        self._runtime.igate_last_connect_at = None
         self._start_retune_worker(settings, radio_settings, retune_resolver, interval_s)
         return self.runtime()
 
@@ -372,6 +559,9 @@ class AprsService:
         self._runtime.audio_tx_active = False
         self._runtime.owned_resource = None
         self._reset_gateway_runtime()
+        self._packet_index.clear()
+        self._pending_sidecar_packet_raw_tnc2 = None
+        self._pending_sidecar_packet_lines_remaining = 0
         return self.runtime()
 
     def send_status(self, settings: AprsSettings, payload: AprsSendStatusRequest) -> AprsRuntimeState:
@@ -441,6 +631,7 @@ class AprsService:
         self._runtime.last_packet_at = event.received_at
         packets = [event] + self._runtime.recent_packets[:49]
         self._runtime.recent_packets = packets
+        self._register_recent_packet(event)
         heard = self._heard_index.get(event.source)
         if heard is None:
             heard = AprsHeardStation(callsign=event.source, last_heard_at=event.received_at, packet_count=0)

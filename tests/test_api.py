@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.aprs.codec import decode_ui_frame, encode_ui_frame
+from app.aprs.codec import decode_tnc2, decode_ui_frame, encode_ui_frame
 from app.aprs.direwolf import DireWolfProcess
 from app.aprs.log_store import AprsLogStore
 from app.aprs.service import AprsService
@@ -2177,6 +2177,90 @@ def test_aprs_connect_rejects_igate_without_credentials(tmp_path):
     assert "login callsign" in resp.json()["detail"].lower()
 
 
+def test_aprs_connect_auto_enables_igate_when_internet_is_available(tmp_path):
+    client = make_client(tmp_path)
+    configure_station_identity(client)
+    captured = {}
+
+    class CapturingAprsService(FakeAprsService):
+        def connect(self, settings, target, *, radio_settings=None, retune_resolver=None, interval_s=1.0):
+            captured["settings"] = settings
+            return super().connect(settings, target, radio_settings=radio_settings, retune_resolver=retune_resolver, interval_s=interval_s)
+
+    main.aprs_service = CapturingAprsService()
+    client.post("/api/v1/network", json={"internet_available": True})
+    client.post(
+        "/api/v1/aprs/log/settings",
+        json={
+            "log_enabled": False,
+            "log_max_records": 500,
+            "notify_incoming_messages": True,
+            "notify_all_packets": False,
+            "future_digipeater_enabled": False,
+            "future_igate_enabled": False,
+            "igate_auto_enable_with_internet": True,
+            "igate": {
+                "enabled": False,
+                "server_host": "rotate.aprs2.net",
+                "server_port": 14580,
+                "login_callsign": "VK4ABC-10",
+                "passcode": "12345",
+                "filter": "m/25",
+                "connect_timeout_s": 10,
+                "gate_terrestrial_rx": True,
+                "gate_satellite_rx": True,
+            },
+        },
+    )
+    client.post("/api/v1/aprs/session/select", json={"operating_mode": "satellite", "sat_id": "iss-zarya"})
+
+    resp = client.post("/api/v1/aprs/connect")
+    assert resp.status_code == 200
+    assert captured["settings"].igate.enabled is True
+
+
+def test_aprs_connect_auto_igate_stays_disabled_without_internet(tmp_path):
+    client = make_client(tmp_path)
+    configure_station_identity(client)
+    captured = {}
+
+    class CapturingAprsService(FakeAprsService):
+        def connect(self, settings, target, *, radio_settings=None, retune_resolver=None, interval_s=1.0):
+            captured["settings"] = settings
+            return super().connect(settings, target, radio_settings=radio_settings, retune_resolver=retune_resolver, interval_s=interval_s)
+
+    main.aprs_service = CapturingAprsService()
+    client.post("/api/v1/network", json={"internet_available": False})
+    client.post(
+        "/api/v1/aprs/log/settings",
+        json={
+            "log_enabled": False,
+            "log_max_records": 500,
+            "notify_incoming_messages": True,
+            "notify_all_packets": False,
+            "future_digipeater_enabled": False,
+            "future_igate_enabled": False,
+            "igate_auto_enable_with_internet": True,
+            "igate": {
+                "enabled": False,
+                "server_host": "rotate.aprs2.net",
+                "server_port": 14580,
+                "login_callsign": "VK4ABC-10",
+                "passcode": "12345",
+                "filter": "m/25",
+                "connect_timeout_s": 10,
+                "gate_terrestrial_rx": True,
+                "gate_satellite_rx": True,
+            },
+        },
+    )
+    client.post("/api/v1/aprs/session/select", json={"operating_mode": "satellite", "sat_id": "iss-zarya"})
+
+    resp = client.post("/api/v1/aprs/connect")
+    assert resp.status_code == 200
+    assert captured["settings"].igate.enabled is False
+
+
 def test_aprs_log_captures_received_packets_when_enabled(tmp_path):
     client = make_client(tmp_path)
     main.aprs_service = FakeAprsService()
@@ -2790,7 +2874,86 @@ def test_aprs_service_disables_digipeater_for_satellite_target():
     assert "disabled by policy" in str(runtime.digipeater_reason).lower()
     assert runtime.igate_requested is True
     assert runtime.igate_active is True
+    assert runtime.igate_status == "connecting"
+    assert runtime.igate_connected is False
+
+
+def test_aprs_service_marks_igate_connected_after_sidecar_feedback():
+    service = AprsService(
+        sidecar_factory=lambda: FakeDireWolfSidecar(),
+        kiss_factory=lambda host, port, cb: FakeKissClient(host, port, cb),
+        wait_for_socket_fn=lambda host, port, timeout: None,
+    )
+    settings = AprsSettings(
+        callsign="VK4ABC",
+        rig_model=RadioRigModel.id5100,
+        igate=AprsIgateSettings(enabled=True, login_callsign="VK4ABC-10", passcode="12345"),
+    )
+    target = AprsTargetState(
+        operating_mode=AprsOperatingMode.satellite,
+        label="ISS (ZARYA) | APRS",
+        sat_id="iss-zarya",
+        sat_name="ISS (ZARYA)",
+        channel_id="iss-zarya:seed:0",
+        channel_label="APRS",
+        frequency_hz=145825000,
+        path_default="ARISS",
+        can_transmit=False,
+        tx_block_reason="Satellite APRS transmit is only enabled during an active pass",
+    )
+
+    runtime = service.connect(settings, target)
+    assert runtime.igate_status == "connecting"
+    service._handle_sidecar_output("APRS-IS server login accepted")
+    runtime = service.runtime()
     assert runtime.igate_connected is True
+    assert runtime.igate_status == "connected"
+    assert runtime.igate_last_connect_at is not None
+
+
+def test_decode_tnc2_translates_position_packet():
+    event = decode_tnc2("VK4RSM-13>APTT4,WIDE1-1,WIDE2-2:!2743.06S/15252.71E#12.4V 22C Linked to VK4RAI")
+    assert event.packet_type == "position"
+    assert event.source == "VK4RSM-13"
+    assert event.destination == "APTT4"
+    assert event.path == ["WIDE1-1", "WIDE2-2"]
+    assert event.latitude == pytest.approx(-27.717666, rel=0, abs=0.001)
+    assert event.longitude == pytest.approx(152.8785, rel=0, abs=0.001)
+
+
+def test_aprs_service_parses_sidecar_packet_line_into_recent_packets():
+    service = AprsService()
+    service._handle_sidecar_output("[0.6] VK4RSM-13>APTT4,WIDE1-1,WIDE2-2:!2743.06S/15252.71E#12.4V 22C Linked to VK4RAI")
+    runtime = service.runtime()
+    assert runtime.recent_packets
+    packet = runtime.recent_packets[0]
+    assert packet.packet_type == "position"
+    assert packet.source == "VK4RSM-13"
+    assert packet.latitude == pytest.approx(-27.717666, rel=0, abs=0.001)
+
+
+def test_aprs_service_enriches_mic_e_sidecar_packet_with_translated_position():
+    service = AprsService()
+    service._handle_sidecar_output(r'[0.3] VK4MPB-7>RWS6ZL,WIDE1-1,WIDE2-1:`Q_1l"!K\>"4Z}^')
+    service._handle_sidecar_output("MIC-E, Kenwood HT (W), UNKNOWN vendor/model, Off Duty")
+    service._handle_sidecar_output("S 27 36.0000, E 153 07.2100, 0 km/h (0 MPH), course 74")
+    runtime = service.runtime()
+    assert runtime.recent_packets
+    packet = runtime.recent_packets[0]
+    assert packet.packet_type == "position"
+    assert packet.latitude == pytest.approx(-27.6, rel=0, abs=0.001)
+    assert packet.longitude == pytest.approx(153.120166, rel=0, abs=0.001)
+    assert "Mic-E position" in packet.text
+    assert "Off Duty" in packet.text
+    assert "course 74" in packet.text
+
+
+def test_aprs_service_captures_gateway_debug_lines():
+    service = AprsService()
+    service._handle_sidecar_output("Forward to APRS-IS server queued for packet")
+    runtime = service.runtime()
+    assert runtime.gateway_debug_lines
+    assert runtime.gateway_debug_lines[0] == "Forward to APRS-IS server queued for packet"
 
 
 def test_direwolf_start_uses_absolute_config_path(monkeypatch, tmp_path):

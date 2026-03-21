@@ -202,6 +202,7 @@ function buildWarnings() {
   if (!effectiveLocation(locationState)) warnings.push({ title: "Location unresolved", detail: "Pass predictions and terrestrial APRS defaults are degraded until a location is resolved." });
   if (aprsTarget?.requires_pass && !aprsTarget?.pass_active) warnings.push({ title: "Satellite APRS transmit blocked", detail: aprsTarget.tx_block_reason || "Transmit is only allowed during an active pass." });
   if (!aprsRuntime.connected) warnings.push({ title: "APRS offline", detail: "APRS runtime is disconnected." });
+  if (aprsRuntime.igate_status === "error") warnings.push({ title: "iGate error", detail: aprsRuntime.igate_last_error || "APRS-IS connection did not complete successfully." });
   return warnings;
 }
 
@@ -220,7 +221,12 @@ function updateRadioConnectButton() {
   if (note) toggleHidden(note, !dirty);
 }
 
-function updateAprsDrawer() {
+function updateAprsDrawer({ preserveDraft = false } = {}) {
+  const existingDrawer = document.getElementById("v2AprsDrawer");
+  const drawerHasFocus = !!(existingDrawer && document.activeElement && existingDrawer.contains(document.activeElement));
+  if (preserveDraft && (viewState.aprsDrawerDirty || drawerHasFocus)) {
+    return;
+  }
   trackerById("settingsV2DrawerHost").innerHTML = renderAprsDrawer({
     stateCache,
     viewState,
@@ -229,10 +235,20 @@ function updateAprsDrawer() {
 }
 
 function renderPanel({ preserveActiveDraft = false } = {}) {
+  const panel = trackerById("settingsV2Panel");
+  const activeElement = document.activeElement;
+  const panelHasFocusedField = !!(
+    panel
+    && activeElement
+    && panel.contains(activeElement)
+    && ["INPUT", "TEXTAREA", "SELECT"].includes(activeElement.tagName)
+  );
   if (preserveActiveDraft && viewState.dirtySections[viewState.activeSection]) {
     return;
   }
-  const panel = trackerById("settingsV2Panel");
+  if (preserveActiveDraft && panelHasFocusedField) {
+    return;
+  }
   const section = sections[viewState.activeSection];
   panel.innerHTML = section.render({
     stateCache,
@@ -254,7 +270,7 @@ function renderAll({ preserveActiveDraft = false } = {}) {
   updateNav();
   renderRuntimeRail();
   renderPanel({ preserveActiveDraft });
-  updateAprsDrawer();
+  updateAprsDrawer({ preserveDraft: preserveActiveDraft });
 }
 
 function applyRadioResponse(response) {
@@ -267,6 +283,7 @@ function applyRadioResponse(response) {
 }
 
 async function refreshState({ preserveDraft = false } = {}) {
+  const prevAprsRuntime = stateCache.aprs.runtime || {};
   const [
     issDisplayMode,
     satellites,
@@ -311,6 +328,17 @@ async function refreshState({ preserveDraft = false } = {}) {
   };
   stateCache.radioPorts = radioPorts.items || [];
   stateCache.audioDevices = aprsBundle.audioDevices || { inputs: [], outputs: [] };
+
+  const nextAprsRuntime = stateCache.aprs.runtime || {};
+  if (!prevAprsRuntime.igate_connected && nextAprsRuntime.igate_connected) {
+    recordEvent("iGate connected", nextAprsRuntime.igate_server || nextAprsRuntime.igate_reason || "APRS-IS login confirmed.");
+  } else if (
+    prevAprsRuntime.igate_status !== "error"
+    && nextAprsRuntime.igate_status === "error"
+    && nextAprsRuntime.igate_last_error
+  ) {
+    recordEvent("iGate error", nextAprsRuntime.igate_last_error);
+  }
 
   if (trackerRenderStationBadge) {
     trackerRenderStationBadge("stationBadge", system.stationIdentity, system.aprsSettings);
@@ -478,31 +506,33 @@ function aprsLogSettingsPayload() {
     notify_incoming_messages: trackerById("v2AprsNotifyMessages").checked,
     notify_all_packets: trackerById("v2AprsNotifyAllPackets").checked,
     digipeater: {
-      enabled: trackerById("v2AprsFutureDigipeater").checked,
-      aliases: trackerById("v2AprsDigipeaterAliases").value.split(",").map((item) => item.trim()).filter(Boolean),
+      enabled: trackerById("v2AprsFutureDigipeaterMain").checked,
+      aliases: trackerById("v2AprsDigipeaterAliasesMain").value.split(",").map((item) => item.trim()).filter(Boolean),
       max_hops: stateCache.aprsLogSettings.digipeater?.max_hops || 1,
-      dedupe_window_s: Number(trackerById("v2AprsDigipeaterDedupe").value || 30),
+      dedupe_window_s: Number(trackerById("v2AprsDigipeaterDedupeMain").value || 30),
       callsign_allowlist: stateCache.aprsLogSettings.digipeater?.callsign_allowlist || [],
       path_blocklist: stateCache.aprsLogSettings.digipeater?.path_blocklist || ["TCPIP", "TCPXX", "NOGATE", "RFONLY"],
     },
     igate: {
-      enabled: trackerById("v2AprsFutureIgate").checked,
-      server_host: trackerById("v2AprsIgateHost").value,
-      server_port: Number(trackerById("v2AprsIgatePort").value || 14580),
-      login_callsign: trackerById("v2AprsIgateLogin").value,
-      passcode: trackerById("v2AprsIgatePasscode").value,
-      filter: trackerById("v2AprsIgateFilter").value,
+      enabled: trackerById("v2AprsFutureIgateMain").checked,
+      server_host: trackerById("v2AprsIgateHostMain").value,
+      server_port: Number(trackerById("v2AprsIgatePortMain").value || 14580),
+      login_callsign: trackerById("v2AprsIgateLoginMain").value,
+      passcode: trackerById("v2AprsIgatePasscodeMain").value,
+      filter: trackerById("v2AprsIgateFilterMain").value,
       connect_timeout_s: stateCache.aprsLogSettings.igate?.connect_timeout_s || 10,
-      gate_terrestrial_rx: trackerById("v2AprsIgateTerrestrial").checked,
-      gate_satellite_rx: trackerById("v2AprsIgateSatellite").checked,
+      gate_terrestrial_rx: trackerById("v2AprsIgateTerrestrialMain").checked,
+      gate_satellite_rx: trackerById("v2AprsIgateSatelliteMain").checked,
     },
-    future_digipeater_enabled: trackerById("v2AprsFutureDigipeater").checked,
-    future_igate_enabled: trackerById("v2AprsFutureIgate").checked,
+    future_digipeater_enabled: trackerById("v2AprsFutureDigipeaterMain").checked,
+    future_igate_enabled: trackerById("v2AprsFutureIgateMain").checked,
+    igate_auto_enable_with_internet: trackerById("v2AprsIgateAutoEnableMain").checked,
   };
 }
 
 async function saveAprsSection() {
   await runAction("POST /api/v1/settings/aprs", () => aprsClient.saveAprsSettings(trackerApi, aprsSettingsPayload()));
+  await runAction("POST /api/v1/aprs/log/settings", () => aprsClient.saveLogSettings(trackerApi, aprsLogSettingsPayload()));
   viewState.aprsDraftMode = null;
   recordEvent("APRS settings saved", trackerById("v2AprsMode").value);
   await refreshState();
@@ -530,6 +560,7 @@ async function toggleAprsConnection() {
     return;
   }
   await runAction("POST /api/v1/settings/aprs", () => aprsClient.saveAprsSettings(trackerApi, aprsSettingsPayload()));
+  await runAction("POST /api/v1/aprs/log/settings", () => aprsClient.saveLogSettings(trackerApi, aprsLogSettingsPayload()));
   await runAction("POST /api/v1/aprs/select-target", async () => {
     const mode = trackerById("v2AprsMode").value;
     const payload = { operating_mode: mode };
@@ -548,6 +579,7 @@ async function toggleAprsConnection() {
 
 async function saveAprsLogSettingsSection() {
   await runAction("POST /api/v1/aprs/log/settings", () => aprsClient.saveLogSettings(trackerApi, aprsLogSettingsPayload()));
+  viewState.aprsDrawerDirty = false;
   recordEvent("APRS log settings saved", "Local storage and gateway settings updated.");
   await refreshState();
 }

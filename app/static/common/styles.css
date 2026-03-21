@@ -3201,6 +3201,32 @@ body.kiosk .aprs-heard-head {
   flex-wrap: wrap;
 }
 
+body.kiosk .aprs-heard-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+body.kiosk .aprs-heard-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+body.kiosk .aprs-heard-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(160, 226, 255, 0.16);
+  background: rgba(122, 197, 255, 0.08);
+  color: rgba(215, 238, 255, 0.72);
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 body.kiosk .aprs-heard-meta {
   color: rgba(224, 233, 255, 0.72);
   font-size: 0.82rem;

@@ -225,6 +225,7 @@ def _aprs_audio_devices() -> dict[str, list[dict[str, object]]]:
 
 def _pass_cache_key(
     *,
+    now: datetime,
     hours: int,
     resolved_location,
     sat_ids: set[str] | None,
@@ -233,8 +234,10 @@ def _pass_cache_key(
     include_ongoing: bool,
 ) -> str:
     sat_fragment = ",".join(sorted(sat_ids or [])) if sat_ids is not None else "*"
+    window_bucket = int(now.timestamp() // 300)
     return "|".join(
         [
+            f"bucket={window_bucket}",
             f"h={hours}",
             f"src={resolved_location.source}",
             f"lat={resolved_location.lat:.4f}",
@@ -463,6 +466,8 @@ def _apply_aprs_settings_update(current: AprsSettings, payload: AprsSettingsUpda
     if payload.future_igate_enabled is not None:
         next_settings.future_igate_enabled = payload.future_igate_enabled
         next_settings.igate.enabled = payload.future_igate_enabled
+    if payload.igate_auto_enable_with_internet is not None:
+        next_settings.igate_auto_enable_with_internet = payload.igate_auto_enable_with_internet
     if payload.baud_rate is not None:
         next_settings.baud_rate = payload.baud_rate
     if payload.kiss_port is not None:
@@ -497,6 +502,9 @@ def _resolved_location_for_aprs():
 
 def _effective_aprs_settings_for_connect(state) -> AprsSettings:
     settings = state.aprs_settings.model_copy(deep=True)
+    if settings.igate_auto_enable_with_internet and not settings.future_igate_enabled and not settings.igate.enabled:
+        has_igate_credentials = bool(settings.igate.login_callsign.strip() and settings.igate.passcode.strip())
+        settings.igate.enabled = bool(state.network.internet_available and has_igate_credentials)
     radio_runtime = radio_control_service.runtime()
     if radio_runtime.connected:
         settings.rig_model = state.radio_settings.rig_model
@@ -1116,6 +1124,7 @@ def get_passes(
     now = datetime.now(UTC)
     sat_ids = None if include_all_sats else _pass_sat_ids(state.settings)
     cache_key = _pass_cache_key(
+        now=now,
         hours=hours,
         resolved_location=location,
         sat_ids=sat_ids,
@@ -1486,6 +1495,7 @@ def get_aprs_log_settings() -> dict:
         "igate": settings.igate,
         "future_digipeater_enabled": settings.future_digipeater_enabled,
         "future_igate_enabled": settings.future_igate_enabled,
+        "igate_auto_enable_with_internet": settings.igate_auto_enable_with_internet,
     }
 
 
@@ -1502,6 +1512,7 @@ def post_aprs_log_settings(payload: AprsLogSettingsUpdate) -> dict:
         state.aprs_settings.igate = payload.igate
     state.aprs_settings.future_digipeater_enabled = payload.future_digipeater_enabled
     state.aprs_settings.future_igate_enabled = payload.future_igate_enabled
+    state.aprs_settings.igate_auto_enable_with_internet = payload.igate_auto_enable_with_internet
     state.aprs_settings.digipeater.enabled = payload.future_digipeater_enabled
     state.aprs_settings.igate.enabled = payload.future_igate_enabled
     try:

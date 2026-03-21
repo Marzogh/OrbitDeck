@@ -70,24 +70,7 @@ def _parse_position(text: str) -> tuple[float | None, float | None]:
     return lat, lon
 
 
-def decode_ui_frame(frame: bytes) -> AprsPacketEvent:
-    if len(frame) < 16:
-        raise ValueError("AX.25 frame too short")
-    addresses: list[str] = []
-    idx = 0
-    last = False
-    while not last:
-        if idx + 7 > len(frame):
-            raise ValueError("AX.25 address field truncated")
-        address, last = _decode_address(frame[idx:idx + 7])
-        addresses.append(address)
-        idx += 7
-    if idx + 2 > len(frame):
-        raise ValueError("AX.25 control field missing")
-    info = frame[idx + 2:].decode("ascii", errors="replace")
-    source = addresses[1].rstrip("*") if len(addresses) > 1 else "UNKNOWN"
-    destination = addresses[0].rstrip("*") if addresses else "APRS"
-    path = addresses[2:]
+def _decode_info_fields(info: str) -> tuple[str, str | None, str | None, float | None, float | None]:
     packet_type = "raw"
     addressee = None
     message_id = None
@@ -108,6 +91,28 @@ def decode_ui_frame(frame: bytes) -> AprsPacketEvent:
     elif info.startswith(">"):
         packet_type = "status"
         text = info[1:].strip()
+    return packet_type, addressee, message_id, latitude, longitude, text.strip()
+
+
+def decode_ui_frame(frame: bytes) -> AprsPacketEvent:
+    if len(frame) < 16:
+        raise ValueError("AX.25 frame too short")
+    addresses: list[str] = []
+    idx = 0
+    last = False
+    while not last:
+        if idx + 7 > len(frame):
+            raise ValueError("AX.25 address field truncated")
+        address, last = _decode_address(frame[idx:idx + 7])
+        addresses.append(address)
+        idx += 7
+    if idx + 2 > len(frame):
+        raise ValueError("AX.25 control field missing")
+    info = frame[idx + 2:].decode("ascii", errors="replace")
+    source = addresses[1].rstrip("*") if len(addresses) > 1 else "UNKNOWN"
+    destination = addresses[0].rstrip("*") if addresses else "APRS"
+    path = addresses[2:]
+    packet_type, addressee, message_id, latitude, longitude, text = _decode_info_fields(info)
     raw_tnc2 = f"{source}>{destination}"
     if path:
         raw_tnc2 += "," + ",".join(path)
@@ -124,6 +129,33 @@ def decode_ui_frame(frame: bytes) -> AprsPacketEvent:
         addressee=addressee,
         message_id=message_id,
         raw_tnc2=raw_tnc2,
+    )
+
+
+def decode_tnc2(raw_tnc2: str, *, received_at: datetime | None = None) -> AprsPacketEvent:
+    text = str(raw_tnc2 or "").strip()
+    if not text or ">" not in text or ":" not in text:
+        raise ValueError("TNC2 packet text is malformed")
+    head, info = text.split(":", 1)
+    source, route = head.split(">", 1)
+    parts = [part.strip() for part in route.split(",") if part.strip()]
+    if not parts:
+        raise ValueError("TNC2 packet destination is missing")
+    destination = parts[0].rstrip("*")
+    path = [part.rstrip("*") for part in parts[1:]]
+    packet_type, addressee, message_id, latitude, longitude, decoded_text = _decode_info_fields(info)
+    return AprsPacketEvent(
+        received_at=received_at or datetime.now(UTC),
+        source=source.strip().upper(),
+        destination=destination.strip().upper(),
+        path=path,
+        packet_type=packet_type,
+        text=decoded_text,
+        latitude=latitude,
+        longitude=longitude,
+        addressee=addressee,
+        message_id=message_id,
+        raw_tnc2=text,
     )
 
 

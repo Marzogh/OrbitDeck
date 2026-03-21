@@ -154,9 +154,12 @@ function renderGatewayPolicy() {
     `Digipeater: ${runtime.digipeater_active ? "active" : "inactive"}`,
     runtime.digipeater_reason || "no digipeater policy message",
     `iGate: ${runtime.igate_active ? "active" : "inactive"}`,
+    `Status: ${runtime.igate_status || (runtime.igate_connected ? "connected" : "disabled")}`,
     runtime.igate_reason || "no iGate policy message",
   ];
   if (runtime.igate_server) bits.push(`Server ${runtime.igate_server}`);
+  if (runtime.igate_connected && runtime.igate_last_connect_at) bits.push(`Connected ${new Date(runtime.igate_last_connect_at).toLocaleTimeString()}`);
+  if (runtime.igate_last_error) bits.push(`Last error ${runtime.igate_last_error}`);
   trackerById("aprsGatewayPolicyPage").textContent = bits.join(" | ");
 }
 
@@ -224,6 +227,7 @@ async function loadAprsPage() {
   trackerById("aprsDigipeaterMaxHopsPage").value = String(pageState.logSettings.digipeater?.max_hops ?? 1);
   trackerById("aprsDigipeaterDedupePage").value = String(pageState.logSettings.digipeater?.dedupe_window_s ?? 30);
   trackerById("aprsIgateEnabledPage").checked = !!pageState.logSettings.igate?.enabled;
+  trackerById("aprsIgateAutoEnablePage").checked = pageState.logSettings.igate_auto_enable_with_internet !== false;
   trackerById("aprsIgateHostPage").value = pageState.logSettings.igate?.server_host || "rotate.aprs2.net";
   trackerById("aprsIgatePortPage").value = String(pageState.logSettings.igate?.server_port || 14580);
   trackerById("aprsIgateLoginPage").value = pageState.logSettings.igate?.login_callsign || "";
@@ -326,6 +330,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       },
       future_digipeater_enabled: trackerById("aprsDigipeaterEnabledPage").checked,
       future_igate_enabled: trackerById("aprsIgateEnabledPage").checked,
+      igate_auto_enable_with_internet: trackerById("aprsIgateAutoEnablePage").checked,
     }));
     await loadAprsPage();
   });

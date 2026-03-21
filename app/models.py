@@ -213,6 +213,7 @@ class AprsSettings(BaseModel):
     igate: AprsIgateSettings = Field(default_factory=AprsIgateSettings)
     future_digipeater_enabled: bool = False
     future_igate_enabled: bool = False
+    igate_auto_enable_with_internet: bool = True
     selected_satellite_id: str | None = None
     selected_channel_id: str | None = None
     terrestrial_auto_region: bool = True
@@ -594,6 +595,8 @@ class AprsPacketEvent(BaseModel):
     longitude: float | None = None
     addressee: str | None = None
     message_id: str | None = None
+    digipeated: bool = False
+    igated: bool = False
     raw_tnc2: str
 
 
@@ -608,6 +611,8 @@ class AprsLogEntry(BaseModel):
     longitude: float | None = None
     addressee: str | None = None
     message_id: str | None = None
+    digipeated: bool = False
+    igated: bool = False
     raw_tnc2: str
 
 
@@ -651,6 +656,8 @@ class AprsRuntimeState(BaseModel):
     digipeater_reason: str | None = None
     igate_requested: bool = False
     igate_active: bool = False
+    igate_auto_enabled: bool = False
+    igate_status: str = "disabled"
     igate_connected: bool = False
     igate_reason: str | None = None
     igate_server: str | None = None
@@ -659,6 +666,7 @@ class AprsRuntimeState(BaseModel):
     target: AprsTargetState | None = None
     recent_packets: list[AprsPacketEvent] = Field(default_factory=list)
     heard_stations: list[AprsHeardStation] = Field(default_factory=list)
+    gateway_debug_lines: list[str] = Field(default_factory=list)
     sidecar_command: list[str] = Field(default_factory=list)
     output_tail: list[str] = Field(default_factory=list)
 
@@ -727,6 +735,7 @@ class AprsSettingsUpdate(BaseModel):
     igate: AprsIgateSettings | None = None
     future_digipeater_enabled: bool | None = None
     future_igate_enabled: bool | None = None
+    igate_auto_enable_with_internet: bool | None = None
     selected_satellite_id: str | None = None
     selected_channel_id: str | None = None
     terrestrial_path: str | None = None
@@ -802,6 +811,7 @@ class AprsLogSettingsUpdate(BaseModel):
     igate: AprsIgateSettings | None = None
     future_digipeater_enabled: bool = False
     future_igate_enabled: bool = False
+    igate_auto_enable_with_internet: bool = True
 
 
 class AprsLogClearRequest(BaseModel):

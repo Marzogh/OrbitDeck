@@ -7,7 +7,13 @@ function renderPacketRows(targetId, packets, emptyText) {
   return packets.map((packet, index) => `
     <button type="button" class="aprs-heard-row" data-aprs-packet-target="${targetId}" data-aprs-packet-index="${index}">
       <div class="aprs-heard-head">
-        <strong>${escapeHtml(packet.source || "--")}</strong>
+        <div class="aprs-heard-title">
+          <strong>${escapeHtml(packet.source || "--")}</strong>
+          <div class="aprs-heard-badges">
+            ${packet.digipeated ? '<span class="aprs-heard-badge">DIGI</span>' : ""}
+            ${packet.igated ? '<span class="aprs-heard-badge">IGATE</span>' : ""}
+          </div>
+        </div>
         <span class="aprs-heard-meta">${escapeHtml(packet.received_at ? new Date(packet.received_at).toLocaleTimeString() : "--")}</span>
       </div>
       <div class="aprs-heard-meta">${escapeHtml(aprsClient.packetDetail(packet))} | PATH ${escapeHtml(aprsClient.pathText(packet.path))}</div>
@@ -51,9 +57,31 @@ function summarizeTarget(stateCache) {
   return aprsClient.summarizeTarget(stateCache.aprs.previewTarget || stateCache.aprs.runtime?.target);
 }
 
+function gatewayStatusText(stateCache, overrides = {}) {
+  const aprsRuntime = stateCache.aprs.runtime || {};
+  const aprsLogSettings = stateCache.aprsLogSettings || {};
+  const digipeaterEnabled = overrides.digipeaterEnabled ?? aprsLogSettings.future_digipeater_enabled ?? false;
+  const igateEnabled = overrides.igateEnabled ?? aprsLogSettings.future_igate_enabled ?? false;
+  const server = overrides.server ?? aprsRuntime.igate_server;
+  const digipeaterState = aprsRuntime.digipeater_active
+    ? "Digipeater active"
+    : (digipeaterEnabled ? "Digipeater enabled" : "Digipeater inactive");
+  const igateState = aprsRuntime.igate_active
+    ? (
+      aprsRuntime.igate_status === "connected"
+        ? "iGate connected"
+        : aprsRuntime.igate_status === "error"
+          ? "iGate error"
+          : "iGate connecting"
+    )
+    : (igateEnabled ? "iGate enabled" : "iGate inactive");
+  return [digipeaterState, igateState, server || null].filter(Boolean).join(" | ");
+}
+
 export function renderAprsSection({ stateCache, viewState }) {
   const aprsSettings = stateCache.aprs.settings || {};
   const aprsRuntime = stateCache.aprs.runtime || {};
+  const aprsLogSettings = stateCache.aprsLogSettings || {};
   const radioRuntime = stateCache.radio.runtime || {};
   const targetSummary = summarizeTarget(stateCache);
   const lastTx = aprsRuntime.last_tx_raw_tnc2
@@ -63,6 +91,22 @@ export function renderAprsSection({ stateCache, viewState }) {
   const radioAprsState = aprsRuntime.connected
     ? "APRS connected"
     : (radioRuntime.connected ? "Radio ready for APRS" : "Radio unavailable for APRS");
+  const igateState = aprsRuntime.igate_active
+    ? (
+      aprsRuntime.igate_status === "connected"
+        ? "iGate connected"
+        : aprsRuntime.igate_status === "error"
+          ? "iGate error"
+          : "iGate connecting"
+    )
+    : "iGate inactive";
+  const igateMeta = [
+    igateState,
+    aprsRuntime.igate_auto_enabled ? "auto-enabled" : null,
+    aprsRuntime.igate_server || null,
+  ].filter(Boolean).join(" | ");
+  const gatewayStatus = gatewayStatusText(stateCache);
+  const gatewayPolicy = aprsRuntime.igate_reason || aprsRuntime.digipeater_reason || "Gateway features are idle.";
 
   return `
     <section class="settings-v2-screen">
@@ -84,6 +128,7 @@ export function renderAprsSection({ stateCache, viewState }) {
           <div class="settings-v2-aprs-bar-meta">
             <span class="settings-v2-summary-pill">${aprsRuntime.connected ? "Connected" : "Disconnected"}</span>
             <span class="settings-v2-inline-note">${escapeHtml(radioAprsState)} | ${escapeHtml(radioContextSummary(stateCache.radio.settings || {}))}</span>
+            <span class="settings-v2-inline-note">${escapeHtml(igateMeta)}</span>
           </div>
           <div class="settings-v2-section-actions">
             <button type="button" id="v2AprsConnectToggle" class="${aprsRuntime.connected ? "aprs-connect-red" : "aprs-connect-green"}">${aprsRuntime.connected ? "Disconnect" : "Connect"}</button>
@@ -159,6 +204,46 @@ export function renderAprsSection({ stateCache, viewState }) {
               <span>Satellite Comment</span>
               <input id="v2AprsSatelliteComment" type="text" placeholder="OrbitDeck Space APRS" />
             </label>
+          </div>
+        </article>
+
+        <article class="card settings-v2-card">
+          <div class="settings-v2-card-head">
+            <div>
+              <h3>Gateway Modes</h3>
+              <div class="settings-v2-card-note">Control APRS digipeating and APRS-IS forwarding.</div>
+            </div>
+            <button
+              type="button"
+              id="v2AprsGatewayAdvancedToggle"
+              class="settings-v2-inline-action"
+              aria-expanded="${viewState.aprsGatewayAdvanced ? "true" : "false"}"
+              aria-controls="v2AprsGatewayAdvanced"
+            >
+              ${viewState.aprsGatewayAdvanced ? "Hide Advanced" : "Show Advanced"}
+            </button>
+          </div>
+          <div class="settings-v2-toggle-grid">
+            <label class="settings-v2-toggle"><input id="v2AprsFutureDigipeaterMain" type="checkbox" ${aprsLogSettings.future_digipeater_enabled ? "checked" : ""} /> <span>Enable Digipeater<br /><small>Available only in terrestrial mode.</small></span></label>
+            <label class="settings-v2-toggle"><input id="v2AprsFutureIgateMain" type="checkbox" ${aprsLogSettings.future_igate_enabled ? "checked" : ""} /> <span>Enable RX-only iGate</span></label>
+            <label class="settings-v2-toggle"><input id="v2AprsIgateAutoEnableMain" type="checkbox" ${aprsLogSettings.igate_auto_enable_with_internet !== false ? "checked" : ""} /> <span>Auto-enable iGate when internet is available</span></label>
+            <label class="settings-v2-toggle"><input id="v2AprsIgateTerrestrialMain" type="checkbox" ${aprsLogSettings.igate?.gate_terrestrial_rx !== false ? "checked" : ""} /> <span>Gate terrestrial APRS RX</span></label>
+            <label class="settings-v2-toggle"><input id="v2AprsIgateSatelliteMain" type="checkbox" ${aprsLogSettings.igate?.gate_satellite_rx !== false ? "checked" : ""} /> <span>Gate satellite APRS RX</span></label>
+          </div>
+          <div id="v2AprsGatewayAdvanced" class="settings-v2-form-grid ${viewState.aprsGatewayAdvanced ? "" : "hidden"}">
+            <label><span>Digipeater Aliases</span><input id="v2AprsDigipeaterAliasesMain" type="text" value="${escapeHtml((aprsLogSettings.digipeater?.aliases || ["WIDE1-1"]).join(","))}" /></label>
+            <label><span>Duplicate Window (s)</span><input id="v2AprsDigipeaterDedupeMain" type="number" min="1" max="600" step="1" value="${escapeHtml(String(aprsLogSettings.digipeater?.dedupe_window_s || 30))}" /></label>
+            <label><span>APRS-IS Host</span><input id="v2AprsIgateHostMain" type="text" value="${escapeHtml(aprsLogSettings.igate?.server_host || "rotate.aprs2.net")}" /></label>
+            <label><span>APRS-IS Port</span><input id="v2AprsIgatePortMain" type="number" min="1" max="65535" step="1" value="${escapeHtml(String(aprsLogSettings.igate?.server_port || 14580))}" /></label>
+            <label><span>Login Callsign</span><input id="v2AprsIgateLoginMain" type="text" value="${escapeHtml(aprsLogSettings.igate?.login_callsign || "")}" /></label>
+            <label><span>Passcode</span><input id="v2AprsIgatePasscodeMain" type="password" value="${escapeHtml(aprsLogSettings.igate?.passcode || "")}" /></label>
+            <label class="settings-v2-span-2"><span>Filter</span><input id="v2AprsIgateFilterMain" type="text" value="${escapeHtml(aprsLogSettings.igate?.filter || "m/25")}" /></label>
+          </div>
+          <div class="settings-v2-note-card">
+            <strong>Gateway Status</strong>
+            <div id="v2AprsGatewayStatusLine" class="settings-v2-inline-note">${escapeHtml(gatewayStatus)}</div>
+            <div id="v2AprsGatewayPolicyLine" class="settings-v2-inline-note">${escapeHtml(gatewayPolicy)}</div>
+            <div id="v2AprsGatewayErrorLine" class="settings-v2-inline-note ${aprsRuntime.igate_last_error ? "" : "hidden"}">${escapeHtml(aprsRuntime.igate_last_error ? `Last error: ${aprsRuntime.igate_last_error}` : "")}</div>
           </div>
         </article>
 
@@ -282,9 +367,14 @@ export function renderAprsSection({ stateCache, viewState }) {
             <div><span>Connection</span><strong>${aprsRuntime.connected ? "Connected" : "Disconnected"}</strong></div>
             <div><span>Target</span><strong>${escapeHtml(aprsRuntime.target?.label || "--")}</strong></div>
             <div><span>Modem</span><strong>${escapeHtml(aprsRuntime.modem_state || "--")}</strong></div>
+            <div><span>iGate Status</span><strong>${escapeHtml(aprsRuntime.igate_active ? (aprsRuntime.igate_status || "connecting") : "Inactive")}</strong></div>
+            <div><span>iGate Server</span><strong>${escapeHtml(aprsRuntime.igate_server || "--")}</strong></div>
+            <div><span>iGate Connected At</span><strong>${escapeHtml(aprsRuntime.igate_last_connect_at ? formatDateTime(aprsRuntime.igate_last_connect_at) : "--")}</strong></div>
+            <div><span>iGate Auto-Enable</span><strong>${aprsRuntime.igate_auto_enabled ? "Yes" : "No"}</strong></div>
+            <div><span>iGate Last Error</span><strong>${escapeHtml(aprsRuntime.igate_last_error || "None")}</strong></div>
             <div><span>Last Error</span><strong>${escapeHtml(aprsRuntime.last_error || "None")}</strong></div>
           </div>
-          <div class="settings-v2-inline-note">${escapeHtml(targetSummary.status)}</div>
+          <div class="settings-v2-inline-note">${escapeHtml(aprsRuntime.igate_reason || targetSummary.status)}</div>
         </article>
       </div>
 
@@ -376,6 +466,18 @@ function updatePositionPreview(stateCache) {
   preview.textContent = aprsClient.buildPositionPreview(stateCache, comment.value);
 }
 
+function updateGatewayStatusPreview(stateCache) {
+  const statusLine = document.getElementById("v2AprsGatewayStatusLine");
+  if (!statusLine) return;
+  statusLine.textContent = gatewayStatusText(stateCache, {
+    digipeaterEnabled: document.getElementById("v2AprsFutureDigipeaterMain")?.checked,
+    igateEnabled: document.getElementById("v2AprsFutureIgateMain")?.checked,
+    server: document.getElementById("v2AprsIgateHostMain")?.value
+      ? `${document.getElementById("v2AprsIgateHostMain").value}:${document.getElementById("v2AprsIgatePortMain")?.value || 14580}`
+      : (stateCache.aprs.runtime?.igate_server || null),
+  });
+}
+
 function showAprsTab(viewState, tab) {
   viewState.activeAprsTab = tab;
   document.querySelectorAll("[data-aprs-tab]").forEach((button) => {
@@ -429,6 +531,14 @@ export function bindAprsSection(ctx) {
   const wifiManaged = aprsClient.isWifiManaged(ctx.stateCache.radio.settings || {});
   document.getElementById("v2AprsAudioInputField").classList.toggle("hidden", wifiManaged);
   document.getElementById("v2AprsAudioOutputField").classList.toggle("hidden", wifiManaged);
+  document.getElementById("v2AprsGatewayAdvancedToggle").addEventListener("click", () => {
+    ctx.viewState.aprsGatewayAdvanced = !ctx.viewState.aprsGatewayAdvanced;
+    const panel = document.getElementById("v2AprsGatewayAdvanced");
+    const button = document.getElementById("v2AprsGatewayAdvancedToggle");
+    panel.classList.toggle("hidden", !ctx.viewState.aprsGatewayAdvanced);
+    button.textContent = ctx.viewState.aprsGatewayAdvanced ? "Hide Advanced" : "Show Advanced";
+    button.setAttribute("aria-expanded", ctx.viewState.aprsGatewayAdvanced ? "true" : "false");
+  });
 
   document.querySelectorAll("[data-aprs-mode]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -449,6 +559,18 @@ export function bindAprsSection(ctx) {
   document.getElementById("v2AprsPositionComment").addEventListener("input", () => updatePositionPreview(ctx.stateCache));
   document.getElementById("v2AprsPositionFudgeLat").addEventListener("input", () => updatePositionPreview(ctx.stateCache));
   document.getElementById("v2AprsPositionFudgeLon").addEventListener("input", () => updatePositionPreview(ctx.stateCache));
+  [
+    "v2AprsFutureDigipeaterMain",
+    "v2AprsFutureIgateMain",
+    "v2AprsIgateHostMain",
+    "v2AprsIgatePortMain",
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("input", () => updateGatewayStatusPreview(ctx.stateCache));
+    el.addEventListener("change", () => updateGatewayStatusPreview(ctx.stateCache));
+  });
+  updateGatewayStatusPreview(ctx.stateCache);
 
   document.querySelectorAll("[data-aprs-filter]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -550,24 +672,6 @@ export function renderAprsDrawer({ stateCache, viewState }) {
             <button id="v2AprsExportJson" type="button">Export JSON</button>
             <button id="v2AprsClearLog" type="button">Clear Stored Log</button>
           </div>
-          <details class="settings-v2-note-card">
-            <summary>Gateway Modes</summary>
-            <div class="settings-v2-toggle-grid">
-              <label class="settings-v2-toggle"><input id="v2AprsFutureDigipeater" type="checkbox" ${stateCache.aprsLogSettings.future_digipeater_enabled ? "checked" : ""} /> <span>Enable digipeater mode</span></label>
-              <label class="settings-v2-toggle"><input id="v2AprsFutureIgate" type="checkbox" ${stateCache.aprsLogSettings.future_igate_enabled ? "checked" : ""} /> <span>Enable RX-only iGate mode</span></label>
-              <label class="settings-v2-toggle"><input id="v2AprsIgateTerrestrial" type="checkbox" ${stateCache.aprsLogSettings.igate?.gate_terrestrial_rx !== false ? "checked" : ""} /> <span>Gate terrestrial APRS RX</span></label>
-              <label class="settings-v2-toggle"><input id="v2AprsIgateSatellite" type="checkbox" ${stateCache.aprsLogSettings.igate?.gate_satellite_rx !== false ? "checked" : ""} /> <span>Gate satellite APRS RX</span></label>
-            </div>
-            <div class="settings-v2-form-grid">
-              <label><span>Digipeater Aliases</span><input id="v2AprsDigipeaterAliases" type="text" value="${escapeHtml((stateCache.aprsLogSettings.digipeater?.aliases || ["WIDE1-1"]).join(","))}" /></label>
-              <label><span>Duplicate Window (s)</span><input id="v2AprsDigipeaterDedupe" type="number" min="1" max="600" step="1" value="${escapeHtml(String(stateCache.aprsLogSettings.digipeater?.dedupe_window_s || 30))}" /></label>
-              <label><span>APRS-IS Host</span><input id="v2AprsIgateHost" type="text" value="${escapeHtml(stateCache.aprsLogSettings.igate?.server_host || "rotate.aprs2.net")}" /></label>
-              <label><span>APRS-IS Port</span><input id="v2AprsIgatePort" type="number" min="1" max="65535" step="1" value="${escapeHtml(String(stateCache.aprsLogSettings.igate?.server_port || 14580))}" /></label>
-              <label><span>Login Callsign</span><input id="v2AprsIgateLogin" type="text" value="${escapeHtml(stateCache.aprsLogSettings.igate?.login_callsign || "")}" /></label>
-              <label><span>Passcode</span><input id="v2AprsIgatePasscode" type="password" value="${escapeHtml(stateCache.aprsLogSettings.igate?.passcode || "")}" /></label>
-              <label><span>Filter</span><input id="v2AprsIgateFilter" type="text" value="${escapeHtml(stateCache.aprsLogSettings.igate?.filter || "m/25")}" /></label>
-            </div>
-          </details>
         </div>
         <pre id="v2AprsPacketDetail" class="mono settings-v2-runtime-log">${escapeHtml(detail ? pretty(detail) : "Select a packet row for details.")}</pre>
       </section>
@@ -579,10 +683,12 @@ export function bindAprsDrawer(ctx) {
   const drawer = document.getElementById("v2AprsDrawer");
   if (!drawer) return;
   document.getElementById("v2AprsCloseInbox").addEventListener("click", () => {
+    ctx.viewState.aprsDrawerDirty = false;
     drawer.classList.add("hidden");
     drawer.setAttribute("aria-hidden", "true");
   });
   drawer.querySelector("[data-aprs-drawer-close]").addEventListener("click", () => {
+    ctx.viewState.aprsDrawerDirty = false;
     drawer.classList.add("hidden");
     drawer.setAttribute("aria-hidden", "true");
   });
@@ -609,6 +715,15 @@ export function bindAprsDrawer(ctx) {
   bindPacketRows("v2AprsDrawerRecent", (ctx.stateCache.aprsLog.items || []).slice(0, 20));
   bindPacketRows("v2AprsDrawerMessages", (ctx.stateCache.aprsLog.items || []).filter((packet) => packet.packet_type === "message").slice(0, 20));
 
+  drawer.querySelectorAll("input, select, textarea").forEach((el) => {
+    el.addEventListener("input", () => {
+      ctx.viewState.aprsDrawerDirty = true;
+    });
+    el.addEventListener("change", () => {
+      ctx.viewState.aprsDrawerDirty = true;
+    });
+  });
+
   const save = document.getElementById("v2AprsSaveLogSettings");
   if (save) save.addEventListener("click", ctx.saveAprsLogSettingsSection);
   const csv = document.getElementById("v2AprsExportCsv");
@@ -618,6 +733,7 @@ export function bindAprsDrawer(ctx) {
   const clear = document.getElementById("v2AprsClearLog");
   if (clear) {
     clear.addEventListener("click", async () => {
+      ctx.viewState.aprsDrawerDirty = false;
       await ctx.runAction("POST /api/v1/aprs/log/clear", () => ctx.trackerApi.post("/api/v1/aprs/log/clear", { age_bucket: document.getElementById("v2AprsClearAge").value }));
       ctx.recordEvent("APRS log cleared", document.getElementById("v2AprsClearAge").value);
       await ctx.refreshState();

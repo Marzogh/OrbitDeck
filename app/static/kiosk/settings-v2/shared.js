@@ -36,6 +36,7 @@ export const viewState = {
   activeAprsTab: "configuration",
   aprsSendTab: "message",
   aprsDrawerTab: "recent",
+  aprsDrawerDirty: false,
   heardFilter: "all",
   displayValidation: {},
   recentEvents: [],

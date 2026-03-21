@@ -38,7 +38,8 @@ let fetchStateRequestId = 0;
 const trailPoints = [];
 const pathCache = new Map();
 const STARTUP_LOG_LIMIT = 10;
-const STARTUP_GET_RETRY_DELAYS_MS = [250, 750];
+const STARTUP_GET_RETRY_DELAYS_MS = [250, 750, 1500, 3000];
+const STARTUP_RECOVERY_RETRY_MS = 3000;
 const startupLines = [];
 let rotatorActionError = "";
 let aprsSceneState = { packetHighlights: new Map(), lastFeedKeys: [] };
@@ -325,6 +326,29 @@ async function getWithRetry(path, report = null) {
     }
   }
   throw lastErr || new Error(`GET ${path} failed`);
+}
+
+async function bootRotatorUntilReady() {
+  for (;;) {
+    try {
+      await fetchState(setStartupStatus);
+      chooseScene();
+      setStartupStatus("Initial render ready", "Rotator console online");
+      window.setTimeout(() => setStartupVisible(false), 320);
+      return;
+    } catch (err) {
+      const msg = err && err.message ? err.message : String(err);
+      if (!isTransientFetchError(err)) {
+        throw err;
+      }
+      setStartupVisible(true);
+      setStartupStatus(
+        "Waiting for OrbitDeck backend",
+        `Startup fetch failed transiently: ${msg}. Retrying in ${Math.round(STARTUP_RECOVERY_RETRY_MS / 1000)}s`
+      );
+      await sleep(STARTUP_RECOVERY_RETRY_MS);
+    }
+  }
 }
 
 function pinnedRadioStatusLine(session, runtime) {
@@ -2319,10 +2343,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     syncDevSettingsLink();
     tickClock();
     setInterval(tickClock, 1000);
-    await fetchState(setStartupStatus);
-    chooseScene();
-    setStartupStatus("Initial render ready", "Rotator console online");
-    window.setTimeout(() => setStartupVisible(false), 320);
+    await bootRotatorUntilReady();
     document.body.addEventListener("click", (event) => {
       const clicked = event.target;
       if (!(clicked instanceof HTMLElement)) return;
