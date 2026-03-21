@@ -46,7 +46,7 @@ OrbitDeck treats `VFO A` and `VFO B` on the IC-705 as absolute identities.
 
 That matters because the radio's raw CI-V reads expose selected and unselected VFO state. OrbitDeck maps those reads back into absolute `A/B` slots instead of presenting selected and unselected values as if they were stable labels.
 
-Current behavior:
+Behaviour:
 
 - on connect, OrbitDeck explicitly selects `VFO A`
 - poll logic maps selected and unselected readback into absolute `VFO A` and `VFO B`
@@ -179,7 +179,7 @@ Supported ranges:
 - VHF: `144.000 MHz` to `148.000 MHz`
 - UHF: `420.000 MHz` to `450.000 MHz`
 
-Current behavior:
+Behaviour:
 
 - a recommendation is eligible if either side lands in the supported VHF/UHF range
 - receive-only downlink recommendations remain eligible when the downlink is in range

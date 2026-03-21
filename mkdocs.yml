@@ -27,6 +27,7 @@ nav:
       - Overview: api/index.md
       - HTTP API: api/http-api.md
       - Settings: api/settings.md
+      - APRS: api/aprs.md
       - Radio Control: api/radio-control.md
       - Frequency Guidance: api/frequency-guidance-model.md
       - Lite Snapshot: api/lite-snapshot-model.md

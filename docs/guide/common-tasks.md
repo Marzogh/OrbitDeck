@@ -39,6 +39,72 @@ AMSAT summaries are grouped as:
 2. Use the focused layout to follow the active or upcoming pass.
 3. Read the hemisphere view and frequency guidance together.
 
+## Configure APRS station identity and target selection
+
+1. Open `/aprs` or the APRS section inside `/settings`.
+2. Set the station callsign and SSID.
+3. Choose `terrestrial` or `satellite` mode.
+4. In terrestrial mode, save the local APRS frequency and path.
+5. In satellite mode, select the target satellite and channel.
+6. Save settings before connecting.
+
+Notes:
+
+- satellite APRS transmit remains gated by pass state and target eligibility
+- terrestrial APRS does not use the satellite pass gate
+
+## Connect APRS and confirm runtime
+
+1. Open `/aprs`.
+2. Save the APRS settings and target selection.
+3. Use `Connect APRS`.
+4. Confirm the runtime panel shows `connected: true`.
+5. Check the target summary, heard list, and packet counters.
+
+Notes:
+
+- a connected APRS session can still report transport or sidecar problems through `last_error`, `modem_state`, `kiss_connected`, and `output_tail`
+- Wi-Fi APRS and USB APRS use different runtime transport fields
+
+## Send an APRS message, status, or position packet
+
+1. Connect APRS.
+2. Use the send tabs on `/aprs`.
+3. Enter the destination callsign and text for a message, or enter status/position content.
+4. Send the packet.
+5. Check the runtime counters and the recent packet list.
+
+Relevant APIs:
+
+- `POST /api/v1/aprs/send/message`
+- `POST /api/v1/aprs/send/status`
+- `POST /api/v1/aprs/send/position`
+
+## Export or clear the APRS receive log
+
+1. Open `/aprs`.
+2. Use the stored-log actions to export CSV or JSON.
+3. Use the clear action when you want to prune the local receive history.
+
+Relevant APIs:
+
+- `GET /api/v1/aprs/log/export.csv`
+- `GET /api/v1/aprs/log/export.json`
+- `POST /api/v1/aprs/log/clear`
+
+## Check Dire Wolf install state
+
+1. Open `/aprs`.
+2. Read the Dire Wolf status card.
+3. If the binary is missing on macOS, use the install action or terminal launcher.
+4. Recheck the status after install.
+
+Relevant APIs:
+
+- `GET /api/v1/aprs/direwolf/status`
+- `POST /api/v1/aprs/direwolf/install`
+- `POST /api/v1/aprs/direwolf/install-terminal`
+
 ## Connect a rig and confirm CI-V readback
 
 1. Open `/radio`.
@@ -47,7 +113,7 @@ AMSAT summaries are grouped as:
 4. Poll the rig.
 5. Confirm that the runtime payload shows `connected: true` and current VFO state.
 
-Important detail:
+Notes:
 
 - a successful connect means OrbitDeck opened the device
 - a successful poll means OrbitDeck exchanged usable CI-V state with the rig
@@ -80,7 +146,7 @@ Relevant API:
 
 - `POST /api/v1/radio/pair`
 
-Current IC-705 behavior:
+IC-705 mapping:
 
 - OrbitDeck writes the uplink to `VFO A`
 - OrbitDeck writes the downlink to `VFO B`
@@ -130,11 +196,24 @@ What this can refresh:
 - ephemeris, when refresh succeeds
 - AMSAT status, when outside the 12-hour guard window
 
+## Clear and rebuild the pass cache
+
+Use this when pass predictions look stale after a location change, target change, or APRS target-selection session.
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/passes/cache/refresh"
+```
+
+Notes:
+
+- this clears the persisted pass cache and forces the next pass query to rebuild it
+- it does not replace the normal catalog refresh endpoints
+
 ## Change which satellites lite tracks
 
 Open `/lite/settings` and change the tracked set.
 
-Important behavior:
+Notes:
 
 - lite computes only the tracked satellites
 - the API enforces a maximum of 8 tracked satellites

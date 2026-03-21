@@ -1,15 +1,16 @@
 # OrbitDeck
 
-OrbitDeck is a cross-platform amateur-satellite operations dashboard. It combines live tracking, pass prediction, RF metadata, ISS visibility/video state, and AMSAT operational-status comparison behind a FastAPI backend with multiple web UIs.
+OrbitDeck is a cross-platform amateur-satellite operations dashboard. It combines live tracking, pass prediction, RF metadata, APRS operation, ISS visibility/video state, and AMSAT operational-status comparison behind a FastAPI backend with multiple web UIs.
 
 OrbitDeck currently supports:
 - rotator/operator landing UI at `/`
 - kiosk UI at `/kiosk`
 - lite/mobile UI at `/lite`
 - lite settings UI at `/lite/settings`
+- APRS console at `/aprs`
 - radio control UI at `/radio`
 - rotator/operator UI at `/kiosk-rotator`
-- settings UI at `/settings`
+- settings-v2 UI at `/settings`
 
 macOS is supported for local development and windowed use, and this project has been exercised on macOS in that mode. Raspberry Pi is the intended kiosk deployment target. On Pi Zero-class hardware, OrbitDeck automatically serves the lite UI instead of the full kiosk and rotator surfaces.
 
@@ -55,6 +56,10 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 - RF metadata merged from cached catalog data and source refreshes
 - Shared Doppler-aware frequency guidance across kiosk, rotator, and lite
 - Frequency recommendations support FM and linear satellites, including phase-aware guide matrices for linear transponders
+- APRS target resolution for terrestrial and satellite packet operation
+- APRS local logging, packet history export, live heard-station summaries, and packet notifications
+- APRS digipeater and RX-only iGate configuration backed by Dire Wolf
+- IC-705 Wi-Fi APRS transport using native LAN CAT/PTT/audio control and local decode-only Dire Wolf receive
 - Native Icom CI-V rig control for direct validation and pass-driven control workflows
 - Dedicated `/radio` page for serial-port setup, connect/poll checks, manual VFO writes, and manual uplink/downlink pair testing
 - Rotator-embedded radio-control sessions for selecting a pass, testing the default pair, arming before AOS, and tracking until LOS
@@ -67,15 +72,18 @@ python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --por
 - Manual location profiles
 - Browser geolocation
 - GPS configuration for USB or Bluetooth receivers
-- Persisted settings for ISS display mode, tracked satellite selection, timezone, pass filter/favorites, cache policy, and developer overrides
-- The kiosk settings screen exposes display mode, tracked satellite selection, pass filters, location-source inputs, timezone, video source overrides, and direct navigation back to the kiosk or rotator view
+- Persisted settings for ISS display mode, tracked satellite selection, timezone, pass filter/favorites, cache policy, APRS, radio, and developer overrides
+- The standard settings route now serves the `settings-v2` console on non-lite hardware
+- `settings-v2` groups overview, radio, location, tracking, display, APRS, and developer controls into one operator surface
 
 ### UI surfaces
 - Main kiosk screen for large displays
 - Rotator/operator screen for tracking-focused presentation, including the pass globe/hemisphere view and radio-ops telemetry layout
+- Dedicated APRS console for target selection, send actions, log export, and Dire Wolf install/status checks
 - Dedicated radio-control screen for rig validation and CI-V state inspection
 - Lite/mobile screen optimized for remote use on phones and low-powered devices
 - Separate lite settings screen for tracked satellites, focus, timezone, and location/GPS configuration
+- `settings-v2` replaces the old standard settings page while `/internal/settings-legacy` keeps the older kiosk settings UI available for internal reference
 - Lite includes a first-run setup gate, a single focus-card sky compass, and selected-pass AOS cues for upcoming passes
 - Lite offline shell/API caching with stale snapshot fallback behavior
 
@@ -99,12 +107,13 @@ Open:
 - Kiosk UI: [http://127.0.0.1:8000/kiosk](http://127.0.0.1:8000/kiosk)
 - Lite UI: [http://127.0.0.1:8000/lite](http://127.0.0.1:8000/lite)
 - Lite settings UI: [http://127.0.0.1:8000/lite/settings](http://127.0.0.1:8000/lite/settings)
+- APRS console: [http://127.0.0.1:8000/aprs](http://127.0.0.1:8000/aprs)
 - Radio control UI: [http://127.0.0.1:8000/radio](http://127.0.0.1:8000/radio)
 - Rotator UI: [http://127.0.0.1:8000/kiosk-rotator](http://127.0.0.1:8000/kiosk-rotator)
-- Settings UI: [http://127.0.0.1:8000/settings](http://127.0.0.1:8000/settings)
+- Settings-v2 UI: [http://127.0.0.1:8000/settings](http://127.0.0.1:8000/settings)
 - API docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
-What to expect on macOS:
+macOS validation:
 - the FastAPI app server runs normally
 - the launcher opens a windowed browser session
 - the web UIs and API docs are usable for local development
@@ -123,9 +132,10 @@ Open from another device on your network:
 - Rotator landing UI: `http://<pi-ip>:8000/`
 - Kiosk UI: `http://<pi-ip>:8000/kiosk`
 - Lite UI: `http://<pi-ip>:8000/lite`
+- APRS console: `http://<pi-ip>:8000/aprs`
 - Radio control UI: `http://<pi-ip>:8000/radio`
 - Rotator UI: `http://<pi-ip>:8000/kiosk-rotator`
-- Settings UI: `http://<pi-ip>:8000/settings`
+- Settings-v2 UI: `http://<pi-ip>:8000/settings`
 - API docs: `http://<pi-ip>:8000/docs`
 
 ### Direct `uvicorn` alternative
@@ -148,8 +158,10 @@ OrbitDeck exposes a broader API than the UI uses directly. Full schema details a
 - `/kiosk` main kiosk UI
 - `/lite` lite/mobile UI
 - `/lite/settings` lite settings UI
+- `/aprs` APRS console
 - `/radio` radio control UI
-- `/settings` kiosk settings UI, or lite on Pi Zero-class devices
+- `/settings` settings-v2 UI, or lite on Pi Zero-class devices
+- `/settings-v2` redirect to `/settings`
 - `/kiosk-rotator` rotator/operator UI, or lite on Pi Zero-class devices
 
 ### Health and system state
@@ -173,9 +185,33 @@ OrbitDeck exposes a broader API than the UI uses directly. Full schema details a
 - `GET/POST /api/v1/settings/pass-filter`
 - `GET/POST /api/v1/settings/gps`
 - `GET/POST /api/v1/settings/radio`
+- `GET/POST /api/v1/settings/aprs`
 - `GET/POST /api/v1/location`
 - `GET/POST /api/v1/network`
 - `GET/POST /api/v1/cache-policy`
+
+### APRS
+- `GET /api/v1/aprs/state`
+- `GET /api/v1/aprs/log/settings`
+- `POST /api/v1/aprs/log/settings`
+- `GET /api/v1/aprs/log`
+- `POST /api/v1/aprs/log/clear`
+- `GET /api/v1/aprs/log/export.csv`
+- `GET /api/v1/aprs/log/export.json`
+- `GET /api/v1/aprs/ports`
+- `GET /api/v1/aprs/audio-devices`
+- `GET /api/v1/aprs/direwolf/status`
+- `POST /api/v1/aprs/direwolf/install`
+- `POST /api/v1/aprs/direwolf/install-terminal`
+- `GET /api/v1/aprs/targets`
+- `POST /api/v1/aprs/select-target`
+- `POST /api/v1/aprs/session/select`
+- `POST /api/v1/aprs/connect`
+- `POST /api/v1/aprs/disconnect`
+- `POST /api/v1/aprs/panic-unkey`
+- `POST /api/v1/aprs/send/message`
+- `POST /api/v1/aprs/send/status`
+- `POST /api/v1/aprs/send/position`
 
 ### Radio control
 - `GET /api/v1/radio/state`
@@ -197,6 +233,7 @@ OrbitDeck exposes a broader API than the UI uses directly. Full schema details a
 - `POST /api/v1/radio/auto-track/stop`
 
 ### Refresh and history
+- `POST /api/v1/passes/cache/refresh`
 - `POST /api/v1/datasets/refresh`
 - `POST /api/v1/snapshots/record`
 
@@ -205,10 +242,12 @@ OrbitDeck exposes a broader API than the UI uses directly. Full schema details a
 - `data/ephemeris/de421.bsp` is intentionally bundled so planetary/sky calculations work on first run
 - `data/state.json` is created locally at runtime to persist settings and state
 - `data/snapshots/*.json` are local cache artifacts created as the app refreshes or records data
+- `data/aprs/received_log.jsonl` is the local APRS receive log when APRS local logging is enabled
 - Satellite catalog refresh can use remote sources with cached fallback data
 - AMSAT operational-status refresh is throttled to a minimum 12-hour interval
 - Lite mode keeps a cached shell/API snapshot strategy for remote/mobile use when connectivity is unreliable
 - Lite snapshot requests are bounded to the configured tracked satellites instead of the full amateur catalog
+- Pass predictions also maintain a persisted cache and can be invalidated with `POST /api/v1/passes/cache/refresh`
 
 ## Lite Mode Notes
 
@@ -235,6 +274,17 @@ OrbitDeck exposes a broader API than the UI uses directly. Full schema details a
 - Receive-only downlink recommendations remain eligible when the downlink is inside the supported VHF/UHF range
 - The IC-705 controller keeps `VFO A` and `VFO B` as absolute identities, rather than exposing selected/unselected reads as fixed labels
 
+## APRS
+
+- `/aprs` is the dedicated APRS console for connect, send, log, and export actions
+- `/settings` now includes a full APRS section inside the `settings-v2` console
+- APRS supports `terrestrial` and `satellite` operating modes
+- Satellite APRS targets can expose Doppler-corrected UHF frequencies, active-pass state, and transmit gating
+- Dire Wolf is used as the local decode/TNC sidecar in USB mode and as the decode-only receive sidecar in Wi-Fi APRS mode
+- Wi-Fi APRS currently targets the IC-705 and uses LAN CAT/PTT/audio control with native Bell 202 AFSK TX generated inside OrbitDeck
+- APRS local logging supports listing, clearing by age bucket, and CSV/JSON export
+- Digipeater and RX-only iGate settings are part of the APRS settings model
+
 ## Testing and Validation
 
 Backend tests:
@@ -251,6 +301,8 @@ node --check app/static/lite/sw.js
 node --check app/static/kiosk/kiosk.js
 node --check app/static/kiosk/rotator.js
 node --check app/static/kiosk/radio.js
+node --check app/static/kiosk/aprs.js
+node --check app/static/kiosk/settings-v2.js
 ```
 
 Validation status:

@@ -61,16 +61,27 @@ This route serves the lite-specific configuration surface. It exposes:
 
 ## `/settings`
 
-On standard hardware this route serves the kiosk settings surface. That UI exposes:
+On standard hardware this route serves the `settings-v2` surface. That UI exposes:
 
+- overview and runtime status
+- radio configuration
 - ISS display mode
 - tracked satellite and pass filter controls
 - location source inputs
 - timezone controls
+- APRS setup, send tools, local logging controls, digipeater, and iGate controls
 - video source overrides
 - developer override controls for rotator debugging and scene forcing
 
 On Pi Zero-class hardware, `/settings` serves the lite settings surface instead.
+
+## `/settings-v2`
+
+This route redirects to `/settings`. Use it when you are following older notes or bookmarks.
+
+## `/internal/settings-legacy`
+
+This route serves the previous kiosk settings page on standard hardware. It is kept for internal reference while `settings-v2` remains the standard operator settings surface.
 
 ## `/radio`
 
@@ -84,3 +95,19 @@ Primary content:
 - raw runtime and response payloads for connect, poll, write, and pair actions
 
 Use `/radio` when you want to validate the hardware link and CI-V behavior directly. Use `/kiosk-rotator` when you want OrbitDeck to manage a selected pass.
+
+## `/aprs`
+
+This route is the dedicated APRS console.
+
+Primary content:
+
+- station identity and operating-mode controls
+- terrestrial or satellite APRS target selection
+- Dire Wolf install and status checks
+- connect, disconnect, and panic-unkey controls
+- message, status, and position send tools
+- heard-packet summaries and stored-log export/clear actions
+- digipeater and iGate settings
+
+Use `/aprs` when you want the full APRS operating surface. Use the APRS section in `/settings` when you want the same configuration and runtime information inside the combined settings-v2 console.

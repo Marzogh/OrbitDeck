@@ -18,8 +18,11 @@ Replace that host and port as needed.
 - [`GET /kiosk`](http://127.0.0.1:8000/kiosk)
 - [`GET /lite`](http://127.0.0.1:8000/lite)
 - [`GET /lite/settings`](http://127.0.0.1:8000/lite/settings)
+- [`GET /aprs`](http://127.0.0.1:8000/aprs)
 - [`GET /radio`](http://127.0.0.1:8000/radio)
 - [`GET /settings`](http://127.0.0.1:8000/settings)
+- [`GET /settings-v2`](http://127.0.0.1:8000/settings-v2)
+- [`GET /internal/settings-legacy`](http://127.0.0.1:8000/internal/settings-legacy)
 - [`GET /kiosk-rotator`](http://127.0.0.1:8000/kiosk-rotator)
 
 ## Health
@@ -121,6 +124,29 @@ Representative response:
     "screen_state": "active",
     "control_state": "tracking_active",
     "is_eligible": true
+  },
+  "aprsSettings": {
+    "callsign": "VK4ABC",
+    "operating_mode": "satellite",
+    "selected_satellite_id": "iss-zarya"
+  },
+  "aprsRuntime": {
+    "connected": true,
+    "transport_mode": "wifi",
+    "modem_state": "direwolf-rx + native-afsk-tx",
+    "packets_rx": 12,
+    "packets_tx": 2
+  },
+  "aprsPreviewTarget": {
+    "operating_mode": "satellite",
+    "sat_id": "iss-zarya",
+    "label": "ISS APRS",
+    "can_transmit": false,
+    "tx_block_reason": "pass not active"
+  },
+  "stationIdentity": {
+    "valid": true,
+    "callsign": "VK4ABC-7"
   }
 }
 ```
@@ -131,6 +157,8 @@ Interpretation:
 - `activePass` is the matching current or next pass for that track
 - `frequencyRecommendation` and `frequencyMatrix` are described in [Frequency Guidance](frequency-guidance-model.md)
 - `radioSettings`, `radioRuntime`, and `radioControlSession` are the live radio-control summary blocks reused by the rotator UI
+- `aprsSettings`, `aprsRuntime`, and `aprsPreviewTarget` are the APRS summary blocks reused by `/aprs` and the APRS section inside `settings-v2`
+- `stationIdentity` reports whether the saved APRS callsign/SSID pair is currently valid enough for APRS send actions
 - `bodies` may also be present when ephemeris and Skyfield body-position support are available
 
 ## Satellites
@@ -578,6 +606,329 @@ Interpretation:
 
 - `rig_model`, `serial_device`, `baud_rate`, and `civ_address` are the minimum fields needed for a basic CI-V test session
 - `poll_interval_ms` and `auto_track_interval_ms` tune controller timing rather than frontend refresh cadence
+
+## APRS settings
+
+### `GET /api/v1/settings/aprs`
+
+Example:
+
+- [Open `/api/v1/settings/aprs`](http://127.0.0.1:8000/api/v1/settings/aprs)
+
+Representative response:
+
+```json
+{
+  "state": {
+    "callsign": "VK4ABC",
+    "ssid": 7,
+    "operating_mode": "satellite",
+    "selected_satellite_id": "iss-zarya",
+    "selected_channel_id": "fm-aprs",
+    "listen_only": false,
+    "log_enabled": true,
+    "digipeater": {
+      "enabled": false
+    },
+    "igate": {
+      "enabled": true,
+      "server_host": "rotate.aprs2.net"
+    }
+  }
+}
+```
+
+### `POST /api/v1/settings/aprs`
+
+Example request:
+
+```json
+{
+  "callsign": "VK4ABC",
+  "ssid": 7,
+  "operating_mode": "satellite",
+  "selected_satellite_id": "iss-zarya",
+  "selected_channel_id": "fm-aprs",
+  "listen_only": false,
+  "log_enabled": true
+}
+```
+
+Interpretation:
+
+- APRS settings persist station identity, target selection, logging policy, gateway policy, and transport-specific parameters in one block
+- `selected_satellite_id` and `selected_channel_id` are only meaningful in satellite APRS mode
+
+## Pass cache refresh
+
+### `POST /api/v1/passes/cache/refresh`
+
+Representative response:
+
+```json
+{
+  "ok": true,
+  "cleared": true
+}
+```
+
+Interpretation:
+
+- this clears the persisted pass cache used by repeated pass prediction lookups
+- use it when location changes or APRS target timing appears stale
+
+## APRS state
+
+### `GET /api/v1/aprs/state`
+
+Example:
+
+- [Open `/api/v1/aprs/state`](http://127.0.0.1:8000/api/v1/aprs/state)
+
+Representative response:
+
+```json
+{
+  "settings": {
+    "callsign": "VK4ABC",
+    "operating_mode": "satellite"
+  },
+  "runtime": {
+    "connected": true,
+    "transport_mode": "wifi",
+    "control_endpoint": "192.168.1.84:50001",
+    "modem_state": "direwolf-rx + native-afsk-tx",
+    "audio_rx_active": true,
+    "audio_tx_active": false,
+    "packets_rx": 12,
+    "packets_tx": 2,
+    "kiss_connected": true
+  },
+  "previewTarget": {
+    "sat_id": "iss-zarya",
+    "label": "ISS APRS",
+    "can_transmit": false,
+    "tx_block_reason": "pass not active"
+  }
+}
+```
+
+Interpretation:
+
+- `settings` is the stored APRS configuration
+- `runtime` is the live APRS transport and packet state
+- `previewTarget` is the resolved terrestrial or satellite APRS target before or during connect
+
+### `GET /api/v1/aprs/targets`
+
+Example:
+
+- [Open `/api/v1/aprs/targets`](http://127.0.0.1:8000/api/v1/aprs/targets)
+
+Representative response:
+
+```json
+{
+  "items": [
+    {
+      "operating_mode": "satellite",
+      "sat_id": "iss-zarya",
+      "channel_id": "fm-aprs",
+      "label": "ISS APRS",
+      "requires_pass": true,
+      "pass_active": false,
+      "corrected_downlink_hz": 437795000
+    }
+  ]
+}
+```
+
+Interpretation:
+
+- targets are already resolved against the current location and pass window
+- corrected APRS target frequencies reuse the shared Doppler model where the target needs it
+
+### `POST /api/v1/aprs/select-target`
+
+Example request:
+
+```json
+{
+  "sat_id": "iss-zarya",
+  "channel_id": "fm-aprs"
+}
+```
+
+Interpretation:
+
+- this saves the APRS satellite target in APRS settings
+- it does not start the APRS transport on its own
+
+### `POST /api/v1/aprs/session/select`
+
+Representative response:
+
+```json
+{
+  "state": {
+    "selected_satellite_id": "iss-zarya",
+    "selected_channel_id": "fm-aprs"
+  },
+  "previewTarget": {
+    "sat_id": "iss-zarya",
+    "can_transmit": false
+  }
+}
+```
+
+Interpretation:
+
+- this is the APRS-side session target select path used by the rotator and APRS surfaces
+- `previewTarget` returns the current transmit gate and corrected target frequencies immediately
+
+### `POST /api/v1/aprs/connect`
+
+Representative response:
+
+```json
+{
+  "settings": {
+    "operating_mode": "satellite"
+  },
+  "runtime": {
+    "connected": true,
+    "transport_mode": "wifi",
+    "modem_state": "direwolf-rx + native-afsk-tx"
+  },
+  "target": {
+    "sat_id": "iss-zarya",
+    "can_transmit": false
+  }
+}
+```
+
+Interpretation:
+
+- `connected` means the APRS transport path started
+- the active `target` still decides whether satellite transmit is currently allowed
+
+### `POST /api/v1/aprs/disconnect`
+
+Representative response:
+
+```json
+{
+  "runtime": {
+    "connected": false,
+    "session_active": false,
+    "last_error": null
+  }
+}
+```
+
+### `POST /api/v1/aprs/panic-unkey`
+
+Representative response:
+
+```json
+{
+  "ok": true
+}
+```
+
+Interpretation:
+
+- use this when the APRS transport or attached rig appears to remain keyed after a failed send or disconnect
+
+### `GET /api/v1/aprs/log`
+
+Representative response:
+
+```json
+{
+  "items": [
+    {
+      "id": "pkt_001",
+      "received_at": "2026-03-21T02:15:00Z",
+      "source": "VK4XYZ-9",
+      "destination": "APRS",
+      "text": "CQ SAT APRS",
+      "message": true
+    }
+  ]
+}
+```
+
+Interpretation:
+
+- this is the stored local receive log, not the in-memory recent packet tail
+- export endpoints use the same underlying log store
+
+### `POST /api/v1/aprs/log/clear`
+
+Example request:
+
+```json
+{
+  "age_bucket": "24h"
+}
+```
+
+Interpretation:
+
+- clear requests prune the local JSONL log by age bucket
+
+### `GET /api/v1/aprs/direwolf/status`
+
+Representative response:
+
+```json
+{
+  "installed": true,
+  "configuredBinary": "/opt/homebrew/bin/direwolf",
+  "resolvedBinary": "/opt/homebrew/bin/direwolf"
+}
+```
+
+Interpretation:
+
+- this route reports both the saved Dire Wolf binary and the currently resolved executable path
+
+### `POST /api/v1/aprs/send/message`
+
+Example request:
+
+```json
+{
+  "to": "VK4XYZ-9",
+  "text": "Testing OrbitDeck APRS"
+}
+```
+
+### `POST /api/v1/aprs/send/status`
+
+Example request:
+
+```json
+{
+  "text": "OrbitDeck APRS status test"
+}
+```
+
+### `POST /api/v1/aprs/send/position`
+
+Example request:
+
+```json
+{
+  "comment": "Portable satellite station"
+}
+```
+
+Interpretation:
+
+- all APRS send routes return the updated runtime state
+- position sends resolve location, apply any configured fudge offsets, and then encode the packet
 
 ## Radio state
 

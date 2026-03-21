@@ -27,8 +27,10 @@ Open:
 Initial routes to check:
 
 1. `/` for the rotator landing view
-2. `/lite/settings` to set location and tracked satellites
-3. `/lite` to confirm the mobile view behaves as expected
+2. `/settings` to confirm the standard settings-v2 console loads
+3. `/lite/settings` to set location and tracked satellites
+4. `/aprs` to confirm the APRS console loads
+5. `/lite` to confirm the mobile view behaves as expected
 
 ## Raspberry Pi
 

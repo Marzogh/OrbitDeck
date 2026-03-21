@@ -27,7 +27,7 @@ Check:
 - whether the cached snapshot age warning says the data is stale
 - whether `Sync Now` succeeds once connectivity returns
 
-Important behavior:
+Notes:
 
 - after 12 hours, lite warns strongly that data is stale
 - after 24 hours, pass timing should be treated as reference only
@@ -83,6 +83,91 @@ Important distinction:
 
 - a successful connect only proves that OrbitDeck opened the serial device
 - a successful poll proves that OrbitDeck exchanged usable CI-V state with the rig
+
+## APRS connects, but no packets decode or transmit
+
+Check:
+
+1. the station callsign and SSID are set
+2. the APRS operating mode and target selection are correct
+3. the transport mode and rig settings match the intended USB or Wi-Fi path
+4. `runtime.modem_state`, `runtime.kiss_connected`, and `runtime.last_error` on `/api/v1/aprs/state`
+
+Important distinction:
+
+- `connected: true` means the APRS service started its control path
+- packet decode and packet transmit still depend on the modem path, target gating, and transport-specific audio/PTT behavior
+
+## Dire Wolf status says the binary is missing
+
+Check:
+
+1. `GET /api/v1/aprs/direwolf/status`
+2. whether `direwolf` is on `PATH` or the configured binary path is valid
+3. on macOS, whether Homebrew is installed before using the install action
+
+If the binary is missing:
+
+- use the install action in `/aprs`
+- or run `POST /api/v1/aprs/direwolf/install-terminal` to launch the terminal-based install helper
+
+## Wi-Fi APRS connects, but the IC-705 does not behave correctly
+
+Check:
+
+1. the radio Wi-Fi host, credentials, and control port
+2. that the IC-705 is reachable on the network
+3. that the radio is in a compatible saved packet/data profile before connect
+4. `transport_mode`, `control_endpoint`, `audio_rx_active`, and `audio_tx_active` in the APRS runtime payload
+
+Notes:
+
+- Wi-Fi APRS does not use local OS audio devices for the active transport path
+- OrbitDeck uses decode-only Dire Wolf receive plus native Bell 202 AFSK transmit over the IC-705 LAN session
+
+## Satellite APRS target is selected, but transmit remains blocked
+
+Check the APRS runtime target fields:
+
+- `can_transmit`
+- `tx_block_reason`
+- `pass_active`
+- `pass_aos`
+- `pass_los`
+
+Common causes:
+
+- the selected satellite pass is not currently active
+- the selected target has no usable APRS channel for the current pass
+- the target was resolved from stale pass data and needs a cache rebuild
+
+Use `POST /api/v1/passes/cache/refresh` if target timing no longer matches current pass state.
+
+## APRS log export is empty or shorter than expected
+
+Check:
+
+1. `log_enabled` is still true in APRS settings
+2. `log_max_records` is not too small for the test you are running
+3. the receive log has not been cleared recently
+
+The local APRS receive log lives at `data/aprs/received_log.jsonl` and only stores packets received while logging is enabled.
+
+## `Panic Unkey` was needed after an APRS session
+
+This indicates OrbitDeck believed the transport or sidecar might still be keyed after disconnect or send activity.
+
+If this happens:
+
+1. use `Panic Unkey`
+2. disconnect APRS cleanly
+3. reconnect only after the runtime state settles
+
+Then inspect:
+
+- `last_error`
+- `output_tail`
+- the current transport mode
 
 ## `timeout waiting for CI-V response to 0x25`
 

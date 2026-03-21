@@ -1,6 +1,6 @@
 # OrbitDeck
 
-OrbitDeck is a cross-platform dashboard for amateur radio satellites. It provides pass timing, tracking, frequency guidance, AMSAT status comparison, and radio-control surfaces backed by one FastAPI service.
+OrbitDeck is a cross-platform dashboard for amateur radio satellites. It provides pass timing, tracking, frequency guidance, APRS operation, AMSAT status comparison, and radio-control surfaces backed by one FastAPI service.
 
 This documentation set covers:
 
@@ -15,7 +15,7 @@ This documentation set covers:
 - Use [Core Concepts](guide/concepts.md) when you want the app explained in plain terms.
 - Use [Glossary](guide/glossary.md) if a radio or satellite term is unfamiliar.
 - Use [Platforms](guide/platforms.md) for the macOS and Raspberry Pi deployment model.
-- Use [UI Surfaces](guide/ui-surfaces.md) to understand what `/`, `/kiosk`, `/lite`, `/lite/settings`, and `/settings` are each for.
+- Use [UI Surfaces](guide/ui-surfaces.md) to understand what `/`, `/kiosk`, `/lite`, `/lite/settings`, `/aprs`, and `/settings` are each for.
 - Use [HTTP API](api/http-api.md) for the current public route map.
 
 ## Product Summary
@@ -24,7 +24,8 @@ This documentation set covers:
 - `/kiosk` opens the wider dashboard screen.
 - `/lite` opens the phone-friendly and low-power screen.
 - `/lite/settings` opens the lite setup and configuration screen.
-- `/settings` opens kiosk settings on standard hardware and lite settings on Pi Zero-class hardware.
+- `/aprs` opens the APRS console and test surface.
+- `/settings` opens settings-v2 on standard hardware and lite settings on Pi Zero-class hardware.
 - Pi Zero-class hardware is switched into lite-oriented routing automatically.
 
 ## Project Links
