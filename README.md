@@ -21,6 +21,9 @@ Documentation site tooling:
 - local docs build guide in [docs/local-build.md](docs/local-build.md)
 - user and operator guides in `docs/guide/`
 
+Licence:
+- [MIT](LICENSE)
+
 ## Where This Runs
 
 ### macOS
