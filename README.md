@@ -308,7 +308,7 @@ Validation status:
 
 ## Documentation Site
 
-OrbitDeck also ships a MkDocs Material documentation site similar to the SPIMemory docs layout.
+OrbitDeck also ships a MkDocs Material documentation site.
 
 Local preview:
 
