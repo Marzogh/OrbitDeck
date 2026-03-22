@@ -104,6 +104,7 @@ _refresh_task: asyncio.Task | None = None
 _lite_snapshot_cache: dict[tuple, tuple[datetime, dict]] = {}
 _CALLSIGN_PATTERN = re.compile(r"^[A-Z0-9]{3,10}$")
 _APRS_SESSION_IDENTITY_OVERRIDE: dict[str, object | None] = {"callsign": None, "ssid": None}
+_LITE_MAX_TRACKED_SATS = 5
 
 
 def _pass_cache_retention(state) -> timedelta:
@@ -319,6 +320,42 @@ def _tracked_sat_ids(state) -> set[str]:
     return set(cleaned)
 
 
+def _preferred_lite_tracked_ids(state) -> list[str]:
+    valid_ids = {sat.sat_id for sat in tracking_service.satellites()}
+    preferred: list[str] = []
+    seen: set[str] = set()
+    for sat_id in state.settings.pass_sat_ids:
+        sat_id = str(sat_id or "").strip()
+        if not sat_id or sat_id in seen or sat_id not in valid_ids:
+            continue
+        preferred.append(sat_id)
+        seen.add(sat_id)
+        if len(preferred) >= _LITE_MAX_TRACKED_SATS:
+            break
+    if not preferred and "iss-zarya" in valid_ids:
+        preferred = ["iss-zarya"]
+    return preferred
+
+
+def _sync_lite_settings_from_main_preferences(state):
+    current_ids = _tracked_sat_ids(state)
+    preferred = _preferred_lite_tracked_ids(state)
+    has_nondefault_main_pass_preferences = (
+        state.settings.pass_profile == PassProfileMode.favorites
+        and any(str(sat_id or "").strip() and str(sat_id).strip() != "iss-zarya" for sat_id in state.settings.pass_sat_ids)
+    )
+    should_seed = (
+        not state.lite_settings.setup_complete
+        and has_nondefault_main_pass_preferences
+        and preferred
+    )
+    if should_seed:
+        state.lite_settings.tracked_sat_ids = preferred
+        state.lite_settings.setup_complete = True
+        store.save(state)
+    return state
+
+
 def _apply_lite_settings_update(state, payload: LiteSettingsUpdate):
     valid_ids = {sat.sat_id for sat in tracking_service.satellites()}
     cleaned: list[str] = []
@@ -331,8 +368,8 @@ def _apply_lite_settings_update(state, payload: LiteSettingsUpdate):
         cleaned.append(sat_id)
     if not cleaned:
         raise HTTPException(status_code=400, detail="tracked_sat_ids must include at least one valid satellite")
-    if len(cleaned) > 8:
-        raise HTTPException(status_code=400, detail="tracked_sat_ids may contain at most 8 satellites")
+    if len(cleaned) > _LITE_MAX_TRACKED_SATS:
+        raise HTTPException(status_code=400, detail=f"tracked_sat_ids may contain at most {_LITE_MAX_TRACKED_SATS} satellites")
     state.lite_settings.tracked_sat_ids = cleaned
     state.lite_settings.setup_complete = payload.setup_complete
     return state
@@ -889,6 +926,172 @@ def _resolve_default_test_pair_for_radio(payload: RadioControlSessionSelectReque
     return recommendation
 
 
+def _same_focus_pass(session, focus_pass) -> bool:
+    if session is None or focus_pass is None:
+        return False
+    return (
+        session.selected_sat_id == focus_pass.sat_id
+        and session.selected_pass_aos == focus_pass.aos
+        and session.selected_pass_los == focus_pass.los
+    )
+
+
+def _first_aprs_channel_for_satellite(sat) -> object | None:
+    channels = list(getattr(sat, "radio_channels", []) or [])
+    return next((item for item in channels if item.kind == "aprs"), None)
+
+
+def _compact_radio_runtime(runtime) -> dict:
+    return {
+        "connected": runtime.connected,
+        "control_mode": runtime.control_mode,
+        "rig_model": runtime.rig_model,
+        "transport_mode": runtime.transport_mode,
+        "endpoint": runtime.endpoint,
+        "last_error": runtime.last_error,
+        "last_poll_at": runtime.last_poll_at,
+        "active_sat_id": runtime.active_sat_id,
+        "active_pass_aos": runtime.active_pass_aos,
+        "active_pass_los": runtime.active_pass_los,
+        "selected_column_index": runtime.selected_column_index,
+        "last_applied_recommendation": runtime.last_applied_recommendation,
+        "targets": runtime.targets,
+    }
+
+
+def _compact_aprs_runtime(runtime, settings) -> dict:
+    payload = _aprs_runtime_response(runtime, settings)
+    recent_packets = payload.get("recent_packets") or []
+    heard_stations = payload.get("heard_stations") or []
+    return {
+        "connected": payload.get("connected"),
+        "session_active": payload.get("session_active"),
+        "transport_mode": payload.get("transport_mode"),
+        "control_endpoint": payload.get("control_endpoint"),
+        "modem_state": payload.get("modem_state"),
+        "audio_rx_active": payload.get("audio_rx_active"),
+        "audio_tx_active": payload.get("audio_tx_active"),
+        "last_error": payload.get("last_error"),
+        "last_started_at": payload.get("last_started_at"),
+        "last_packet_at": payload.get("last_packet_at"),
+        "last_tx_at": payload.get("last_tx_at"),
+        "last_tx_packet_type": payload.get("last_tx_packet_type"),
+        "last_tx_text": payload.get("last_tx_text"),
+        "heard_count": payload.get("heard_count"),
+        "packets_rx": payload.get("packets_rx"),
+        "packets_tx": payload.get("packets_tx"),
+        "target": payload.get("target"),
+        "effective_source_call": payload.get("effective_source_call"),
+        "recent_packets": recent_packets[:5],
+        "heard_stations": heard_stations[:5],
+    }
+
+
+def _build_lite_radio_focus(state, focus_sat, focus_pass) -> dict:
+    runtime = radio_control_service.runtime()
+    session = radio_control_service.session_state()
+    focused_session = _same_focus_pass(session, focus_pass)
+    payload = {
+        "available": bool(focus_pass and focus_sat),
+        "focusSessionSelected": focused_session,
+        "runtime": _compact_radio_runtime(runtime),
+        "session": session,
+        "defaultPair": None,
+        "passState": "idle",
+        "canSelectSession": False,
+        "status": "Select a tracked pass to prepare radio control.",
+    }
+    if focus_pass is None or focus_sat is None:
+        return payload
+    now = datetime.now(UTC)
+    if now < focus_pass.aos:
+        payload["passState"] = "upcoming"
+    elif focus_pass.aos <= now <= focus_pass.los:
+        payload["passState"] = "active"
+    else:
+        payload["passState"] = "ended"
+    select_request = RadioControlSessionSelectRequest(
+        sat_id=focus_sat.sat_id,
+        sat_name=focus_sat.name,
+        pass_aos=focus_pass.aos,
+        pass_los=focus_pass.los,
+        max_el_deg=focus_pass.max_el_deg,
+    )
+    recommendation = _resolve_default_test_pair_for_radio(select_request)
+    eligible, reason = radio_control_service._recommendation_supported(recommendation, state.radio_settings)
+    payload.update({
+        "defaultPair": recommendation,
+        "isEligible": eligible,
+        "eligibilityReason": reason,
+        "canSelectSession": True,
+        "status": (
+            "Focused pass is ready for radio control."
+            if eligible
+            else (reason or "Focused pass is not eligible for radio control.")
+        ),
+    })
+    return payload
+
+
+def _build_lite_aprs_focus(state, location, focus_sat) -> dict:
+    runtime = aprs_service.runtime()
+    current_target = runtime.target
+    payload = {
+        "available": False,
+        "selectedChannel": None,
+        "availableChannels": [],
+        "previewTarget": None,
+        "runtime": _compact_aprs_runtime(runtime, state.aprs_settings),
+        "focusTargetSelected": False,
+        "status": "Focused satellite does not expose APRS channels.",
+    }
+    if focus_sat is None:
+        return payload
+    channels = [
+        item
+        for item in list(focus_sat.radio_channels or [])
+        if item.kind == "aprs" and (item.downlink_hz or item.uplink_hz)
+    ]
+    if not channels:
+        return payload
+    payload["available"] = True
+    payload["availableChannels"] = channels
+    selected_channel = next(
+        (item for item in channels if item.channel_id == state.aprs_settings.selected_channel_id),
+        None,
+    ) or channels[0]
+    settings = state.aprs_settings.model_copy(
+        update={
+            "operating_mode": AprsOperatingMode.satellite,
+            "selected_satellite_id": focus_sat.sat_id,
+            "selected_channel_id": selected_channel.channel_id,
+        }
+    )
+    try:
+        preview = _resolve_aprs_target(settings, location)
+    except ValueError as exc:
+        payload.update({
+            "selectedChannel": selected_channel,
+            "status": str(exc),
+        })
+        return payload
+    payload.update({
+        "selectedChannel": selected_channel,
+        "previewTarget": preview,
+        "focusTargetSelected": bool(
+            current_target
+            and current_target.operating_mode == AprsOperatingMode.satellite
+            and current_target.sat_id == focus_sat.sat_id
+        ),
+        "status": (
+            "Focused satellite APRS is ready."
+            if preview is not None
+            else "Focused satellite APRS target is unavailable."
+        ),
+    })
+    return payload
+
+
 def _serialize_passes_with_frequency(location, now: datetime, passes, tracks_by_sat: dict[str, object]) -> list[dict]:
     items: list[dict] = []
     track_path_cache: dict[tuple[str, str, str], list] = {}
@@ -1024,6 +1227,21 @@ def _lite_snapshot(
         "timezone": {"timezone": state.settings.display_timezone},
         "gpsSettings": {"state": state.gps_settings},
         "liteSettings": state.lite_settings,
+        "stationIdentity": _station_identity_status(state.aprs_settings),
+        "radio": {
+            "settings": state.radio_settings,
+            "focused": _build_lite_radio_focus(state, focus_sat, focus_pass),
+        },
+        "aprs": {
+            "settings": {
+                "callsign": state.aprs_settings.callsign,
+                "ssid": state.aprs_settings.ssid,
+                "satellite_path": state.aprs_settings.satellite_path,
+                "satellite_beacon_comment": state.aprs_settings.satellite_beacon_comment,
+                "listen_only": state.aprs_settings.listen_only,
+            },
+            "focused": _build_lite_aprs_focus(state, location, focus_sat),
+        },
     }
     _lite_snapshot_cache[cache_key] = (now, payload)
     return payload
@@ -1098,7 +1316,7 @@ def lite_settings_index() -> FileResponse:
 def settings_index() -> FileResponse:
     if lite_only_ui():
         return FileResponse("app/static/lite/settings.html")
-    return FileResponse("app/static/kiosk/settings-v2.html")
+    return FileResponse("app/static/kiosk/settings.html")
 
 
 @app.get("/settings-v2")
@@ -1350,7 +1568,7 @@ def set_pass_filter(payload: PassFilterUpdate) -> dict:
 
 @app.get("/api/v1/settings/lite")
 def get_lite_settings() -> dict:
-    state = store.get()
+    state = _sync_lite_settings_from_main_preferences(store.get())
     return {"state": state.lite_settings, "availableSatellites": tracking_service.satellites()}
 
 
@@ -1523,6 +1741,7 @@ def get_lite_snapshot(
     sat_id: str | None = Query(default=None),
 ) -> dict:
     state, location = _resolve_location(location_source)
+    state = _sync_lite_settings_from_main_preferences(state)
     return _lite_snapshot(state, location, sat_id, location_source)
 
 

@@ -35,7 +35,7 @@ On standard hardware:
 - `/` serves `app/static/kiosk/rotator.html`
 - `/lite` serves `app/static/lite/index.html`
 - `/lite/settings` serves `app/static/lite/settings.html`
-- `/settings` serves `app/static/kiosk/settings-v2.html`
+- `/settings` serves `app/static/kiosk/settings.html`
 - `/kiosk-rotator` serves `app/static/kiosk/rotator.html`
 
 On Pi Zero-class hardware:

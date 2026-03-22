@@ -3,7 +3,7 @@
 OrbitDeck includes two APRS operator surfaces:
 
 - `/aprs` for direct APRS testing and operations
-- the APRS section inside `settings-v2` at `/settings`
+- the APRS section inside `settings` at `/settings`
 
 This page documents the APRS settings model, runtime model, target model, and transport behavior.
 

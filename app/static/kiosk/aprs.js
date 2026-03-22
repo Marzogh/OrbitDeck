@@ -14,6 +14,12 @@ let pageState = {
   radioState: { settings: {}, runtime: {} },
   location: { state: {} },
 };
+const sendDrafts = {
+  messageTo: "",
+  messageText: "",
+  statusText: "",
+  positionComment: "",
+};
 
 function setRuntime(action, value) {
   trackerById("aprsRuntimePage").textContent = aprsClient.pretty({ action, ...value });
@@ -235,6 +241,13 @@ async function loadAprsPage() {
   trackerById("aprsIgateFilterPage").value = pageState.logSettings.igate?.filter || "m/25";
   trackerById("aprsIgateTerrestrialPage").checked = pageState.logSettings.igate?.gate_terrestrial_rx !== false;
   trackerById("aprsIgateSatellitePage").checked = pageState.logSettings.igate?.gate_satellite_rx !== false;
+  trackerById("aprsMessageToPage").value = sendDrafts.messageTo;
+  trackerById("aprsMessageBodyPage").value = sendDrafts.messageText;
+  trackerById("aprsStatusPage").value = sendDrafts.statusText;
+  trackerById("aprsPositionCommentPage").value = sendDrafts.positionComment;
+  aprsClient.updateCounter(trackerById("aprsMessageBodyPage"), trackerById("aprsMessageCounterPage"), {});
+  aprsClient.updateCounter(trackerById("aprsStatusPage"), trackerById("aprsStatusCounterPage"), {});
+  aprsClient.updateCounter(trackerById("aprsPositionCommentPage"), trackerById("aprsPositionCounterPage"), { hardLimit: 40, softLimit: 20 });
   renderPreviewTarget(pageState.aprs.previewTarget || pageState.aprs.runtime?.target || null);
   syncAprsAudioUi(settings);
   syncModeUi();
@@ -251,6 +264,18 @@ window.addEventListener("DOMContentLoaded", async () => {
   trackerById("aprsPositionCommentPage").addEventListener("input", updatePositionPreview);
   trackerById("aprsPositionFudgeLatPage").addEventListener("input", updatePositionPreview);
   trackerById("aprsPositionFudgeLonPage").addEventListener("input", updatePositionPreview);
+  trackerById("aprsMessageToPage").addEventListener("input", (event) => {
+    sendDrafts.messageTo = event.target.value || "";
+  });
+  trackerById("aprsMessageBodyPage").addEventListener("input", (event) => {
+    sendDrafts.messageText = event.target.value || "";
+  });
+  trackerById("aprsStatusPage").addEventListener("input", (event) => {
+    sendDrafts.statusText = event.target.value || "";
+  });
+  trackerById("aprsPositionCommentPage").addEventListener("input", (event) => {
+    sendDrafts.positionComment = event.target.value || "";
+  });
   aprsClient.bindCounter(trackerById("aprsMessageBodyPage"), trackerById("aprsMessageCounterPage"), {});
   aprsClient.bindCounter(trackerById("aprsStatusPage"), trackerById("aprsStatusCounterPage"), {});
   aprsClient.bindCounter(trackerById("aprsPositionCommentPage"), trackerById("aprsPositionCounterPage"), { hardLimit: 40, softLimit: 20 });
@@ -285,21 +310,25 @@ window.addEventListener("DOMContentLoaded", async () => {
     await loadAprsPage();
   });
   trackerById("sendAprsMessagePage").addEventListener("click", async () => {
+    sendDrafts.messageTo = trackerById("aprsMessageToPage").value || "";
+    sendDrafts.messageText = trackerById("aprsMessageBodyPage").value || "";
     await runAction("POST /api/v1/aprs/send/message", () => aprsClient.sendMessage(trackerApi, {
-      to: trackerById("aprsMessageToPage").value,
-      text: trackerById("aprsMessageBodyPage").value,
+      to: sendDrafts.messageTo,
+      text: sendDrafts.messageText,
     }));
     await loadAprsPage();
   });
   trackerById("sendAprsStatusPage").addEventListener("click", async () => {
+    sendDrafts.statusText = trackerById("aprsStatusPage").value || "";
     await runAction("POST /api/v1/aprs/send/status", () => aprsClient.sendStatus(trackerApi, {
-      text: trackerById("aprsStatusPage").value,
+      text: sendDrafts.statusText,
     }));
     await loadAprsPage();
   });
   trackerById("sendAprsPositionPage").addEventListener("click", async () => {
+    sendDrafts.positionComment = trackerById("aprsPositionCommentPage").value || "";
     await runAction("POST /api/v1/aprs/send/position", () => aprsClient.sendPosition(trackerApi, {
-      comment: trackerById("aprsPositionCommentPage").value,
+      comment: sendDrafts.positionComment,
     }));
     await loadAprsPage();
   });

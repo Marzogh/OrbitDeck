@@ -118,6 +118,98 @@ class RigControlService:
             and a.downlink_mode == b.downlink_mode
         )
 
+    @staticmethod
+    def _freq_is_uhf(freq_mhz: float | None) -> bool:
+        return freq_mhz is not None and freq_mhz >= 400.0
+
+    def _incremental_retune_writes(
+        self,
+        previous: FrequencyRecommendation | None,
+        current: FrequencyRecommendation,
+        settings: RadioSettings,
+        apply_mode_and_tone: bool,
+    ) -> list[tuple[str, int]]:
+        if previous is None:
+            return []
+        if previous.sat_id != current.sat_id:
+            return []
+        if previous.mode != current.mode or previous.correction_side != current.correction_side:
+            return []
+        if bool(previous.uplink_mhz is not None) != bool(current.uplink_mhz is not None):
+            return []
+        if bool(previous.downlink_mhz is not None) != bool(current.downlink_mhz is not None):
+            return []
+        if apply_mode_and_tone and (
+            previous.uplink_mode != current.uplink_mode
+            or previous.downlink_mode != current.downlink_mode
+            or previous.tone != current.tone
+        ):
+            return []
+
+        changed_uplink = previous.uplink_mhz != current.uplink_mhz
+        changed_downlink = previous.downlink_mhz != current.downlink_mhz
+        if not changed_uplink and not changed_downlink:
+            return []
+
+        if current.correction_side == CorrectionSide.full_duplex:
+            can_retune_uplink = changed_uplink and current.uplink_mhz is not None
+            can_retune_downlink = changed_downlink and current.downlink_mhz is not None
+        elif current.correction_side == CorrectionSide.downlink_only:
+            can_retune_uplink = False
+            can_retune_downlink = changed_downlink and current.downlink_mhz is not None
+            if changed_uplink:
+                return []
+        else:
+            can_retune_uplink = changed_uplink and self._freq_is_uhf(current.uplink_mhz)
+            can_retune_downlink = changed_downlink and self._freq_is_uhf(current.downlink_mhz)
+            if changed_uplink and not can_retune_uplink:
+                return []
+            if changed_downlink and not can_retune_downlink:
+                return []
+
+        rig_vfos = (
+            ("A", "B")
+            if settings.rig_model == RadioRigModel.ic705
+            else ("MAIN", "SUB")
+        )
+        writes: list[tuple[str, int]] = []
+        if can_retune_uplink and current.uplink_mhz is not None:
+            writes.append((rig_vfos[0], int(round(current.uplink_mhz * 1_000_000))))
+        if can_retune_downlink and current.downlink_mhz is not None:
+            writes.append((rig_vfos[1], int(round(current.downlink_mhz * 1_000_000))))
+        return writes
+
+    def _apply_incremental_retune(
+        self,
+        writes: list[tuple[str, int]],
+        recommendation: FrequencyRecommendation,
+        payload: RadioApplyRequest,
+        settings: RadioSettings,
+        pass_event: PassEvent | None,
+    ) -> tuple[RadioRuntimeState, FrequencyRecommendation, dict[str, object]]:
+        if not writes or self._controller is None:
+            raise RuntimeError("incremental retune is unavailable")
+        state = None
+        results: list[dict[str, object]] = []
+        for vfo, freq_hz in writes:
+            state, result = self._controller.set_frequency(vfo, freq_hz)
+            results.append(result)
+        assert state is not None
+        self._runtime.connected = state.connected
+        self._runtime.control_mode = RadioControlMode.manual_applied
+        self._runtime.rig_model = settings.rig_model
+        self._runtime.serial_device = settings.serial_device
+        self._runtime.last_error = state.last_error
+        self._runtime.last_poll_at = state.last_poll_at
+        self._runtime.active_sat_id = payload.sat_id
+        self._runtime.active_pass_aos = payload.pass_aos or (pass_event.aos if pass_event else None)
+        self._runtime.active_pass_los = payload.pass_los or (pass_event.los if pass_event else None)
+        self._runtime.selected_column_index = recommendation.selected_column_index
+        self._runtime.last_applied_recommendation = recommendation
+        self._runtime.targets = dict(state.targets)
+        self._runtime.raw_state = dict(state.raw_state)
+        return self.runtime(), recommendation, {"retuned_vfos": results}
+
     def _recommendation_supported(
         self,
         recommendation: FrequencyRecommendation | None,
@@ -518,6 +610,7 @@ class RigControlService:
         recommendation, pass_event = resolver(payload.sat_id, payload.location_source, payload.selected_column_index)
         if recommendation is None or (recommendation.uplink_mhz is None and recommendation.downlink_mhz is None):
             raise ValueError("recommendation is unavailable for the selected target")
+        apply_mode_and_tone = settings.default_apply_mode_and_tone if payload.apply_mode_and_tone is None else payload.apply_mode_and_tone
         if self._same_recommendation(self._runtime.last_applied_recommendation, recommendation):
             self._runtime.active_sat_id = payload.sat_id
             self._runtime.active_pass_aos = payload.pass_aos or (pass_event.aos if pass_event else None)
@@ -525,9 +618,23 @@ class RigControlService:
             self._runtime.selected_column_index = recommendation.selected_column_index
             self._runtime.last_applied_recommendation = recommendation
             return self.runtime(), recommendation, {}
+        incremental_writes = self._incremental_retune_writes(
+            self._runtime.last_applied_recommendation,
+            recommendation,
+            settings,
+            apply_mode_and_tone,
+        )
+        if incremental_writes:
+            return self._apply_incremental_retune(
+                incremental_writes,
+                recommendation,
+                payload,
+                settings,
+                pass_event,
+            )
         state, mapping = self._controller.apply_target(
             recommendation,
-            settings.default_apply_mode_and_tone if payload.apply_mode_and_tone is None else payload.apply_mode_and_tone,
+            apply_mode_and_tone,
         )
         self._runtime.connected = state.connected
         self._runtime.control_mode = RadioControlMode.manual_applied

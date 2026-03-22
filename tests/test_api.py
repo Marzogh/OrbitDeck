@@ -22,6 +22,7 @@ from app.models import (
     AprsSendStatusRequest,
     AprsSettings,
     AprsTargetState,
+    RadioApplyRequest,
     CorrectionSide,
     DopplerDirection,
     FrequencyGuideMode,
@@ -30,9 +31,12 @@ from app.models import (
     IssDisplayMode,
     LiveTrack,
     PassEvent,
+    RadioControlMode,
     RadioRigModel,
+    RadioSettings,
     RadioTransportMode,
     Satellite,
+    SatelliteRadioChannel,
 )
 from app.radio.civ import ACK, build_frame, freq_to_bcd
 from app.radio.controllers.base import BaseIcomController
@@ -63,6 +67,7 @@ class FakeRigController(BaseIcomController):
     def __init__(self, transport, civ_address):
         super().__init__(transport, civ_address)
         self._snapshot = None
+        self.calls = []
 
     def connect(self):
         self.state.connected = True
@@ -82,6 +87,13 @@ class FakeRigController(BaseIcomController):
         return self.state
 
     def apply_target(self, recommendation, apply_mode_and_tone):
+        self.calls.append(
+            (
+                "apply_target",
+                int(round((recommendation.uplink_mhz or 0) * 1_000_000)),
+                int(round((recommendation.downlink_mhz or 0) * 1_000_000)),
+            )
+        )
         self.state.targets["main_freq_hz"] = int(round((recommendation.uplink_mhz or 0) * 1_000_000))
         self.state.targets["sub_freq_hz"] = int(round((recommendation.downlink_mhz or 0) * 1_000_000))
         self.state.raw_state["applied"] = True
@@ -89,6 +101,7 @@ class FakeRigController(BaseIcomController):
         return self.state, {"tx": "MAIN", "rx": "SUB"}
 
     def set_frequency(self, vfo, freq_hz):
+        self.calls.append(("set_frequency", str(vfo), int(freq_hz)))
         self.state.targets[f"{str(vfo).lower()}_freq_hz"] = int(freq_hz)
         self.state.raw_state["last_set_vfo"] = str(vfo)
         self.stamp_poll()
@@ -723,7 +736,7 @@ def test_radio_pair_endpoint_rejects_non_vhf_uhf_pair(tmp_path):
     client.post("/api/v1/radio/connect")
     resp = client.post("/api/v1/radio/pair", json={"uplink_hz": 29000000, "downlink_hz": 1268000000})
     assert resp.status_code == 400
-    assert "outside supported VHF/UHF range" in resp.json()["detail"]
+    assert "outside" in resp.json()["detail"].lower()
 
 
 def test_radio_session_select_and_clear(tmp_path):
@@ -1237,12 +1250,26 @@ def test_get_lite_settings_defaults(tmp_path):
     assert payload["availableSatellites"]
 
 
-def test_set_lite_settings_rejects_more_than_eight(tmp_path):
+def test_lite_settings_seed_from_main_pass_preferences_when_unconfigured(tmp_path):
+    client = make_client(tmp_path)
+    satellites = client.get("/api/v1/satellites").json()["items"]
+    chosen = [sat["sat_id"] for sat in satellites if sat["sat_id"] != "iss-zarya"][:3]
+    resp = client.post("/api/v1/settings/pass-filter", json={"profile": "Favorites", "sat_ids": chosen})
+    assert resp.status_code == 200
+
+    lite = client.get("/api/v1/settings/lite")
+    assert lite.status_code == 200
+    payload = lite.json()
+    assert payload["state"]["tracked_sat_ids"] == chosen
+    assert payload["state"]["setup_complete"] is True
+
+
+def test_set_lite_settings_rejects_more_than_five(tmp_path):
     client = make_client(tmp_path)
 
     resp = client.post(
         "/api/v1/settings/lite",
-        json={"tracked_sat_ids": [f"sat-{idx}" for idx in range(9)], "setup_complete": True},
+        json={"tracked_sat_ids": [f"sat-{idx}" for idx in range(6)], "setup_complete": True},
     )
     assert resp.status_code == 400
 
@@ -1293,6 +1320,9 @@ def test_lite_snapshot_is_bounded_to_tracked_satellites(tmp_path):
     assert {item["sat_id"] for item in payload["passes"]} <= set(chosen)
     assert "focusCue" in payload
     assert "bodies" not in payload
+    assert "radio" in payload
+    assert "aprs" in payload
+    assert "stationIdentity" in payload
 
 
 def test_lite_snapshot_returns_aos_cue_for_upcoming_selected_pass(tmp_path):
@@ -1410,7 +1440,7 @@ def test_frequency_guide_service_doppler_math_and_quantization():
 
     assert shift_hz < 0
     corrected = svc.corrected_downlink_mhz(437.8, -7.0, 5000)
-    assert corrected == 437.79
+    assert corrected == 437.81
 
 
 def test_frequency_guide_service_corrects_uhf_uplink_only_when_uplink_is_uhf():
@@ -1431,8 +1461,67 @@ def test_frequency_guide_service_corrects_uhf_uplink_only_when_uplink_is_uhf():
     )
 
     assert rec is not None
-    assert rec.uplink_mhz == 435.26
+    assert rec.uplink_mhz == 435.24
     assert rec.downlink_mhz == 145.96
+
+
+def test_rig_control_service_auto_track_retunes_only_changed_uhf_side():
+    controller = FakeRigController(None, 0x8C)  # type: ignore[arg-type]
+    service = RigControlService(controller_factory=lambda settings: controller)
+    settings = RadioSettings(rig_model=RadioRigModel.id5100, auto_track_interval_ms=1200)
+    service.connect(settings)
+
+    recommendations = iter(
+        [
+            FrequencyRecommendation(
+                sat_id="iss-zarya",
+                mode=FrequencyGuideMode.fm,
+                phase=GuidePassPhase.mid,
+                label="ISS pass",
+                is_upcoming=False,
+                is_ongoing=True,
+                correction_side=CorrectionSide.uhf_only,
+                doppler_direction=DopplerDirection.high_to_low,
+                uplink_mhz=145.99,
+                downlink_mhz=437.80,
+                uplink_mode="FM",
+                downlink_mode="FM",
+            ),
+            FrequencyRecommendation(
+                sat_id="iss-zarya",
+                mode=FrequencyGuideMode.fm,
+                phase=GuidePassPhase.mid,
+                label="ISS pass",
+                is_upcoming=False,
+                is_ongoing=True,
+                correction_side=CorrectionSide.uhf_only,
+                doppler_direction=DopplerDirection.high_to_low,
+                uplink_mhz=145.99,
+                downlink_mhz=437.805,
+                uplink_mode="FM",
+                downlink_mode="FM",
+            ),
+        ]
+    )
+
+    def resolver(sat_id, location_source, selected_column_index):
+        return next(recommendations), None
+
+    payload = RadioApplyRequest(sat_id="iss-zarya")
+    runtime, _, _ = service.apply(payload, settings, resolver)
+    assert runtime.targets["sub_freq_hz"] == 437800000
+    service._runtime.control_mode = RadioControlMode.auto_tracking
+
+    runtime, recommendation, mapping = service.apply(payload, settings, resolver)
+
+    assert recommendation.downlink_mhz == 437.805
+    assert runtime.targets["sub_freq_hz"] == 437805000
+    assert runtime.targets["main_freq_hz"] == 145990000
+    assert mapping["retuned_vfos"] == [{"vfo": "SUB", "freq_hz": 437805000}]
+    assert controller.calls == [
+        ("apply_target", 145990000, 437800000),
+        ("set_frequency", "SUB", 437805000),
+    ]
 
 
 def test_lite_snapshot_includes_frequency_recommendation_and_matrix(tmp_path):
@@ -1510,6 +1599,79 @@ def test_lite_snapshot_includes_frequency_recommendation_and_matrix(tmp_path):
         assert payload["frequencyRecommendation"]["mode"] == "linear"
         assert payload["frequencyMatrix"]["sat_id"] == "fo29"
         assert payload["frequencyMatrix"]["active_phase"] == "mid"
+        assert payload["radio"]["focused"]["isEligible"] is True
+        assert payload["radio"]["focused"]["defaultPair"]["sat_id"] == "fo29"
+        assert payload["aprs"]["focused"]["available"] is False
+    finally:
+        main.tracking_service = old_tracking
+
+
+def test_lite_snapshot_includes_focused_aprs_preview(tmp_path):
+    client = make_client(tmp_path)
+
+    class FakeTracking(TrackingService):
+        def satellites(self):
+            return [
+                Satellite(
+                    sat_id="iss-zarya",
+                    norad_id=25544,
+                    name="ISS (ZARYA)",
+                    is_iss=True,
+                    has_amateur_radio=True,
+                    transponders=["145.990 MHz downlink"],
+                    repeaters=["437.800 MHz APRS"],
+                    radio_channels=[
+                        SatelliteRadioChannel(
+                            channel_id="iss-zarya:aprs",
+                            kind="aprs",
+                            label="ISS APRS",
+                            mode="FM",
+                            uplink_hz=145990000,
+                            downlink_hz=437800000,
+                            path_default="ARISS",
+                            requires_pass=True,
+                        )
+                    ],
+                )
+            ]
+
+        def live_tracks(self, now, location, sat_ids=None):
+            return [
+                LiveTrack(
+                    sat_id="iss-zarya",
+                    name="ISS (ZARYA)",
+                    timestamp=now,
+                    az_deg=180.0,
+                    el_deg=20.0,
+                    range_km=900.0,
+                    range_rate_km_s=0.0,
+                    sunlit=True,
+                )
+            ]
+
+        def pass_predictions(self, now, hours, location=None, sat_ids=None, include_ongoing=False):
+            from datetime import timedelta
+
+            return [
+                PassEvent(
+                    sat_id="iss-zarya",
+                    name="ISS (ZARYA)",
+                    aos=now - timedelta(minutes=1),
+                    tca=now,
+                    los=now + timedelta(minutes=4),
+                    max_el_deg=55.0,
+                )
+            ]
+
+    old_tracking = main.tracking_service
+    try:
+        main.tracking_service = FakeTracking(str(tmp_path / "latest_catalog.json"))
+        resp = client.get("/api/v1/lite/snapshot?sat_id=iss-zarya")
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["aprs"]["focused"]["available"] is True
+        assert payload["aprs"]["focused"]["previewTarget"]["sat_id"] == "iss-zarya"
+        assert payload["aprs"]["focused"]["selectedChannel"]["channel_id"] == "iss-zarya:aprs"
     finally:
         main.tracking_service = old_tracking
 
@@ -3404,7 +3566,8 @@ def test_aprs_connect_reapplies_uhf_doppler_tuning(tmp_path):
 
     def fake_live_tracks(self, now, location):
         calls["count"] += 1
-        range_rate = {1: 0.0, 2: -7.2}.get(calls["count"], 7.2)
+        sequence = [0.0, -7.2, 7.2, -5.8, 6.3]
+        range_rate = sequence[(calls["count"] - 1) % len(sequence)]
         return [
             LiveTrack(
                 sat_id="iss-zarya",

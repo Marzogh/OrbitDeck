@@ -77,7 +77,7 @@ What has been tested on macOS:
 
 - FastAPI server startup
 - launcher-driven browser open in windowed mode
-- local use of the kiosk, lite, rotator, APRS, radio, and settings-v2 routes
+- local use of the kiosk, lite, rotator, APRS, radio, and settings routes
 - API docs and local test workflow
 
 macOS is not the primary kiosk deployment target and does not replace Raspberry Pi kiosk/browser automation.
@@ -382,14 +382,14 @@ UI routes:
 - `/aprs`
 - `/radio`
 - `/settings`
-- `/settings-v2`
+- `/settings-v2` legacy alias
 - `/kiosk-rotator`
 
 Standard settings surface:
 
 - `/settings` now serves the `settings-v2` console on standard hardware
 - `settings-v2` groups overview, radio, location, tracking, display, APRS, and developer sections in one page
-- `/settings-v2` redirects to `/settings`
+- `/settings-v2` remains a compatibility redirect to `/settings`
 
 APRS UI:
 
@@ -483,7 +483,7 @@ node --check app/static/lite/sw.js
 node --check app/static/kiosk/rotator.js
 node --check app/static/kiosk/radio.js
 node --check app/static/kiosk/aprs.js
-node --check app/static/kiosk/settings-v2.js
+node --check app/static/kiosk/settings.js
 ```
 
 ## 12) Notes

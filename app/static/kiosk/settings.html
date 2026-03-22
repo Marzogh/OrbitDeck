@@ -2,11 +2,71 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="refresh" content="0; url=/settings" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OrbitDeck Settings</title>
+    <link rel="stylesheet" href="/static/common/styles.css?v=20260320a" />
+    <script defer src="/static/common/app.js?v=20260315a"></script>
+    <script defer src="/static/common/aprs-console.js?v=20260315a"></script>
+    <script defer type="module" src="/static/kiosk/settings.js?v=20260322a"></script>
   </head>
-  <body>
-    <p>Redirecting to <a href="/settings">/settings</a>…</p>
+  <body class="kiosk settings-v2-page">
+    <header class="settings-v2-header">
+      <div>
+        <h1>OrbitDeck Settings</h1>
+        <div class="label">Shared radio, kiosk, and APRS configuration in one focused workspace.</div>
+      </div>
+      <div class="settings-v2-header-meta">
+        <div id="stationBadge" class="label mono">Station: --</div>
+        <div id="clock" class="label"></div>
+      </div>
+    </header>
+
+    <main class="settings-v2-shell">
+      <aside class="card settings-v2-sidebar">
+        <div class="settings-v2-sidebar-block">
+          <div class="label mono">Sections</div>
+          <select id="settingsV2SectionPicker" class="settings-v2-section-picker" aria-label="Select section">
+            <option value="overview">Overview</option>
+            <option value="radio">Radio</option>
+            <option value="location">Location</option>
+            <option value="tracking">Satellite Tracking</option>
+            <option value="display">Display</option>
+            <option value="aprs">APRS</option>
+            <option value="developer">Developer</option>
+          </select>
+          <nav id="settingsV2Nav" class="settings-v2-sidebar-nav" aria-label="Settings sections">
+            <a href="#overview" data-section-link="overview">Overview</a>
+            <a href="#radio" data-section-link="radio">Radio</a>
+            <a href="#location" data-section-link="location">Location</a>
+            <a href="#tracking" data-section-link="tracking">Satellite Tracking</a>
+            <a href="#display" data-section-link="display">Display</a>
+            <a href="#aprs" data-section-link="aprs">APRS</a>
+            <a href="#developer" data-section-link="developer">Developer</a>
+          </nav>
+        </div>
+      </aside>
+
+      <section class="settings-v2-workspace">
+        <div id="settingsV2Panel" class="settings-v2-panel"></div>
+      </section>
+
+      <aside class="card settings-v2-runtime-rail">
+        <div class="settings-v2-runtime-head">
+          <div>
+            <div class="label mono">Runtime</div>
+            <h2>System State</h2>
+          </div>
+          <button id="v2ToggleRuntime" type="button">Hide Debug</button>
+        </div>
+        <div id="settingsV2RuntimeCards" class="settings-v2-runtime-stack"></div>
+        <div class="settings-v2-runtime-debug">
+          <div class="label mono">Live Debug</div>
+          <pre id="v2RuntimeLog" class="mono settings-v2-runtime-log">Loading…</pre>
+        </div>
+      </aside>
+    </main>
+
+    <div id="settingsV2DrawerHost"></div>
+    <div id="v2AprsToastHost" class="aprs-toast-host"></div>
   </body>
 </html>

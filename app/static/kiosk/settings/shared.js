@@ -35,6 +35,12 @@ export const viewState = {
   activeSection: "overview",
   activeAprsTab: "configuration",
   aprsSendTab: "message",
+  aprsDrafts: {
+    messageTo: "",
+    messageBody: "",
+    statusBody: "",
+    positionComment: "",
+  },
   aprsDrawerTab: "recent",
   aprsDrawerDirty: false,
   heardFilter: "all",

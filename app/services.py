@@ -750,14 +750,14 @@ class FrequencyGuideService:
         if nominal_mhz is None:
             return None
         shift_hz = self.doppler_shift_hz(nominal_mhz, range_rate_km_s)
-        observed = (nominal_mhz * 1_000_000.0 + shift_hz) / 1_000_000.0
+        observed = (nominal_mhz * 1_000_000.0 - shift_hz) / 1_000_000.0
         return self.quantize_mhz(observed, step_hz)
 
     def corrected_uplink_mhz(self, nominal_mhz: float | None, range_rate_km_s: float, step_hz: int) -> float | None:
         if nominal_mhz is None:
             return None
         shift_hz = self.doppler_shift_hz(nominal_mhz, range_rate_km_s)
-        corrected = (nominal_mhz * 1_000_000.0 - shift_hz) / 1_000_000.0
+        corrected = (nominal_mhz * 1_000_000.0 + shift_hz) / 1_000_000.0
         return self.quantize_mhz(corrected, step_hz)
 
     def resolve_phase(self, now: datetime, pass_event: PassEvent | None) -> GuidePassPhase:

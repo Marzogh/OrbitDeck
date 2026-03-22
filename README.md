@@ -9,7 +9,7 @@ OrbitDeck currently supports:
 - APRS console at `/aprs`
 - radio control UI at `/radio`
 - rotator/operator UI at `/kiosk-rotator`
-- settings-v2 UI at `/settings`
+- settings UI at `/settings`
 
 macOS is supported for local development and windowed use, and this project has been exercised on macOS in that mode. Raspberry Pi is the intended kiosk deployment target. On Pi Zero-class hardware, OrbitDeck automatically serves the lite UI instead of the full kiosk and rotator surfaces.
 
@@ -157,8 +157,8 @@ OrbitDeck exposes a broader API than the UI uses directly. Full schema details a
 - `/lite/settings` lite settings UI
 - `/aprs` APRS console
 - `/radio` radio control UI
-- `/settings` settings-v2 UI, or lite on Pi Zero-class devices
-- `/settings-v2` redirect to `/settings`
+- `/settings` full settings UI, or lite on Pi Zero-class devices
+- `/settings-v2` legacy redirect to `/settings`
 - `/kiosk-rotator` rotator/operator UI, or lite on Pi Zero-class devices
 
 ### Health and system state
@@ -298,7 +298,7 @@ node --check app/static/lite/sw.js
 node --check app/static/kiosk/rotator.js
 node --check app/static/kiosk/radio.js
 node --check app/static/kiosk/aprs.js
-node --check app/static/kiosk/settings-v2.js
+node --check app/static/kiosk/settings.js
 ```
 
 Validation status:

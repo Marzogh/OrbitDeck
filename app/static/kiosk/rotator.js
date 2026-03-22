@@ -2945,18 +2945,14 @@ async function runAprsAction(action) {
       const text = trackerById("aprsMessageTextRotator").value;
       const identity = currentAprsSourceIdentity(state.system || {});
       await trackerApi.post("/api/v1/aprs/send/message", { to, text, callsign: identity.callsign, ssid: identity.ssid });
-      aprsSceneState.drafts.messageTo = "";
-      aprsSceneState.drafts.messageText = "";
     } else if (action === "status") {
       const text = trackerById("aprsStatusTextRotator").value;
       const identity = currentAprsSourceIdentity(state.system || {});
       await trackerApi.post("/api/v1/aprs/send/status", { text, callsign: identity.callsign, ssid: identity.ssid });
-      aprsSceneState.drafts.statusText = "";
     } else if (action === "position") {
       const comment = trackerById("aprsPositionCommentRotator").value;
       const identity = currentAprsSourceIdentity(state.system || {});
       await trackerApi.post("/api/v1/aprs/send/position", { comment, callsign: identity.callsign, ssid: identity.ssid });
-      aprsSceneState.drafts.positionComment = "";
     } else {
       const endpoint = endpointMap[action];
       if (!endpoint) return;

@@ -67,6 +67,8 @@ On Pi Zero-class hardware, `/settings` serves the lite settings surface instead.
 
 ## `/settings-v2`
 
+Legacy alias for `/settings`.
+
 This route redirects to `/settings`. Use it when you are following older notes or bookmarks.
 
 ## `/radio`
@@ -96,4 +98,4 @@ Primary content:
 - heard-packet summaries and stored-log export/clear actions
 - digipeater and iGate settings
 
-Use `/aprs` when you want the full APRS operating surface. Use the APRS section in `/settings` when you want the same configuration and runtime information inside the combined settings-v2 console.
+Use `/aprs` when you want the full APRS operating surface. Use the APRS section in `/settings` when you want the same configuration and runtime information inside the combined settings console.

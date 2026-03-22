@@ -20,7 +20,7 @@ Replace that host and port as needed.
 - [`GET /aprs`](http://127.0.0.1:8000/aprs)
 - [`GET /radio`](http://127.0.0.1:8000/radio)
 - [`GET /settings`](http://127.0.0.1:8000/settings)
-- [`GET /settings-v2`](http://127.0.0.1:8000/settings-v2)
+- [`GET /settings-v2`](http://127.0.0.1:8000/settings-v2) legacy alias to `/settings`
 - [`GET /kiosk-rotator`](http://127.0.0.1:8000/kiosk-rotator)
 
 ## Health
@@ -155,7 +155,7 @@ Interpretation:
 - `activePass` is the matching current or next pass for that track
 - `frequencyRecommendation` and `frequencyMatrix` are described in [Frequency Guidance](frequency-guidance-model.md)
 - `radioSettings`, `radioRuntime`, and `radioControlSession` are the live radio-control summary blocks reused by the rotator UI
-- `aprsSettings`, `aprsRuntime`, and `aprsPreviewTarget` are the APRS summary blocks reused by `/aprs` and the APRS section inside `settings-v2`
+- `aprsSettings`, `aprsRuntime`, and `aprsPreviewTarget` are the APRS summary blocks reused by `/aprs` and the APRS section inside `settings`
 - `stationIdentity` reports whether the saved APRS callsign/SSID pair is currently valid enough for APRS send actions
 - `bodies` may also be present when ephemeris and Skyfield body-position support are available
 

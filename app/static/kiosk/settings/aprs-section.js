@@ -108,6 +108,7 @@ export function renderAprsSection({ stateCache, viewState }) {
   const gatewayStatus = gatewayStatusText(stateCache);
   const gatewayPolicy = aprsRuntime.igate_reason || aprsRuntime.digipeater_reason || "Gateway features are idle.";
 
+  const aprsDrafts = viewState.aprsDrafts || {};
   return `
     <section class="settings-v2-screen">
       <header class="settings-v2-screen-head">
@@ -287,11 +288,11 @@ export function renderAprsSection({ stateCache, viewState }) {
             <div class="settings-v2-form-grid">
               <label>
                 <span>Message To</span>
-                <input id="v2AprsMessageTo" type="text" placeholder="VK4XYZ-7" />
+                <input id="v2AprsMessageTo" type="text" placeholder="VK4XYZ-7" value="${escapeHtml(aprsDrafts.messageTo || "")}" />
               </label>
               <label class="settings-v2-span-2">
                 <span>Message Text</span>
-                <input id="v2AprsMessageBody" type="text" placeholder="Test from OrbitDeck" />
+                <input id="v2AprsMessageBody" type="text" placeholder="Test from OrbitDeck" value="${escapeHtml(aprsDrafts.messageBody || "")}" />
                 <small id="v2AprsMessageCounter" class="aprs-counter"></small>
               </label>
             </div>
@@ -304,7 +305,7 @@ export function renderAprsSection({ stateCache, viewState }) {
             <div class="settings-v2-form-grid">
               <label class="settings-v2-span-2">
                 <span>Status Text</span>
-                <input id="v2AprsStatusBody" type="text" placeholder="IC-705 linked and monitoring." />
+                <input id="v2AprsStatusBody" type="text" placeholder="IC-705 linked and monitoring." value="${escapeHtml(aprsDrafts.statusBody || "")}" />
                 <small id="v2AprsStatusCounter" class="aprs-counter"></small>
               </label>
             </div>
@@ -317,7 +318,7 @@ export function renderAprsSection({ stateCache, viewState }) {
             <div class="settings-v2-form-grid">
               <label class="settings-v2-span-2">
                 <span>Position Comment</span>
-                <input id="v2AprsPositionComment" type="text" placeholder="IC-705 over Wi-Fi" />
+                <input id="v2AprsPositionComment" type="text" placeholder="IC-705 over Wi-Fi" value="${escapeHtml(aprsDrafts.positionComment || "")}" />
                 <small id="v2AprsPositionCounter" class="aprs-counter"></small>
               </label>
             </div>
@@ -557,6 +558,18 @@ export function bindAprsSection(ctx) {
     ctx.updateDirtyState("aprs");
   });
   document.getElementById("v2AprsPositionComment").addEventListener("input", () => updatePositionPreview(ctx.stateCache));
+  document.getElementById("v2AprsMessageTo").addEventListener("input", (event) => {
+    ctx.viewState.aprsDrafts.messageTo = event.target.value || "";
+  });
+  document.getElementById("v2AprsMessageBody").addEventListener("input", (event) => {
+    ctx.viewState.aprsDrafts.messageBody = event.target.value || "";
+  });
+  document.getElementById("v2AprsStatusBody").addEventListener("input", (event) => {
+    ctx.viewState.aprsDrafts.statusBody = event.target.value || "";
+  });
+  document.getElementById("v2AprsPositionComment").addEventListener("input", (event) => {
+    ctx.viewState.aprsDrafts.positionComment = event.target.value || "";
+  });
   document.getElementById("v2AprsPositionFudgeLat").addEventListener("input", () => updatePositionPreview(ctx.stateCache));
   document.getElementById("v2AprsPositionFudgeLon").addEventListener("input", () => updatePositionPreview(ctx.stateCache));
   [
@@ -591,25 +604,29 @@ export function bindAprsSection(ctx) {
   document.querySelector("[data-discard-section='aprs']").addEventListener("click", () => ctx.discardSection("aprs"));
 
   document.getElementById("v2AprsSendMessage").addEventListener("click", async () => {
+    ctx.viewState.aprsDrafts.messageTo = document.getElementById("v2AprsMessageTo").value || "";
+    ctx.viewState.aprsDrafts.messageBody = document.getElementById("v2AprsMessageBody").value || "";
     await ctx.runAction("POST /api/v1/aprs/send/message", () => ctx.trackerApi.post("/api/v1/aprs/send/message", {
-      to: document.getElementById("v2AprsMessageTo").value,
-      text: document.getElementById("v2AprsMessageBody").value,
+      to: ctx.viewState.aprsDrafts.messageTo,
+      text: ctx.viewState.aprsDrafts.messageBody,
     }));
-    ctx.recordEvent("APRS message sent", document.getElementById("v2AprsMessageTo").value);
+    ctx.recordEvent("APRS message sent", ctx.viewState.aprsDrafts.messageTo);
     await ctx.refreshState();
   });
   document.getElementById("v2AprsSendStatus").addEventListener("click", async () => {
+    ctx.viewState.aprsDrafts.statusBody = document.getElementById("v2AprsStatusBody").value || "";
     await ctx.runAction("POST /api/v1/aprs/send/status", () => ctx.trackerApi.post("/api/v1/aprs/send/status", {
-      text: document.getElementById("v2AprsStatusBody").value,
+      text: ctx.viewState.aprsDrafts.statusBody,
     }));
-    ctx.recordEvent("APRS status sent", document.getElementById("v2AprsStatusBody").value);
+    ctx.recordEvent("APRS status sent", ctx.viewState.aprsDrafts.statusBody);
     await ctx.refreshState();
   });
   document.getElementById("v2AprsSendPosition").addEventListener("click", async () => {
+    ctx.viewState.aprsDrafts.positionComment = document.getElementById("v2AprsPositionComment").value || "";
     await ctx.runAction("POST /api/v1/aprs/send/position", () => ctx.trackerApi.post("/api/v1/aprs/send/position", {
-      comment: document.getElementById("v2AprsPositionComment").value,
+      comment: ctx.viewState.aprsDrafts.positionComment,
     }));
-    ctx.recordEvent("APRS position sent", document.getElementById("v2AprsPositionComment").value);
+    ctx.recordEvent("APRS position sent", ctx.viewState.aprsDrafts.positionComment);
     await ctx.refreshState();
   });
 
