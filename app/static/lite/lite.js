@@ -357,6 +357,8 @@ function renderAmsatSummary(status) {
     wrap.classList.add("hidden");
     return;
   }
+  const satName = latestRenderedSnapshot?.focusSatellite?.name || "Focused Satellite";
+  trackerById("liteAmsatTitle").textContent = `${satName} AMSAT Verification`;
   trackerById("liteAmsatBadge").textContent = String(status.summary || "unknown").replaceAll("_", " ");
   trackerById("liteAmsatDetail").textContent = status.latest_report
     ? `Latest: ${status.latest_report.report}${status.latest_report.callsign ? ` by ${status.latest_report.callsign}` : ""} (${fmtRelativeAge(status.latest_report.reported_time)})`
@@ -387,6 +389,16 @@ async function ensureFocusedRadioSession(snapshot) {
 async function runRadioAction(action) {
   const snapshot = latestRenderedSnapshot;
   if (!snapshot) return;
+  if (action === "tuneRx") {
+    const target = snapshot.radio?.focused?.receiveOnlyTarget;
+    if (!target?.downlinkMhz) throw new Error("No receive-only downlink is available for the focused satellite.");
+    await trackerApi.post("/api/v1/radio/frequency", {
+      vfo: "B",
+      freq_hz: Math.round(Number(target.downlinkMhz) * 1_000_000),
+    });
+    await refresh();
+    return;
+  }
   if (["test", "start", "stop", "clear"].includes(action)) {
     await ensureFocusedRadioSession(snapshot);
   }
@@ -465,6 +477,7 @@ function renderRigOps(snapshot) {
   const runtime = focused.runtime || {};
   const session = focused.session || {};
   const defaultPair = focused.defaultPair;
+  const receiveOnlyTarget = focused.receiveOnlyTarget;
   let rigStatus = focused.status || "No rig state available.";
   if (focused.focusSessionSelected) {
     if (session.screen_state === "test") {
@@ -482,11 +495,15 @@ function renderRigOps(snapshot) {
   trackerById("liteRigStatus").textContent = rigStatus;
   trackerById("liteRigReadout").textContent = defaultPair
     ? `Pair ${fmtFreqMHz(defaultPair.uplink_mhz)} / ${fmtFreqMHz(defaultPair.downlink_mhz)} | ${defaultPair.uplink_mode || "--"} / ${defaultPair.downlink_mode || "--"}`
-    : normalizeFreqToken(JSON.stringify(runtime.targets || {}));
+    : receiveOnlyTarget
+      ? `RX ${fmtFreqMHz(receiveOnlyTarget.downlinkMhz)}${receiveOnlyTarget.downlinkMode ? ` | ${receiveOnlyTarget.downlinkMode}` : ""} | Nominal ${fmtFreqMHz(receiveOnlyTarget.nominalDownlinkMhz)}`
+      : normalizeFreqToken(JSON.stringify(runtime.targets || {}));
   const actions = [];
   actions.push(`<button type="button" data-radio-action="${runtime.connected ? "disconnect" : "connect"}">${runtime.connected ? "Disconnect Radio" : "Connect Radio"}</button>`);
   if (focused.canSelectSession && !focused.focusSessionSelected) {
     actions.push('<button type="button" data-radio-action="select">Prepare Pass</button>');
+  } else if (focused.canTuneDownlink && runtime.connected) {
+    actions.push('<button type="button" data-radio-action="tuneRx">Tune Downlink</button>');
   }
   if (runtime.connected && focused.focusSessionSelected) {
     if (session.screen_state === "test") {

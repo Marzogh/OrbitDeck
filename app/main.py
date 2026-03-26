@@ -1005,6 +1005,49 @@ def _compact_aprs_runtime(runtime, settings) -> dict:
     }
 
 
+def _first_receive_only_frequency_for_satellite(sat, current_track) -> dict | None:
+    if sat is None:
+        return None
+    candidates: list[tuple[float, str | None]] = []
+    for line in list(getattr(sat, "repeaters", []) or []):
+        text = str(line or "")
+        match = re.search(r"Downlink\s+(\d{7,11})", text, flags=re.IGNORECASE)
+        if match:
+            mhz = int(match.group(1)) / 1_000_000.0
+            candidates.append((mhz, None))
+            continue
+        match = re.search(r"(\d+(?:\.\d+)?)\s*mhz", text, flags=re.IGNORECASE)
+        if match:
+            candidates.append((float(match.group(1)), None))
+    if not candidates:
+        for line in list(getattr(sat, "transponders", []) or []):
+            text = str(line or "")
+            match = re.search(r"(\d+(?:\.\d+)?)\s*mhz", text, flags=re.IGNORECASE)
+            if not match:
+                continue
+            mode = None
+            upper = text.upper()
+            if "FM" in upper:
+                mode = "FM"
+            elif "CW" in upper:
+                mode = "CW"
+            elif "SSB" in upper:
+                mode = "SSB"
+            candidates.append((float(match.group(1)), mode))
+    if not candidates:
+        return None
+    nominal_mhz, mode = candidates[0]
+    range_rate = current_track.range_rate_km_s if current_track is not None else 0.0
+    step_hz = 5000 if nominal_mhz >= 400.0 else 1000
+    corrected_mhz = frequency_guide_service.corrected_downlink_mhz(nominal_mhz, range_rate, step_hz)
+    return {
+        "nominalDownlinkMhz": nominal_mhz,
+        "downlinkMhz": corrected_mhz or nominal_mhz,
+        "downlinkMode": mode,
+        "stepHz": step_hz,
+    }
+
+
 def _catalog_refresh_status() -> dict:
     meta = {}
     with suppress(Exception):
@@ -1057,7 +1100,7 @@ async def _run_background_refresh_cycle() -> None:
         tracking_service.merge_operational_statuses(statuses)
 
 
-def _build_lite_radio_focus(state, focus_sat, focus_pass) -> dict:
+def _build_lite_radio_focus(state, focus_sat, focus_pass, focus_track) -> dict:
     runtime = radio_control_service.runtime()
     session = radio_control_service.session_state()
     focused_session = _same_focus_pass(session, focus_pass)
@@ -1067,8 +1110,10 @@ def _build_lite_radio_focus(state, focus_sat, focus_pass) -> dict:
         "runtime": _compact_radio_runtime(runtime),
         "session": session,
         "defaultPair": None,
+        "receiveOnlyTarget": None,
         "passState": "idle",
         "canSelectSession": False,
+        "canTuneDownlink": False,
         "status": "Select a tracked pass to prepare radio control.",
     }
     if focus_pass is None or focus_sat is None:
@@ -1100,6 +1145,17 @@ def _build_lite_radio_focus(state, focus_sat, focus_pass) -> dict:
             else (reason or "Focused pass is not eligible for radio control.")
         ),
     })
+    if recommendation is None:
+        receive_only = _first_receive_only_frequency_for_satellite(focus_sat, focus_track)
+        if receive_only is not None:
+            payload.update({
+                "receiveOnlyTarget": receive_only,
+                "canTuneDownlink": True,
+                "canSelectSession": False,
+                "isEligible": False,
+                "eligibilityReason": "Receive-only monitoring is available for this satellite.",
+                "status": "Receive-only downlink available. Tune the focused satellite on the rig RX VFO.",
+            })
     return payload
 
 
@@ -1337,7 +1393,7 @@ def _lite_snapshot(
         "stationIdentity": _station_identity_status(state.aprs_settings),
         "radio": {
             "settings": state.radio_settings,
-            "focused": _build_lite_radio_focus(state, focus_sat, focus_pass),
+            "focused": _build_lite_radio_focus(state, focus_sat, focus_pass, focus_track),
         },
         "aprs": {
             "settings": {
