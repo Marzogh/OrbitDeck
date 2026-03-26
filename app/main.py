@@ -119,6 +119,10 @@ def _invalidate_pass_cache() -> None:
     pass_cache_service.clear()
 
 
+def _invalidate_lite_snapshot_cache() -> None:
+    _lite_snapshot_cache.clear()
+
+
 def _resolve_direwolf_binary_path(binary: str | None) -> str | None:
     candidate = str(binary or "").strip()
     if not candidate:
@@ -929,10 +933,16 @@ def _resolve_default_test_pair_for_radio(payload: RadioControlSessionSelectReque
 def _same_focus_pass(session, focus_pass) -> bool:
     if session is None or focus_pass is None:
         return False
+    aos_match = False
+    los_match = False
+    if session.selected_pass_aos is not None and focus_pass.aos is not None:
+        aos_match = abs((session.selected_pass_aos - focus_pass.aos).total_seconds()) <= 5
+    if session.selected_pass_los is not None and focus_pass.los is not None:
+        los_match = abs((session.selected_pass_los - focus_pass.los).total_seconds()) <= 5
     return (
         session.selected_sat_id == focus_pass.sat_id
-        and session.selected_pass_aos == focus_pass.aos
-        and session.selected_pass_los == focus_pass.los
+        and aos_match
+        and los_match
     )
 
 
@@ -1365,7 +1375,7 @@ def get_satellites(refresh_from_sources: bool = Query(default=False)) -> dict:
         try:
             satellites, _ = ingestion_service.refresh_catalog()
             tracking_service.replace_catalog(satellites)
-            _lite_snapshot_cache.clear()
+            _invalidate_lite_snapshot_cache()
             _invalidate_pass_cache()
             with suppress(Exception):
                 ingestion_service.refresh_ephemeris(timeout_seconds=8.0)
@@ -1502,7 +1512,7 @@ def set_iss_display_mode(payload: SettingsUpdate) -> dict:
     state = store.get()
     state.settings.iss_display_mode = payload.mode
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     return {"mode": state.settings.iss_display_mode}
 
 
@@ -1525,7 +1535,7 @@ def set_timezone(payload: TimezoneUpdate) -> dict:
     state = store.get()
     state.settings.display_timezone = tz
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     return {"timezone": state.settings.display_timezone}
 
 
@@ -1561,7 +1571,7 @@ def set_pass_filter(payload: PassFilterUpdate) -> dict:
     elif not state.settings.pass_sat_ids:
         state.settings.pass_sat_ids = ["iss-zarya"]
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     _invalidate_pass_cache()
     return {"profile": state.settings.pass_profile, "satIds": state.settings.pass_sat_ids}
 
@@ -1577,7 +1587,7 @@ def post_lite_settings(payload: LiteSettingsUpdate) -> dict:
     state = store.get()
     state = _apply_lite_settings_update(state, payload)
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     _invalidate_pass_cache()
     return {"state": state.lite_settings}
 
@@ -1615,7 +1625,7 @@ def post_location(payload: LocationUpdate) -> dict:
     state = store.get()
     state.location = location_service.apply_update(state.location, payload)
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     _invalidate_pass_cache()
     resolved = location_service.resolve(state.location)
     return {"state": state.location, "resolved": resolved.__dict__}
@@ -1632,7 +1642,7 @@ def post_network(payload: NetworkUpdate) -> dict:
     state = store.get()
     state.network = network_service.apply_update(state.network, payload)
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     return {"state": state.network}
 
 
@@ -1658,7 +1668,7 @@ def post_gps_settings(payload: GpsSettingsUpdate) -> dict:
         next_settings.bluetooth_channel = payload.bluetooth_channel
     state.gps_settings = next_settings
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     _invalidate_pass_cache()
     return {"state": state.gps_settings}
 
@@ -1859,6 +1869,7 @@ def post_aprs_session_identity(payload: AprsSessionIdentityUpdateRequest) -> dic
         else:
             _APRS_SESSION_IDENTITY_OVERRIDE["callsign"] = normalized_callsign
             _APRS_SESSION_IDENTITY_OVERRIDE["ssid"] = normalized_ssid
+    _invalidate_lite_snapshot_cache()
     return {"runtime": _aprs_runtime_response(aprs_service.runtime(), state.aprs_settings)}
 
 
@@ -2025,7 +2036,9 @@ def _select_aprs_target(payload: AprsTargetSelectRequest) -> dict:
 
 @app.post("/api/v1/aprs/select-target")
 def select_aprs_target(payload: AprsTargetSelectRequest) -> dict:
-    return _select_aprs_target(payload)
+    result = _select_aprs_target(payload)
+    _invalidate_lite_snapshot_cache()
+    return result
 
 
 @app.post("/api/v1/aprs/session/select")
@@ -2059,19 +2072,23 @@ def connect_aprs() -> dict:
         store.save(state)
     except (RuntimeError, ValueError, TimeoutError, OSError, subprocess.SubprocessError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"settings": state.aprs_settings, "runtime": _aprs_runtime_response(runtime, state.aprs_settings), "target": target}
 
 
 @app.post("/api/v1/aprs/disconnect")
 def disconnect_aprs() -> dict:
     state = store.get()
-    return {"runtime": _aprs_runtime_response(aprs_service.disconnect(), state.aprs_settings)}
+    runtime = aprs_service.disconnect()
+    _invalidate_lite_snapshot_cache()
+    return {"runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
 @app.post("/api/v1/aprs/emergency-stop")
 def emergency_stop_aprs() -> dict:
     state = store.get()
     runtime = aprs_service.disconnect()
+    _invalidate_lite_snapshot_cache()
     return {"ok": True, "runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
@@ -2094,6 +2111,7 @@ def send_aprs_message(payload: AprsSendMessageRequest) -> dict:
         runtime = aprs_service.send_message(state.aprs_settings, send_payload)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
@@ -2116,6 +2134,7 @@ def send_aprs_status(payload: AprsSendStatusRequest) -> dict:
         runtime = aprs_service.send_status(state.aprs_settings, send_payload)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
@@ -2138,6 +2157,7 @@ def send_aprs_position(payload: AprsSendPositionRequest) -> dict:
         runtime = aprs_service.send_position(state.aprs_settings, send_payload, location)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
@@ -2180,6 +2200,7 @@ def select_radio_session(payload: RadioControlSessionSelectRequest) -> dict:
     _ensure_station_identity_ready()
     state = store.get()
     session = radio_control_service.select_session(payload, _resolve_default_test_pair_for_radio, state.radio_settings)
+    _invalidate_lite_snapshot_cache()
     return {"session": session, "runtime": radio_control_service.runtime()}
 
 
@@ -2198,6 +2219,7 @@ def update_radio_session_test_pair(payload: RadioControlSessionTestPairUpdateReq
 @app.post("/api/v1/radio/session/clear")
 def clear_radio_session() -> dict:
     session = radio_control_service.clear_session()
+    _invalidate_lite_snapshot_cache()
     return {"session": session, "runtime": radio_control_service.runtime()}
 
 
@@ -2208,6 +2230,7 @@ def connect_radio() -> dict:
     state = store.get()
     _ensure_wifi_host_reachable(state.radio_settings)
     runtime = radio_control_service.connect(state.radio_settings)
+    _invalidate_lite_snapshot_cache()
     return {"settings": state.radio_settings, "runtime": runtime, "session": radio_control_service.session_state()}
 
 
@@ -2221,6 +2244,7 @@ def disconnect_radio() -> dict:
         runtime = radio_control_service.runtime()
         runtime.last_error = f"Disconnect encountered an error: {exc}"
         session = radio_control_service.session_state()
+    _invalidate_lite_snapshot_cache()
     return {"settings": state.radio_settings, "runtime": runtime, "session": session}
 
 
@@ -2230,6 +2254,7 @@ def poll_radio() -> dict:
     _ensure_station_identity_ready()
     state = store.get()
     runtime = radio_control_service.poll(state.radio_settings)
+    _invalidate_lite_snapshot_cache()
     return {"settings": state.radio_settings, "runtime": runtime, "session": radio_control_service.session_state()}
 
 
@@ -2242,6 +2267,7 @@ def set_radio_frequency(payload: RadioFrequencySetRequest) -> dict:
         runtime, result = radio_control_service.set_frequency(payload, state.radio_settings)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"settings": state.radio_settings, "runtime": runtime, "result": result}
 
 
@@ -2254,6 +2280,7 @@ def set_radio_pair(payload: RadioPairSetRequest) -> dict:
         runtime, recommendation, mapping = radio_control_service.apply_manual_pair(payload, state.radio_settings)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {
         "settings": state.radio_settings,
         "runtime": runtime,
@@ -2273,6 +2300,7 @@ def run_radio_session_test() -> dict:
         session, runtime, recommendation, mapping = radio_control_service.run_test_control(state.radio_settings)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {
         "session": session,
         "runtime": runtime,
@@ -2287,6 +2315,7 @@ def confirm_radio_session_test() -> dict:
     _ensure_radio_available_for_manual_control()
     _ensure_station_identity_ready()
     session, runtime = radio_control_service.confirm_test_success()
+    _invalidate_lite_snapshot_cache()
     return {"session": session, "runtime": runtime}
 
 
@@ -2302,6 +2331,7 @@ def start_radio_session_control() -> dict:
         )
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"session": session, "runtime": runtime}
 
 
@@ -2310,6 +2340,7 @@ def stop_radio_session_control() -> dict:
     _ensure_radio_available_for_manual_control()
     _ensure_station_identity_ready()
     session, runtime = radio_control_service.stop_session_control()
+    _invalidate_lite_snapshot_cache()
     return {"session": session, "runtime": runtime}
 
 
@@ -2326,6 +2357,7 @@ def apply_radio_target(payload: RadioApplyRequest) -> dict:
         )
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {
         "runtime": runtime,
         "recommendation": recommendation,
@@ -2348,6 +2380,7 @@ def start_radio_auto_track(payload: RadioAutoTrackStartRequest) -> dict:
         )
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"runtime": runtime}
 
 
@@ -2355,7 +2388,9 @@ def start_radio_auto_track(payload: RadioAutoTrackStartRequest) -> dict:
 def stop_radio_auto_track() -> dict:
     _ensure_radio_available_for_manual_control()
     _ensure_station_identity_ready()
-    return {"runtime": radio_control_service.stop_auto_track()}
+    runtime = radio_control_service.stop_auto_track()
+    _invalidate_lite_snapshot_cache()
+    return {"runtime": runtime}
 
 
 @app.get("/api/v1/system/state")
@@ -2430,7 +2465,7 @@ def refresh_datasets() -> dict:
     try:
         satellites, meta = ingestion_service.refresh_catalog()
         tracking_service.replace_catalog(satellites)
-        _lite_snapshot_cache.clear()
+        _invalidate_lite_snapshot_cache()
         _invalidate_pass_cache()
         ephem = {"ok": False}
         with suppress(Exception):

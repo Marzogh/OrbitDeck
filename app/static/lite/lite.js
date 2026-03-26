@@ -448,13 +448,27 @@ function renderRigOps(snapshot) {
   const runtime = focused.runtime || {};
   const session = focused.session || {};
   const defaultPair = focused.defaultPair;
-  trackerById("liteRigStatus").textContent = focused.status || "No rig state available.";
+  let rigStatus = focused.status || "No rig state available.";
+  if (focused.focusSessionSelected) {
+    if (session.screen_state === "test") {
+      rigStatus = "Pass prepared. Test control is applied to the rig.";
+    } else if (session.screen_state === "armed") {
+      rigStatus = "Pass prepared. Radio control is armed and waiting for AOS.";
+    } else if (session.screen_state === "active") {
+      rigStatus = "Pass prepared. Live tracking is active for the focused pass.";
+    } else if (focused.isEligible) {
+      rigStatus = "Pass prepared. Next step: Test Control or Arm Pass.";
+    } else {
+      rigStatus = session.eligibility_reason || focused.eligibilityReason || "Pass prepared, but this pass is not eligible for radio control.";
+    }
+  }
+  trackerById("liteRigStatus").textContent = rigStatus;
   trackerById("liteRigReadout").textContent = defaultPair
     ? `Pair ${fmtFreqMHz(defaultPair.uplink_mhz)} / ${fmtFreqMHz(defaultPair.downlink_mhz)} | ${defaultPair.uplink_mode || "--"} / ${defaultPair.downlink_mode || "--"}`
     : normalizeFreqToken(JSON.stringify(runtime.targets || {}));
   const actions = [];
   actions.push(`<button type="button" data-radio-action="${runtime.connected ? "disconnect" : "connect"}">${runtime.connected ? "Disconnect Radio" : "Connect Radio"}</button>`);
-  if (focused.canSelectSession) {
+  if (focused.canSelectSession && !focused.focusSessionSelected) {
     actions.push('<button type="button" data-radio-action="select">Prepare Pass</button>');
   }
   if (runtime.connected && focused.focusSessionSelected) {
