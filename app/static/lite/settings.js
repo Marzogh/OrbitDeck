@@ -65,9 +65,20 @@ function syncGpsControls() {
 }
 
 function syncRadioControls() {
+  const rigModel = trackerById("liteRadioRigModel").value || "id5100";
+  const transportSelect = trackerById("liteRadioTransportMode");
+  const wifiOption = Array.from(transportSelect.options).find((option) => option.value === "wifi");
+  const wifiAllowed = rigModel === "ic705";
+  if (wifiOption) wifiOption.disabled = !wifiAllowed;
+  if (!wifiAllowed && transportSelect.value === "wifi") {
+    transportSelect.value = "usb";
+  }
   const mode = trackerById("liteRadioTransportMode").value || "usb";
   trackerById("liteRadioUsbFields").classList.toggle("hidden", mode !== "usb");
   trackerById("liteRadioWifiFields").classList.toggle("hidden", mode !== "wifi");
+  trackerById("liteRadioSettingsHelp").textContent = !wifiAllowed
+    ? "IC-705 Wi-Fi transport is only available when Rig Model is set to Icom IC-705."
+    : "";
 }
 
 async function fetchLiteSettings() {
@@ -191,10 +202,15 @@ function scheduleGpsSettingsSave() {
 }
 
 async function saveRadioSettings() {
+  const rigModel = trackerById("liteRadioRigModel").value;
+  const transportMode = trackerById("liteRadioTransportMode").value;
+  if (transportMode === "wifi" && rigModel !== "ic705") {
+    throw new Error("IC-705 Wi-Fi transport is only available when Rig Model is set to Icom IC-705.");
+  }
   const payload = {
     enabled: true,
-    rig_model: trackerById("liteRadioRigModel").value,
-    transport_mode: trackerById("liteRadioTransportMode").value,
+    rig_model: rigModel,
+    transport_mode: transportMode,
     serial_device: trackerById("liteRadioSerialDevice").value,
     wifi_host: trackerById("liteRadioWifiHost").value,
     wifi_username: trackerById("liteRadioWifiUsername").value,
@@ -327,9 +343,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     const defaults = defaultsForModel(trackerById("liteRadioRigModel").value);
     trackerById("liteRadioBaudRate").value = defaults.baud_rate;
     trackerById("liteRadioCivAddress").value = defaults.civ_address;
-    if (trackerById("liteRadioRigModel").value !== "ic705" && trackerById("liteRadioTransportMode").value === "wifi") {
-      trackerById("liteRadioTransportMode").value = "usb";
-    }
     syncRadioControls();
   });
   trackerById("liteRadioTransportMode").addEventListener("change", syncRadioControls);

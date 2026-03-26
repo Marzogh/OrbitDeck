@@ -551,7 +551,7 @@ function renderAprsOps(snapshot) {
     return;
   }
   const actions = [];
-  if (preview || focused.focusTargetSelected) {
+  if (preview) {
     actions.push(
       `<button type="button" data-aprs-action="${runtime.connected ? "disconnect" : "connect"}">${runtime.connected ? "Disconnect APRS" : "Connect APRS"}</button>`
     );
@@ -560,7 +560,7 @@ function renderAprsOps(snapshot) {
     actions.push('<button type="button" data-aprs-action="stopTx">Stop TX</button>');
   }
   trackerById("liteAprsActions").innerHTML = actions.join("");
-  const canCompose = runtime.connected && focused.focusTargetSelected && state !== "cataloged" && state !== "error";
+  const canCompose = runtime.connected && focused.focusTargetSelected && Boolean(focused.txAllowed || preview?.can_transmit);
   compose.classList.toggle("hidden", !canCompose);
 }
 
