@@ -6,13 +6,12 @@ Maintain a running local work log for every implementation or debugging session.
 
 Rules:
 - Check `notes/logs/` for relevant existing session or feature logs before starting related work.
+- Prefer updating an existing relevant feature log over creating a new generic log file.
 - Update the log continuously as work happens, not just at the end.
 - Record decisions, bugs found, hypotheses, fixes attempted, validation results, and next steps.
 - Keep the log local-only and untracked by git.
 - Keep all local project logs under `notes/logs/`.
-- Preferred session log path: `notes/logs/session.md`
-- Branch- or feature-specific logs may use subfolders under `notes/logs/` when helpful.
-- If the file does not exist, create it.
+- Only create a new log if no suitable existing feature log is available.
 - Do not stage or commit the work log unless explicitly asked.
 
 ## Branching
