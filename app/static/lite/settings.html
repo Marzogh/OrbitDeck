@@ -19,7 +19,7 @@
     <main class="lite-shell">
       <section class="card lite-controls-card">
         <div class="scene-title">Tracked Satellites</div>
-        <div class="label">Choose up to 8 satellites for this low-power device. These drive lite tracking, passes, radio queue, and focus compass behavior.</div>
+        <div class="label">Choose up to 5 satellites for this low-power device. These drive lite tracking, passes, focus selection, and pass operations.</div>
         <div class="lite-form-grid">
           <label for="liteTrackedSatSettings" class="label">Tracked Satellites</label>
           <select id="liteTrackedSatSettings" multiple size="8"></select>
@@ -86,6 +86,65 @@
             <div class="label">Bluetooth device address and RFCOMM channel.</div>
           </div>
         </div>
+      </section>
+
+      <section class="card lite-controls-card">
+        <div class="scene-title">Radio</div>
+        <div class="label">Keep this lean. These fields are only for lite pass control and Doppler retune.</div>
+        <div class="lite-form-grid">
+          <label for="liteRadioRigModel" class="label">Rig Model</label>
+          <select id="liteRadioRigModel">
+            <option value="id5100">Icom ID-5100</option>
+            <option value="ic705">Icom IC-705</option>
+          </select>
+          <div class="label">Model-specific defaults are applied automatically.</div>
+        </div>
+        <div class="lite-form-grid">
+          <label for="liteRadioTransportMode" class="label">Transport</label>
+          <select id="liteRadioTransportMode">
+            <option value="usb">USB / Serial</option>
+            <option value="wifi">IC-705 Wi-Fi</option>
+          </select>
+          <div class="label">Lite reuses the same backend radio control used by the main rig-control surfaces.</div>
+        </div>
+        <div id="liteRadioUsbFields" class="lite-form-grid">
+          <input id="liteRadioSerialDevice" type="text" placeholder="/dev/ttyUSB0" />
+          <input id="liteRadioBaudRate" type="number" step="1" min="4800" max="19200" placeholder="19200" />
+          <input id="liteRadioCivAddress" type="text" placeholder="0xA4" />
+        </div>
+        <div id="liteRadioWifiFields" class="lite-form-grid hidden">
+          <input id="liteRadioWifiHost" type="text" placeholder="192.168.1.50" />
+          <input id="liteRadioWifiUsername" type="text" placeholder="IC-705 username" />
+          <input id="liteRadioWifiPassword" type="password" placeholder="IC-705 password" />
+        </div>
+        <div class="lite-form-grid">
+          <input id="liteRadioWifiControlPort" type="number" step="1" min="1" max="65535" placeholder="50001" />
+          <input id="liteRadioTrackIntervalMs" type="number" step="100" min="200" max="10000" placeholder="1500" />
+          <label class="lite-inline-check"><input id="liteRadioApplyModeTone" type="checkbox" /> Apply mode and tone by default</label>
+        </div>
+        <div class="controls">
+          <button id="saveLiteRadioSettings" type="button">Save Radio Settings</button>
+        </div>
+        <div id="liteRadioSettingsHelp" class="label"></div>
+      </section>
+
+      <section class="card lite-controls-card">
+        <div class="scene-title">Satellite APRS</div>
+        <div class="label">Only satellite APRS defaults are exposed here. Terrestrial APRS stays on the dedicated APRS page.</div>
+        <div class="lite-form-grid">
+          <input id="liteAprsCallsign" type="text" placeholder="VK4ABC" />
+          <input id="liteAprsSsid" type="number" min="0" max="15" step="1" placeholder="10" />
+          <label class="lite-inline-check"><input id="liteAprsListenOnly" type="checkbox" /> Listen only</label>
+        </div>
+        <div class="lite-form-grid">
+          <input id="liteAprsSatellitePath" type="text" placeholder="ARISS" />
+          <input id="liteAprsSatelliteComment" type="text" placeholder="OrbitDeck Space APRS" />
+          <div class="label">Saved as the satellite APRS defaults used by lite pass operations.</div>
+        </div>
+        <div class="controls">
+          <button id="saveLiteAprsSettings" type="button">Save APRS Settings</button>
+        </div>
+        <div id="liteAprsSettingsHelp" class="label"></div>
       </section>
     </main>
   </body>

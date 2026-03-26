@@ -977,6 +977,16 @@ class DataIngestionService:
     def _save_amsat_refresh_meta(self, meta: dict[str, Any]) -> None:
         self.amsat_refresh_meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
+    def _channel_kind(self, label: str, mode: str | None = None) -> str:
+        text = f"{label} {mode or ''}".lower()
+        if "aprs" in text:
+            return "aprs"
+        if "linear" in text or "ssb" in text or "cw" in text:
+            return "linear"
+        if "fm" in text or "repeater" in text:
+            return "fm"
+        return "other"
+
     def _catalog_refresh_guard(self, min_interval_hours: float) -> tuple[bool, str | None]:
         if min_interval_hours <= 0:
             return True, None
@@ -1183,83 +1193,94 @@ class DataIngestionService:
         allowed, reason = self._catalog_refresh_guard(min_interval_hours=min_interval_hours)
         if not allowed:
             raise RuntimeError(reason or "Catalog refresh cooldown active")
-
-        with httpx.Client(timeout=timeout_seconds) as client:
-            amateur_tle = client.get(self.CELESTRAK_AMATEUR_URL).text
-            stations_tle = client.get(self.CELESTRAK_STATIONS_URL).text
-            satnogs = client.get(self.SATNOGS_TRANSMITTERS_URL).json()
-
-        transponders_by_norad: dict[int, list[str]] = {}
-        repeaters_by_norad: dict[int, list[str]] = {}
-        channels_by_norad: dict[int, list[SatelliteRadioChannel]] = {}
-        for tx in satnogs:
-            norad = tx.get("norad_cat_id")
-            if not norad:
-                continue
-            desc = tx.get("description") or tx.get("mode") or "Transmitter"
-            down = tx.get("downlink_low")
-            up = tx.get("uplink_low")
-            mode = tx.get("mode") or ""
-            line = f"{desc} {mode}".strip()
-            transponders_by_norad.setdefault(norad, []).append(line)
-            if down or up:
-                repeaters_by_norad.setdefault(norad, []).append(f"Uplink {up or 'n/a'} / Downlink {down or 'n/a'}")
-            channels_by_norad.setdefault(norad, []).append(
-                SatelliteRadioChannel(
-                    channel_id=f"{norad}:satnogs:{tx.get('uuid') or tx.get('id') or len(channels_by_norad.get(norad, []))}",
-                    source="satnogs",
-                    kind=self._channel_kind(str(desc), str(mode or "")),
-                    label=str(desc).strip(),
-                    mode=str(mode or "").strip() or None,
-                    uplink_hz=int(up) if up is not None else None,
-                    downlink_hz=int(down) if down is not None else None,
-                    alive=bool(tx.get("alive", True)),
-                    status=str(tx.get("status") or "").strip() or None,
-                    path_default="ARISS" if self._channel_kind(str(desc), str(mode or "")) == "aprs" else None,
-                    requires_pass=self._channel_kind(str(desc), str(mode or "")) == "aprs",
-                    guidance="Derived from SatNOGS transmitter inventory" if self._channel_kind(str(desc), str(mode or "")) == "aprs" else None,
-                )
-            )
-
-        parsed_tles = self._parse_tle(amateur_tle) + self._parse_tle(stations_tle)
-        merged: dict[int, Satellite] = {}
-        for name, norad, tle1, tle2 in parsed_tles:
-            sat_id = name.lower().replace(" ", "-").replace("(", "").replace(")", "")
-            is_iss = norad == 25544
-            sat = Satellite(
-                sat_id=sat_id,
-                norad_id=norad,
-                name=name,
-                is_iss=is_iss,
-                has_amateur_radio=True,
-                transponders=transponders_by_norad.get(norad, ["Amateur payload"]),
-                repeaters=repeaters_by_norad.get(norad, []),
-                radio_channels=channels_by_norad.get(norad, []),
-                tle_line1=tle1,
-                tle_line2=tle2,
-                period_minutes=92.9 if is_iss else 97.0 + (norad % 13) * 0.6,
-                phase_offset=((norad % 97) / 97.0),
-            )
-            merged[norad] = sat
-
-        satellites = list(merged.values())
-        # Treat empty/invalid TLE parses as refresh failure instead of replacing with seed-only data.
-        if not satellites:
-            raise RuntimeError("No satellites parsed from TLE sources")
-        has_iss_tle = any(s.norad_id == 25544 and s.tle_line1 and s.tle_line2 for s in satellites)
-        if not has_iss_tle:
-            raise RuntimeError("ISS TLE missing from refreshed catalog")
-
-        meta = {
-            "count": len(satellites),
-            "parsed_tle_records": len(parsed_tles),
-            "sources": ["celestrak", "satnogs"],
-            "includes_iss": any(s.is_iss for s in satellites),
-        }
         refresh_meta = self._load_refresh_meta()
-        refresh_meta["last_success_utc"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        refresh_meta["last_attempt_utc"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         self._save_refresh_meta(refresh_meta)
-        return satellites, meta
+        try:
+            with httpx.Client(timeout=timeout_seconds) as client:
+                amateur_tle = client.get(self.CELESTRAK_AMATEUR_URL).text
+                stations_tle = client.get(self.CELESTRAK_STATIONS_URL).text
+                satnogs = client.get(self.SATNOGS_TRANSMITTERS_URL).json()
+
+            transponders_by_norad: dict[int, list[str]] = {}
+            repeaters_by_norad: dict[int, list[str]] = {}
+            channels_by_norad: dict[int, list[SatelliteRadioChannel]] = {}
+            for tx in satnogs:
+                norad = tx.get("norad_cat_id")
+                if not norad:
+                    continue
+                desc = tx.get("description") or tx.get("mode") or "Transmitter"
+                down = tx.get("downlink_low")
+                up = tx.get("uplink_low")
+                mode = tx.get("mode") or ""
+                line = f"{desc} {mode}".strip()
+                transponders_by_norad.setdefault(norad, []).append(line)
+                if down or up:
+                    repeaters_by_norad.setdefault(norad, []).append(f"Uplink {up or 'n/a'} / Downlink {down or 'n/a'}")
+                channels_by_norad.setdefault(norad, []).append(
+                    SatelliteRadioChannel(
+                        channel_id=f"{norad}:satnogs:{tx.get('uuid') or tx.get('id') or len(channels_by_norad.get(norad, []))}",
+                        source="satnogs",
+                        kind=self._channel_kind(str(desc), str(mode or "")),
+                        label=str(desc).strip(),
+                        mode=str(mode or "").strip() or None,
+                        uplink_hz=int(up) if up is not None else None,
+                        downlink_hz=int(down) if down is not None else None,
+                        alive=bool(tx.get("alive", True)),
+                        status=str(tx.get("status") or "").strip() or None,
+                        path_default="ARISS" if self._channel_kind(str(desc), str(mode or "")) == "aprs" else None,
+                        requires_pass=self._channel_kind(str(desc), str(mode or "")) == "aprs",
+                        guidance="Derived from SatNOGS transmitter inventory" if self._channel_kind(str(desc), str(mode or "")) == "aprs" else None,
+                    )
+                )
+
+            parsed_tles = self._parse_tle(amateur_tle) + self._parse_tle(stations_tle)
+            merged: dict[int, Satellite] = {}
+            for name, norad, tle1, tle2 in parsed_tles:
+                sat_id = name.lower().replace(" ", "-").replace("(", "").replace(")", "")
+                is_iss = norad == 25544
+                sat = Satellite(
+                    sat_id=sat_id,
+                    norad_id=norad,
+                    name=name,
+                    is_iss=is_iss,
+                    has_amateur_radio=True,
+                    transponders=transponders_by_norad.get(norad, ["Amateur payload"]),
+                    repeaters=repeaters_by_norad.get(norad, []),
+                    radio_channels=channels_by_norad.get(norad, []),
+                    tle_line1=tle1,
+                    tle_line2=tle2,
+                    period_minutes=92.9 if is_iss else 97.0 + (norad % 13) * 0.6,
+                    phase_offset=((norad % 97) / 97.0),
+                )
+                merged[norad] = sat
+
+            satellites = list(merged.values())
+            # Treat empty/invalid TLE parses as refresh failure instead of replacing with seed-only data.
+            if not satellites:
+                raise RuntimeError("No satellites parsed from TLE sources")
+            has_iss_tle = any(s.norad_id == 25544 and s.tle_line1 and s.tle_line2 for s in satellites)
+            if not has_iss_tle:
+                raise RuntimeError("ISS TLE missing from refreshed catalog")
+
+            meta = {
+                "count": len(satellites),
+                "parsed_tle_records": len(parsed_tles),
+                "sources": ["celestrak", "satnogs"],
+                "includes_iss": any(s.is_iss for s in satellites),
+            }
+            refresh_meta["last_success_utc"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+            refresh_meta["last_error"] = None
+            refresh_meta["last_failure_utc"] = None
+            refresh_meta["consecutive_failure_count"] = 0
+            self._save_refresh_meta(refresh_meta)
+            return satellites, meta
+        except Exception as exc:
+            refresh_meta["last_error"] = str(exc)
+            refresh_meta["last_failure_utc"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+            refresh_meta["consecutive_failure_count"] = int(refresh_meta.get("consecutive_failure_count") or 0) + 1
+            self._save_refresh_meta(refresh_meta)
+            raise
 
     def refresh_amsat_statuses(
         self,

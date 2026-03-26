@@ -19,11 +19,11 @@
     <main class="lite-shell">
       <section id="liteSetupGate" class="card lite-controls-card">
         <div class="scene-title">Lite Setup</div>
-        <div class="label">Choose up to 8 satellites for this low-power device. ISS is selected by default.</div>
+        <div class="label">Choose up to 5 satellites for this low-power device. ISS is selected by default.</div>
         <div class="lite-form-grid">
           <label for="liteTrackedSatSelect" class="label">Tracked Satellites</label>
           <select id="liteTrackedSatSelect" multiple size="8"></select>
-          <div id="liteSetupHelp" class="label">These satellites will drive live tracking, passes, radio queue, and focus compass updates.</div>
+          <div id="liteSetupHelp" class="label">These satellites will drive live tracking, pass predictions, focus updates, and pass operations on this Pi Zero station.</div>
         </div>
         <div class="controls">
           <button id="saveLiteSetup" type="button">Save Lite Setup</button>
@@ -45,81 +45,100 @@
       </section>
 
       <section class="card lite-controls-card">
-        <div class="label">Remote Control</div>
+        <div class="label">Station Summary</div>
         <div class="lite-summary-grid">
           <div>
             <div class="label">Location Source</div>
             <div id="liteLocationSummary" class="value">Loading...</div>
           </div>
           <div>
-            <div class="label">Default Focus</div>
+            <div class="label">Focus</div>
             <div id="liteFocusSummary" class="value">Loading...</div>
+          </div>
+          <div>
+            <div class="label">Tracked Set</div>
+            <div id="liteTrackedCountSummary" class="value">Loading...</div>
+          </div>
+          <div>
+            <div class="label">Rig State</div>
+            <div id="liteRigSummary" class="value">Loading...</div>
           </div>
         </div>
         <div class="lite-utility-row">
           <div>
-            <div class="label">Lite mode is telemetry-only. Video controls are available in kiosk views.</div>
+            <div class="label">Lite mode is the mobile pass-ops surface for this Pi Zero station.</div>
             <div id="liteTrackedSummary" class="label"></div>
           </div>
           <a href="/lite/settings" class="lite-nav-link lite-utility-button">Lite Settings</a>
         </div>
       </section>
 
-      <section class="lite-grid">
-        <article class="card lite-focus-card">
-          <div class="scene-title" id="focusModeLabel">Tracking Focus</div>
-          <div id="focusTitle" class="lite-focus-title">Selected satellite</div>
-          <div id="focusReadout" class="mono value">Az -- | Alt -- | Range --</div>
-          <div id="focusSubpoint" class="mono label"></div>
-          <div id="focusPassMeta" class="mono label"></div>
-          <div class="lite-focus-layout">
-            <div class="lite-mini-compass">
-              <svg id="liteSkyplot" viewBox="0 0 240 240" class="skyplot" aria-label="Lite sky plot">
-                <circle cx="120" cy="120" r="108" class="plot-ring"></circle>
-                <circle cx="120" cy="120" r="58" class="plot-ring-inner"></circle>
-                <line x1="120" y1="12" x2="120" y2="228" class="plot-axis"></line>
-                <line x1="12" y1="120" x2="228" y2="120" class="plot-axis"></line>
-                <path id="liteTrackPathFaded" class="plot-pass-path plot-pass-path-faded" d=""></path>
-                <path id="liteTrackPathPast" class="plot-pass-path plot-pass-path-past" d=""></path>
-                <path id="liteTrackPathFuture" class="plot-pass-path plot-pass-path-future" d=""></path>
-                <line id="liteVector" x1="120" y1="120" x2="120" y2="120" class="plot-vector"></line>
-                <circle id="liteDot" cx="120" cy="120" r="7" class="plot-dot"></circle>
-                <circle cx="120" cy="120" r="4" class="plot-center"></circle>
-                <text x="120" y="28" text-anchor="middle" class="plot-dir">N</text>
-                <text x="212" y="124" text-anchor="middle" class="plot-dir">E</text>
-                <text x="120" y="224" text-anchor="middle" class="plot-dir">S</text>
-                <text x="28" y="124" text-anchor="middle" class="plot-dir">W</text>
-              </svg>
-            </div>
-            <div id="focusRfPanel" class="lite-focus-rf"></div>
+      <article class="card lite-focus-card">
+        <div class="scene-title" id="focusModeLabel">Tracking Focus</div>
+        <div id="focusTitle" class="lite-focus-title">Selected satellite</div>
+        <div id="focusReadout" class="mono value">Az -- | Alt -- | Range --</div>
+        <div id="focusSubpoint" class="mono label"></div>
+        <div id="focusPassMeta" class="mono label"></div>
+        <div class="lite-focus-layout">
+          <div class="lite-mini-compass">
+            <svg id="liteSkyplot" viewBox="0 0 240 240" class="skyplot" aria-label="Lite sky plot">
+              <circle cx="120" cy="120" r="108" class="plot-ring"></circle>
+              <circle cx="120" cy="120" r="58" class="plot-ring-inner"></circle>
+              <line x1="120" y1="12" x2="120" y2="228" class="plot-axis"></line>
+              <line x1="12" y1="120" x2="228" y2="120" class="plot-axis"></line>
+              <path id="liteTrackPathFaded" class="plot-pass-path plot-pass-path-faded" d=""></path>
+              <path id="liteTrackPathPast" class="plot-pass-path plot-pass-path-past" d=""></path>
+              <path id="liteTrackPathFuture" class="plot-pass-path plot-pass-path-future" d=""></path>
+              <line id="liteVector" x1="120" y1="120" x2="120" y2="120" class="plot-vector"></line>
+              <circle id="liteDot" cx="120" cy="120" r="7" class="plot-dot"></circle>
+              <circle cx="120" cy="120" r="4" class="plot-center"></circle>
+              <text x="120" y="28" text-anchor="middle" class="plot-dir">N</text>
+              <text x="212" y="124" text-anchor="middle" class="plot-dir">E</text>
+              <text x="120" y="224" text-anchor="middle" class="plot-dir">S</text>
+              <text x="28" y="124" text-anchor="middle" class="plot-dir">W</text>
+            </svg>
           </div>
-          <div id="liteAmsatSummary" class="amsat-summary hidden">
-            <div class="amsat-summary-head">
-              <span class="label">AMSAT Verification</span>
-              <span id="liteAmsatBadge" class="chip"></span>
-            </div>
-            <div id="liteAmsatDetail" class="label"></div>
-            <div id="liteAmsatCounts" class="stack"></div>
-            <div id="liteAmsatMatched" class="mono label"></div>
-          </div>
-        </article>
-
-        <article class="card lite-pass-card">
-          <div class="scene-title">Next Passes</div>
-          <div id="passMeta" class="mono label"></div>
-          <div id="passCards" class="lite-pass-list"></div>
-        </article>
-      </section>
-
-      <section class="card lite-radio-card">
-        <div class="lite-radio-head">
-          <div>
-            <div class="scene-title">Radio Console</div>
-            <div id="freqStatus" class="label"></div>
-          </div>
+          <div id="focusRfPanel" class="lite-focus-rf"></div>
         </div>
-        <div id="freqRows" class="lite-freq-list"></div>
-      </section>
+        <section class="lite-ops-grid">
+          <div class="lite-ops-block">
+            <div class="scene-title">Rig Control</div>
+            <div id="liteRigStatus" class="label">Loading radio status…</div>
+            <div id="liteRigReadout" class="mono label"></div>
+            <div id="liteRigActions" class="lite-action-grid"></div>
+          </div>
+          <div class="lite-ops-block">
+            <div class="scene-title">Satellite APRS</div>
+            <div id="liteAprsStatus" class="label">Loading APRS status…</div>
+            <div id="liteAprsReadout" class="mono label"></div>
+            <div id="liteAprsActions" class="lite-action-grid"></div>
+            <div id="liteAprsCompose" class="lite-compose-grid hidden">
+              <input id="liteAprsMessageTo" type="text" placeholder="Message To" />
+              <input id="liteAprsMessageBody" type="text" placeholder="Message text" />
+              <button id="liteAprsSendMessage" type="button">Send Message</button>
+              <input id="liteAprsStatusText" type="text" placeholder="Status text" />
+              <button id="liteAprsSendStatus" type="button">Send Status</button>
+              <input id="liteAprsPositionComment" type="text" placeholder="Position comment" />
+              <button id="liteAprsSendPosition" type="button">Send Position</button>
+            </div>
+          </div>
+        </section>
+        <div id="liteAmsatSummary" class="amsat-summary hidden">
+          <div class="amsat-summary-head">
+            <span id="liteAmsatTitle" class="label">AMSAT Verification</span>
+            <span id="liteAmsatBadge" class="chip"></span>
+          </div>
+          <div id="liteAmsatDetail" class="label"></div>
+          <div id="liteAmsatCounts" class="stack"></div>
+          <div id="liteAmsatMatched" class="mono label"></div>
+        </div>
+      </article>
+
+      <article class="card lite-pass-card">
+        <div class="scene-title">Upcoming Passes</div>
+        <div id="passMeta" class="mono label"></div>
+        <div id="passCards" class="lite-pass-list"></div>
+      </article>
       </section>
     </main>
   </body>

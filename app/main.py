@@ -105,6 +105,10 @@ _lite_snapshot_cache: dict[tuple, tuple[datetime, dict]] = {}
 _CALLSIGN_PATTERN = re.compile(r"^[A-Z0-9]{3,10}$")
 _APRS_SESSION_IDENTITY_OVERRIDE: dict[str, object | None] = {"callsign": None, "ssid": None}
 _LITE_MAX_TRACKED_SATS = 5
+_BACKGROUND_REFRESH_INTERVAL = timedelta(hours=6)
+_BACKGROUND_REFRESH_FAILURE_BACKOFF = timedelta(minutes=30)
+_BACKGROUND_REFRESH_FAILURE_RETRY_INTERVAL = timedelta(seconds=30)
+_BACKGROUND_REFRESH_FAILURE_BURST_LIMIT = 3
 
 
 def _pass_cache_retention(state) -> timedelta:
@@ -117,6 +121,10 @@ def _pass_cache_ttl(state) -> timedelta:
 
 def _invalidate_pass_cache() -> None:
     pass_cache_service.clear()
+
+
+def _invalidate_lite_snapshot_cache() -> None:
+    _lite_snapshot_cache.clear()
 
 
 def _resolve_direwolf_binary_path(binary: str | None) -> str | None:
@@ -929,16 +937,26 @@ def _resolve_default_test_pair_for_radio(payload: RadioControlSessionSelectReque
 def _same_focus_pass(session, focus_pass) -> bool:
     if session is None or focus_pass is None:
         return False
+    aos_match = False
+    los_match = False
+    if session.selected_pass_aos is not None and focus_pass.aos is not None:
+        aos_match = abs((session.selected_pass_aos - focus_pass.aos).total_seconds()) <= 5
+    if session.selected_pass_los is not None and focus_pass.los is not None:
+        los_match = abs((session.selected_pass_los - focus_pass.los).total_seconds()) <= 5
     return (
         session.selected_sat_id == focus_pass.sat_id
-        and session.selected_pass_aos == focus_pass.aos
-        and session.selected_pass_los == focus_pass.los
+        and aos_match
+        and los_match
     )
 
 
 def _first_aprs_channel_for_satellite(sat) -> object | None:
     channels = list(getattr(sat, "radio_channels", []) or [])
     return next((item for item in channels if item.kind == "aprs"), None)
+
+
+def _channel_has_tuned_frequency(channel) -> bool:
+    return bool(channel and (channel.downlink_hz or channel.uplink_hz))
 
 
 def _compact_radio_runtime(runtime) -> dict:
@@ -987,7 +1005,102 @@ def _compact_aprs_runtime(runtime, settings) -> dict:
     }
 
 
-def _build_lite_radio_focus(state, focus_sat, focus_pass) -> dict:
+def _first_receive_only_frequency_for_satellite(sat, current_track) -> dict | None:
+    if sat is None:
+        return None
+    candidates: list[tuple[float, str | None]] = []
+    for line in list(getattr(sat, "repeaters", []) or []):
+        text = str(line or "")
+        match = re.search(r"Downlink\s+(\d{7,11})", text, flags=re.IGNORECASE)
+        if match:
+            mhz = int(match.group(1)) / 1_000_000.0
+            candidates.append((mhz, None))
+            continue
+        match = re.search(r"(\d+(?:\.\d+)?)\s*mhz", text, flags=re.IGNORECASE)
+        if match:
+            candidates.append((float(match.group(1)), None))
+    if not candidates:
+        for line in list(getattr(sat, "transponders", []) or []):
+            text = str(line or "")
+            match = re.search(r"(\d+(?:\.\d+)?)\s*mhz", text, flags=re.IGNORECASE)
+            if not match:
+                continue
+            mode = None
+            upper = text.upper()
+            if "FM" in upper:
+                mode = "FM"
+            elif "CW" in upper:
+                mode = "CW"
+            elif "SSB" in upper:
+                mode = "SSB"
+            candidates.append((float(match.group(1)), mode))
+    if not candidates:
+        return None
+    nominal_mhz, mode = candidates[0]
+    range_rate = current_track.range_rate_km_s if current_track is not None else 0.0
+    step_hz = 5000 if nominal_mhz >= 400.0 else 1000
+    corrected_mhz = frequency_guide_service.corrected_downlink_mhz(nominal_mhz, range_rate, step_hz)
+    return {
+        "nominalDownlinkMhz": nominal_mhz,
+        "downlinkMhz": corrected_mhz or nominal_mhz,
+        "downlinkMode": mode,
+        "stepHz": step_hz,
+    }
+
+
+def _catalog_refresh_status() -> dict:
+    meta = {}
+    with suppress(Exception):
+        meta = ingestion_service._load_refresh_meta() or {}
+    return {
+        "lastAttemptUtc": meta.get("last_attempt_utc"),
+        "lastFailureUtc": meta.get("last_failure_utc"),
+        "lastSuccessUtc": meta.get("last_success_utc"),
+        "lastError": meta.get("last_error"),
+        "consecutiveFailureCount": int(meta.get("consecutive_failure_count") or 0),
+    }
+
+
+def _parse_refresh_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    with suppress(Exception):
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+    return None
+
+
+def _next_background_refresh_delay_seconds() -> float:
+    meta = _catalog_refresh_status()
+    last_failure = _parse_refresh_timestamp(meta.get("lastFailureUtc"))
+    last_success = _parse_refresh_timestamp(meta.get("lastSuccessUtc"))
+    consecutive_failures = int(meta.get("consecutiveFailureCount") or 0)
+    now = datetime.now(UTC)
+    success_due_at = (last_success + _BACKGROUND_REFRESH_INTERVAL) if last_success is not None else now
+    failure_backoff = (
+        _BACKGROUND_REFRESH_FAILURE_RETRY_INTERVAL
+        if 0 < consecutive_failures < _BACKGROUND_REFRESH_FAILURE_BURST_LIMIT
+        else _BACKGROUND_REFRESH_FAILURE_BACKOFF
+    )
+    failure_due_at = (last_failure + failure_backoff) if last_failure is not None else now
+    due_at = min(success_due_at, failure_due_at)
+    return max(0.0, (due_at - now).total_seconds())
+
+
+async def _run_background_refresh_cycle() -> None:
+    satellites, _ = ingestion_service.refresh_catalog(
+        min_interval_hours=_BACKGROUND_REFRESH_INTERVAL.total_seconds() / 3600.0
+    )
+    tracking_service.replace_catalog(satellites)
+    _invalidate_lite_snapshot_cache()
+    _invalidate_pass_cache()
+    with suppress(Exception):
+        ingestion_service.refresh_ephemeris()
+    with suppress(Exception):
+        statuses = ingestion_service.refresh_amsat_statuses(tracking_service.satellites())
+        tracking_service.merge_operational_statuses(statuses)
+
+
+def _build_lite_radio_focus(state, focus_sat, focus_pass, focus_track) -> dict:
     runtime = radio_control_service.runtime()
     session = radio_control_service.session_state()
     focused_session = _same_focus_pass(session, focus_pass)
@@ -997,8 +1110,10 @@ def _build_lite_radio_focus(state, focus_sat, focus_pass) -> dict:
         "runtime": _compact_radio_runtime(runtime),
         "session": session,
         "defaultPair": None,
+        "receiveOnlyTarget": None,
         "passState": "idle",
         "canSelectSession": False,
+        "canTuneDownlink": False,
         "status": "Select a tracked pass to prepare radio control.",
     }
     if focus_pass is None or focus_sat is None:
@@ -1030,6 +1145,17 @@ def _build_lite_radio_focus(state, focus_sat, focus_pass) -> dict:
             else (reason or "Focused pass is not eligible for radio control.")
         ),
     })
+    if recommendation is None:
+        receive_only = _first_receive_only_frequency_for_satellite(focus_sat, focus_track)
+        if receive_only is not None:
+            payload.update({
+                "receiveOnlyTarget": receive_only,
+                "canTuneDownlink": True,
+                "canSelectSession": False,
+                "isEligible": False,
+                "eligibilityReason": "Receive-only monitoring is available for this satellite.",
+                "status": "Receive-only downlink available. Tune the focused satellite on the rig RX VFO.",
+            })
     return payload
 
 
@@ -1038,28 +1164,54 @@ def _build_lite_aprs_focus(state, location, focus_sat) -> dict:
     current_target = runtime.target
     payload = {
         "available": False,
+        "state": "unavailable",
         "selectedChannel": None,
         "availableChannels": [],
         "previewTarget": None,
         "runtime": _compact_aprs_runtime(runtime, state.aprs_settings),
         "focusTargetSelected": False,
+        "txAllowed": False,
+        "txBlockReason": None,
         "status": "Focused satellite does not expose APRS channels.",
     }
     if focus_sat is None:
         return payload
-    channels = [
-        item
-        for item in list(focus_sat.radio_channels or [])
-        if item.kind == "aprs" and (item.downlink_hz or item.uplink_hz)
-    ]
+    channels = [item for item in list(focus_sat.radio_channels or []) if item.kind == "aprs"]
     if not channels:
         return payload
     payload["available"] = True
     payload["availableChannels"] = channels
+    payload["state"] = "cataloged"
+    selected_channel = None
+    if (
+        current_target
+        and current_target.operating_mode == AprsOperatingMode.satellite
+        and current_target.sat_id == focus_sat.sat_id
+        and current_target.channel_id is not None
+    ):
+        selected_channel = next((item for item in channels if item.channel_id == current_target.channel_id), None)
     selected_channel = next(
         (item for item in channels if item.channel_id == state.aprs_settings.selected_channel_id),
         None,
-    ) or channels[0]
+    ) if selected_channel is None else selected_channel
+    if selected_channel is not None and not _channel_has_tuned_frequency(selected_channel):
+        selected_channel = next((item for item in channels if _channel_has_tuned_frequency(item)), selected_channel)
+    if selected_channel is None:
+        selected_channel = next((item for item in channels if _channel_has_tuned_frequency(item)), None) or channels[0]
+    focus_target_selected = bool(
+        current_target
+        and current_target.operating_mode == AprsOperatingMode.satellite
+        and current_target.sat_id == focus_sat.sat_id
+        and current_target.channel_id == selected_channel.channel_id
+    )
+    payload["selectedChannel"] = selected_channel
+    payload["focusTargetSelected"] = focus_target_selected
+    if not _channel_has_tuned_frequency(selected_channel):
+        payload.update({
+            "state": "cataloged",
+            "status": "Satellite APRS is listed for this satellite, but no tuned frequency is available in the catalog yet.",
+        })
+        return payload
     settings = state.aprs_settings.model_copy(
         update={
             "operating_mode": AprsOperatingMode.satellite,
@@ -1071,23 +1223,33 @@ def _build_lite_aprs_focus(state, location, focus_sat) -> dict:
         preview = _resolve_aprs_target(settings, location)
     except ValueError as exc:
         payload.update({
-            "selectedChannel": selected_channel,
+            "state": "blocked",
             "status": str(exc),
         })
         return payload
+    state_name = "ready"
+    status = "Focused satellite APRS is ready."
+    if preview is not None and not preview.can_transmit:
+        state_name = "blocked"
+        status = preview.tx_block_reason or "Satellite APRS is blocked for this pass state."
+    if focus_target_selected and runtime.connected:
+        state_name = "connected"
+        status = "Satellite APRS is connected for the focused pass."
+        if runtime.audio_tx_active:
+            state_name = "transmitting"
+            status = "Satellite APRS is transmitting for the focused pass."
+        elif runtime.audio_rx_active:
+            state_name = "receiving"
+            status = "Satellite APRS is connected and receiving."
+    if runtime.last_error:
+        state_name = "error"
+        status = runtime.last_error
     payload.update({
-        "selectedChannel": selected_channel,
         "previewTarget": preview,
-        "focusTargetSelected": bool(
-            current_target
-            and current_target.operating_mode == AprsOperatingMode.satellite
-            and current_target.sat_id == focus_sat.sat_id
-        ),
-        "status": (
-            "Focused satellite APRS is ready."
-            if preview is not None
-            else "Focused satellite APRS target is unavailable."
-        ),
+        "state": state_name,
+        "txAllowed": bool(preview and preview.can_transmit and not state.aprs_settings.listen_only),
+        "txBlockReason": preview.tx_block_reason if preview is not None else None,
+        "status": status,
     })
     return payload
 
@@ -1226,11 +1388,12 @@ def _lite_snapshot(
         "frequencyMatrix": frequency_matrix,
         "timezone": {"timezone": state.settings.display_timezone},
         "gpsSettings": {"state": state.gps_settings},
+        "catalog": _catalog_refresh_status(),
         "liteSettings": state.lite_settings,
         "stationIdentity": _station_identity_status(state.aprs_settings),
         "radio": {
             "settings": state.radio_settings,
-            "focused": _build_lite_radio_focus(state, focus_sat, focus_pass),
+            "focused": _build_lite_radio_focus(state, focus_sat, focus_pass, focus_track),
         },
         "aprs": {
             "settings": {
@@ -1249,18 +1412,15 @@ def _lite_snapshot(
 
 async def _periodic_refresh_loop() -> None:
     while True:
-        await asyncio.sleep(6 * 60 * 60)
+        delay = _next_background_refresh_delay_seconds()
+        if delay > 0:
+            await asyncio.sleep(delay)
         try:
-            satellites, _ = ingestion_service.refresh_catalog()
-            tracking_service.replace_catalog(satellites)
-            with suppress(Exception):
-                ingestion_service.refresh_ephemeris()
-            with suppress(Exception):
-                statuses = ingestion_service.refresh_amsat_statuses(tracking_service.satellites())
-                tracking_service.merge_operational_statuses(statuses)
+            await _run_background_refresh_cycle()
         except Exception:
             # Non-fatal background refresh failure.
             pass
+        await asyncio.sleep(5)
 
 
 @asynccontextmanager
@@ -1268,6 +1428,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     global _refresh_task
     with suppress(Exception):
         tracking_service.merge_operational_statuses(ingestion_service.cached_amsat_statuses())
+    with suppress(Exception):
+        if _next_background_refresh_delay_seconds() <= 0:
+            await _run_background_refresh_cycle()
     _refresh_task = asyncio.create_task(_periodic_refresh_loop())
     try:
         yield
@@ -1365,7 +1528,7 @@ def get_satellites(refresh_from_sources: bool = Query(default=False)) -> dict:
         try:
             satellites, _ = ingestion_service.refresh_catalog()
             tracking_service.replace_catalog(satellites)
-            _lite_snapshot_cache.clear()
+            _invalidate_lite_snapshot_cache()
             _invalidate_pass_cache()
             with suppress(Exception):
                 ingestion_service.refresh_ephemeris(timeout_seconds=8.0)
@@ -1502,7 +1665,7 @@ def set_iss_display_mode(payload: SettingsUpdate) -> dict:
     state = store.get()
     state.settings.iss_display_mode = payload.mode
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     return {"mode": state.settings.iss_display_mode}
 
 
@@ -1525,7 +1688,7 @@ def set_timezone(payload: TimezoneUpdate) -> dict:
     state = store.get()
     state.settings.display_timezone = tz
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     return {"timezone": state.settings.display_timezone}
 
 
@@ -1561,7 +1724,7 @@ def set_pass_filter(payload: PassFilterUpdate) -> dict:
     elif not state.settings.pass_sat_ids:
         state.settings.pass_sat_ids = ["iss-zarya"]
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     _invalidate_pass_cache()
     return {"profile": state.settings.pass_profile, "satIds": state.settings.pass_sat_ids}
 
@@ -1577,7 +1740,7 @@ def post_lite_settings(payload: LiteSettingsUpdate) -> dict:
     state = store.get()
     state = _apply_lite_settings_update(state, payload)
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     _invalidate_pass_cache()
     return {"state": state.lite_settings}
 
@@ -1615,7 +1778,7 @@ def post_location(payload: LocationUpdate) -> dict:
     state = store.get()
     state.location = location_service.apply_update(state.location, payload)
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     _invalidate_pass_cache()
     resolved = location_service.resolve(state.location)
     return {"state": state.location, "resolved": resolved.__dict__}
@@ -1632,7 +1795,7 @@ def post_network(payload: NetworkUpdate) -> dict:
     state = store.get()
     state.network = network_service.apply_update(state.network, payload)
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     return {"state": state.network}
 
 
@@ -1658,7 +1821,7 @@ def post_gps_settings(payload: GpsSettingsUpdate) -> dict:
         next_settings.bluetooth_channel = payload.bluetooth_channel
     state.gps_settings = next_settings
     store.save(state)
-    _lite_snapshot_cache.clear()
+    _invalidate_lite_snapshot_cache()
     _invalidate_pass_cache()
     return {"state": state.gps_settings}
 
@@ -1859,6 +2022,7 @@ def post_aprs_session_identity(payload: AprsSessionIdentityUpdateRequest) -> dic
         else:
             _APRS_SESSION_IDENTITY_OVERRIDE["callsign"] = normalized_callsign
             _APRS_SESSION_IDENTITY_OVERRIDE["ssid"] = normalized_ssid
+    _invalidate_lite_snapshot_cache()
     return {"runtime": _aprs_runtime_response(aprs_service.runtime(), state.aprs_settings)}
 
 
@@ -2025,7 +2189,9 @@ def _select_aprs_target(payload: AprsTargetSelectRequest) -> dict:
 
 @app.post("/api/v1/aprs/select-target")
 def select_aprs_target(payload: AprsTargetSelectRequest) -> dict:
-    return _select_aprs_target(payload)
+    result = _select_aprs_target(payload)
+    _invalidate_lite_snapshot_cache()
+    return result
 
 
 @app.post("/api/v1/aprs/session/select")
@@ -2059,19 +2225,23 @@ def connect_aprs() -> dict:
         store.save(state)
     except (RuntimeError, ValueError, TimeoutError, OSError, subprocess.SubprocessError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"settings": state.aprs_settings, "runtime": _aprs_runtime_response(runtime, state.aprs_settings), "target": target}
 
 
 @app.post("/api/v1/aprs/disconnect")
 def disconnect_aprs() -> dict:
     state = store.get()
-    return {"runtime": _aprs_runtime_response(aprs_service.disconnect(), state.aprs_settings)}
+    runtime = aprs_service.disconnect()
+    _invalidate_lite_snapshot_cache()
+    return {"runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
 @app.post("/api/v1/aprs/emergency-stop")
 def emergency_stop_aprs() -> dict:
     state = store.get()
     runtime = aprs_service.disconnect()
+    _invalidate_lite_snapshot_cache()
     return {"ok": True, "runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
@@ -2094,6 +2264,7 @@ def send_aprs_message(payload: AprsSendMessageRequest) -> dict:
         runtime = aprs_service.send_message(state.aprs_settings, send_payload)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
@@ -2116,6 +2287,7 @@ def send_aprs_status(payload: AprsSendStatusRequest) -> dict:
         runtime = aprs_service.send_status(state.aprs_settings, send_payload)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
@@ -2138,6 +2310,7 @@ def send_aprs_position(payload: AprsSendPositionRequest) -> dict:
         runtime = aprs_service.send_position(state.aprs_settings, send_payload, location)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"runtime": _aprs_runtime_response(runtime, state.aprs_settings)}
 
 
@@ -2180,6 +2353,7 @@ def select_radio_session(payload: RadioControlSessionSelectRequest) -> dict:
     _ensure_station_identity_ready()
     state = store.get()
     session = radio_control_service.select_session(payload, _resolve_default_test_pair_for_radio, state.radio_settings)
+    _invalidate_lite_snapshot_cache()
     return {"session": session, "runtime": radio_control_service.runtime()}
 
 
@@ -2198,6 +2372,7 @@ def update_radio_session_test_pair(payload: RadioControlSessionTestPairUpdateReq
 @app.post("/api/v1/radio/session/clear")
 def clear_radio_session() -> dict:
     session = radio_control_service.clear_session()
+    _invalidate_lite_snapshot_cache()
     return {"session": session, "runtime": radio_control_service.runtime()}
 
 
@@ -2208,6 +2383,7 @@ def connect_radio() -> dict:
     state = store.get()
     _ensure_wifi_host_reachable(state.radio_settings)
     runtime = radio_control_service.connect(state.radio_settings)
+    _invalidate_lite_snapshot_cache()
     return {"settings": state.radio_settings, "runtime": runtime, "session": radio_control_service.session_state()}
 
 
@@ -2221,6 +2397,7 @@ def disconnect_radio() -> dict:
         runtime = radio_control_service.runtime()
         runtime.last_error = f"Disconnect encountered an error: {exc}"
         session = radio_control_service.session_state()
+    _invalidate_lite_snapshot_cache()
     return {"settings": state.radio_settings, "runtime": runtime, "session": session}
 
 
@@ -2230,6 +2407,7 @@ def poll_radio() -> dict:
     _ensure_station_identity_ready()
     state = store.get()
     runtime = radio_control_service.poll(state.radio_settings)
+    _invalidate_lite_snapshot_cache()
     return {"settings": state.radio_settings, "runtime": runtime, "session": radio_control_service.session_state()}
 
 
@@ -2242,6 +2420,7 @@ def set_radio_frequency(payload: RadioFrequencySetRequest) -> dict:
         runtime, result = radio_control_service.set_frequency(payload, state.radio_settings)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"settings": state.radio_settings, "runtime": runtime, "result": result}
 
 
@@ -2254,6 +2433,7 @@ def set_radio_pair(payload: RadioPairSetRequest) -> dict:
         runtime, recommendation, mapping = radio_control_service.apply_manual_pair(payload, state.radio_settings)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {
         "settings": state.radio_settings,
         "runtime": runtime,
@@ -2273,6 +2453,7 @@ def run_radio_session_test() -> dict:
         session, runtime, recommendation, mapping = radio_control_service.run_test_control(state.radio_settings)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {
         "session": session,
         "runtime": runtime,
@@ -2287,6 +2468,7 @@ def confirm_radio_session_test() -> dict:
     _ensure_radio_available_for_manual_control()
     _ensure_station_identity_ready()
     session, runtime = radio_control_service.confirm_test_success()
+    _invalidate_lite_snapshot_cache()
     return {"session": session, "runtime": runtime}
 
 
@@ -2302,6 +2484,7 @@ def start_radio_session_control() -> dict:
         )
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"session": session, "runtime": runtime}
 
 
@@ -2310,6 +2493,7 @@ def stop_radio_session_control() -> dict:
     _ensure_radio_available_for_manual_control()
     _ensure_station_identity_ready()
     session, runtime = radio_control_service.stop_session_control()
+    _invalidate_lite_snapshot_cache()
     return {"session": session, "runtime": runtime}
 
 
@@ -2326,6 +2510,7 @@ def apply_radio_target(payload: RadioApplyRequest) -> dict:
         )
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {
         "runtime": runtime,
         "recommendation": recommendation,
@@ -2348,6 +2533,7 @@ def start_radio_auto_track(payload: RadioAutoTrackStartRequest) -> dict:
         )
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_lite_snapshot_cache()
     return {"runtime": runtime}
 
 
@@ -2355,7 +2541,9 @@ def start_radio_auto_track(payload: RadioAutoTrackStartRequest) -> dict:
 def stop_radio_auto_track() -> dict:
     _ensure_radio_available_for_manual_control()
     _ensure_station_identity_ready()
-    return {"runtime": radio_control_service.stop_auto_track()}
+    runtime = radio_control_service.stop_auto_track()
+    _invalidate_lite_snapshot_cache()
+    return {"runtime": runtime}
 
 
 @app.get("/api/v1/system/state")
@@ -2430,7 +2618,7 @@ def refresh_datasets() -> dict:
     try:
         satellites, meta = ingestion_service.refresh_catalog()
         tracking_service.replace_catalog(satellites)
-        _lite_snapshot_cache.clear()
+        _invalidate_lite_snapshot_cache()
         _invalidate_pass_cache()
         ephem = {"ok": False}
         with suppress(Exception):

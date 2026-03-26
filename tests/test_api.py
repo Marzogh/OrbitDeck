@@ -1670,8 +1670,212 @@ def test_lite_snapshot_includes_focused_aprs_preview(tmp_path):
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["aprs"]["focused"]["available"] is True
+        assert payload["aprs"]["focused"]["state"] == "ready"
         assert payload["aprs"]["focused"]["previewTarget"]["sat_id"] == "iss-zarya"
         assert payload["aprs"]["focused"]["selectedChannel"]["channel_id"] == "iss-zarya:aprs"
+        assert payload["aprs"]["focused"]["txAllowed"] is True
+    finally:
+        main.tracking_service = old_tracking
+
+
+def test_lite_snapshot_marks_focused_aprs_blocked_outside_pass(tmp_path):
+    client = make_client(tmp_path)
+
+    class FakeTracking(TrackingService):
+        def satellites(self):
+            return [
+                Satellite(
+                    sat_id="iss-zarya",
+                    norad_id=25544,
+                    name="ISS (ZARYA)",
+                    is_iss=True,
+                    has_amateur_radio=True,
+                    radio_channels=[
+                        SatelliteRadioChannel(
+                            channel_id="iss-zarya:aprs",
+                            kind="aprs",
+                            label="ISS APRS",
+                            mode="FM",
+                            uplink_hz=145990000,
+                            downlink_hz=437800000,
+                            path_default="ARISS",
+                            requires_pass=True,
+                        )
+                    ],
+                )
+            ]
+
+        def live_tracks(self, now, location, sat_ids=None):
+            return [
+                LiveTrack(
+                    sat_id="iss-zarya",
+                    name="ISS (ZARYA)",
+                    timestamp=now,
+                    az_deg=180.0,
+                    el_deg=-15.0,
+                    range_km=2400.0,
+                    range_rate_km_s=0.0,
+                    sunlit=True,
+                )
+            ]
+
+        def pass_predictions(self, now, hours, location=None, sat_ids=None, include_ongoing=False):
+            from datetime import timedelta
+
+            return [
+                PassEvent(
+                    sat_id="iss-zarya",
+                    name="ISS (ZARYA)",
+                    aos=now + timedelta(minutes=4),
+                    tca=now + timedelta(minutes=8),
+                    los=now + timedelta(minutes=12),
+                    max_el_deg=32.0,
+                )
+            ]
+
+    old_tracking = main.tracking_service
+    try:
+        main.tracking_service = FakeTracking(str(tmp_path / "latest_catalog.json"))
+        resp = client.get("/api/v1/lite/snapshot?sat_id=iss-zarya")
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["aprs"]["focused"]["available"] is True
+        assert payload["aprs"]["focused"]["state"] == "blocked"
+        assert payload["aprs"]["focused"]["txAllowed"] is False
+        assert payload["aprs"]["focused"]["txBlockReason"] == "Satellite APRS transmit is only enabled during an active pass"
+    finally:
+        main.tracking_service = old_tracking
+
+
+def test_lite_snapshot_marks_catalog_only_aprs_channels(tmp_path):
+    client = make_client(tmp_path)
+
+    class FakeTracking(TrackingService):
+        def satellites(self):
+            return [
+                Satellite(
+                    sat_id="iss-zarya",
+                    norad_id=25544,
+                    name="ISS (ZARYA)",
+                    is_iss=True,
+                    has_amateur_radio=True,
+                    radio_channels=[
+                        SatelliteRadioChannel(
+                            channel_id="iss-zarya:aprs-seed",
+                            kind="aprs",
+                            label="Mode V APRS AFSK",
+                            mode="AFSK",
+                            uplink_hz=None,
+                            downlink_hz=None,
+                            path_default="ARISS",
+                            requires_pass=True,
+                        )
+                    ],
+                )
+            ]
+
+        def live_tracks(self, now, location, sat_ids=None):
+            return []
+
+        def pass_predictions(self, now, hours, location=None, sat_ids=None, include_ongoing=False):
+            return []
+
+    old_tracking = main.tracking_service
+    try:
+        main.tracking_service = FakeTracking(str(tmp_path / "latest_catalog.json"))
+        resp = client.get("/api/v1/lite/snapshot?sat_id=iss-zarya")
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["aprs"]["focused"]["available"] is True
+        assert payload["aprs"]["focused"]["state"] == "cataloged"
+        assert payload["aprs"]["focused"]["previewTarget"] is None
+        assert "no tuned frequency" in payload["aprs"]["focused"]["status"].lower()
+    finally:
+        main.tracking_service = old_tracking
+
+
+def test_lite_snapshot_prefers_tuned_aprs_channel_over_seed_selection(tmp_path):
+    client = make_client(tmp_path)
+
+    class FakeTracking(TrackingService):
+        def satellites(self):
+            return [
+                Satellite(
+                    sat_id="iss-zarya",
+                    norad_id=25544,
+                    name="ISS (ZARYA)",
+                    is_iss=True,
+                    has_amateur_radio=True,
+                    radio_channels=[
+                        SatelliteRadioChannel(
+                            channel_id="iss-zarya:aprs-seed",
+                            kind="aprs",
+                            label="Mode V APRS AFSK",
+                            mode="AFSK",
+                            uplink_hz=None,
+                            downlink_hz=None,
+                            path_default="ARISS",
+                            requires_pass=True,
+                        ),
+                        SatelliteRadioChannel(
+                            channel_id="iss-zarya:aprs-fm",
+                            kind="aprs",
+                            label="ISS APRS FM",
+                            mode="FM",
+                            uplink_hz=145990000,
+                            downlink_hz=437800000,
+                            path_default="ARISS",
+                            requires_pass=True,
+                        ),
+                    ],
+                )
+            ]
+
+        def live_tracks(self, now, location, sat_ids=None):
+            return [
+                LiveTrack(
+                    sat_id="iss-zarya",
+                    name="ISS (ZARYA)",
+                    timestamp=now,
+                    az_deg=180.0,
+                    el_deg=18.0,
+                    range_km=900.0,
+                    range_rate_km_s=0.0,
+                    sunlit=True,
+                )
+            ]
+
+        def pass_predictions(self, now, hours, location=None, sat_ids=None, include_ongoing=False):
+            from datetime import timedelta
+
+            return [
+                PassEvent(
+                    sat_id="iss-zarya",
+                    name="ISS (ZARYA)",
+                    aos=now - timedelta(minutes=1),
+                    tca=now,
+                    los=now + timedelta(minutes=4),
+                    max_el_deg=55.0,
+                )
+            ]
+
+    old_tracking = main.tracking_service
+    try:
+        main.tracking_service = FakeTracking(str(tmp_path / "latest_catalog.json"))
+        client.post(
+            "/api/v1/settings/aprs",
+            json={
+                "operating_mode": "satellite",
+                "selected_satellite_id": "iss-zarya",
+                "selected_channel_id": "iss-zarya:aprs-seed",
+            },
+        )
+        resp = client.get("/api/v1/lite/snapshot?sat_id=iss-zarya")
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["aprs"]["focused"]["state"] == "ready"
+        assert payload["aprs"]["focused"]["selectedChannel"]["channel_id"] == "iss-zarya:aprs-fm"
+        assert payload["aprs"]["focused"]["previewTarget"]["frequency_hz"] == 437800000
     finally:
         main.tracking_service = old_tracking
 

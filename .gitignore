@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 site/
+articles/
 references/
 data/state.json
 data/snapshots/*.json
@@ -18,3 +19,5 @@ docs/icom-lan-protocol-log.md
 PII_CLEANUP_CHECKLIST.md
 data/aprs/
 data/aprs-test-run/
+notes/logs/
+AGENTS.md
