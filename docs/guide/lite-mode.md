@@ -1,59 +1,13 @@
 # Lite Mode
 
-Lite mode is the low-power and mobile-friendly OrbitDeck workflow.
+Lite is the low-power, mobile-first OrbitDeck workflow. It is the intended surface for Pi Zero-class hardware, phone-sized clients, and situations where the network link back to the Pi is weak or intermittent.
 
-## Deployment context
+On a clean state, lite starts with setup instead of dropping straight into the dashboard. The operator chooses a tracked set of satellites, saves that list, confirms the location source, and then continues into the main view. The tracked set is intentionally bounded to 5 satellites so the backend does not have to compute against the full amateur-satellite catalog on low-power hardware. `ISS (ZARYA)` is preselected when available, but it is not locked in.
 
-Lite is the UI surface intended for:
+Once configured, lite revolves around a single focus card rather than several competing live panels. Tapping a pass or radio item moves that satellite into focus. If the selected pass has not started yet, lite shows an AOS cue on the compass. Once the pass is live, the focus card switches into the fuller pass and RF presentation.
 
-- Pi Zero-class hardware
-- mobile clients
-- remote use over weaker network links
+Lite also treats the focused pass as the operator surface. That means the focused view can expose radio-control readiness, a default pair when one exists, or a receive-only downlink target when the satellite does not have a full controllable pair. For APRS-capable satellites, the same focused area can expose APRS target state, transmit gating, and connect or send readiness.
 
-## First-run flow
+To stay resilient over weaker links, lite keeps two client-side cache layers: a service worker for shell assets and recent GET responses, and a `localStorage` fallback for the last successful snapshot. The UI makes stale age visible so the operator can tell the difference between live data and cached reference data.
 
-On a clean state, lite requires initial configuration before normal dashboard use.
-
-Required steps:
-
-1. select tracked satellites
-2. save the tracked list
-3. choose or confirm the location source
-4. continue to the dashboard
-
-## Bounded tracking model
-
-Lite does not compute against the full amateur-satellite catalog.
-
-Current rules:
-
-- first run asks the user to choose up to 8 tracked satellites
-- `ISS (ZARYA)` is the default preselected choice when available
-- the tracked list is persisted through `LiteSettings`
-- the lite snapshot endpoint computes for the configured tracked set plus ISS-related state when needed
-
-## Focus behavior
-
-Lite uses a single focus card as the primary presentation element.
-
-- tapping a pass or radio item loads that satellite into focus
-- upcoming selected passes show an AOS cue on the compass
-- active passes replace the simpler focus presentation with live pass and RF information
-
-Focus sources:
-
-- a saved default focus from lite settings
-- a temporary focus from the last tapped pass or radio item
-
-Active passes override both when applicable.
-
-## Offline behavior
-
-Lite uses two client-side caching layers:
-
-- a service worker caches the shell assets and recent GET responses
-- `localStorage` keeps the last successful snapshot as an explicit fallback
-
-The UI marks stale snapshot age so cached pass timing is distinguishable from live data.
-
-For the backend lite snapshot contract, in-memory cache key, and invalidation rules, see [Lite Snapshot](../api/lite-snapshot-model.md).
+For the backend contract and cache behavior behind the lite UI, see [Lite Snapshot](../api/lite-snapshot-model.md).

@@ -19,6 +19,8 @@ The payload includes:
 - pass predictions for the tracked set
 - focus satellite, focus track, focus pass, and focus path
 - frequency recommendation and matrix for the focus satellite
+- focused radio-control summary, including default-pair or receive-only tuning state when applicable
+- focused APRS summary, including target selection, TX gating, and runtime state when applicable
 - timezone state
 - GPS settings
 - lite settings
@@ -32,7 +34,7 @@ The enforcement rules are:
 - only valid satellite IDs from the current catalog are kept
 - duplicate IDs are removed
 - the list must contain at least one valid satellite
-- the list may contain at most 8 satellites
+- the list may contain at most 5 satellites
 - if the saved list is empty or invalid, the backend falls back to `iss-zarya` when available
 
 These rules are enforced in `POST /api/v1/settings/lite` and then reused by the lite snapshot builder.
@@ -70,6 +72,21 @@ Current invalidation points include:
 - `POST /api/v1/location`
 - `POST /api/v1/network`
 - `POST /api/v1/settings/gps`
+- `POST /api/v1/aprs/connect`
+- `POST /api/v1/aprs/disconnect`
+- `POST /api/v1/aprs/select-target`
+- `POST /api/v1/aprs/session/select`
+- `POST /api/v1/aprs/session/identity`
+- `POST /api/v1/aprs/emergency-stop`
+- `POST /api/v1/radio/connect`
+- `POST /api/v1/radio/disconnect`
+- `POST /api/v1/radio/session/select`
+- `POST /api/v1/radio/session/test-pair`
+- `POST /api/v1/radio/session/clear`
+- `POST /api/v1/radio/session/test`
+- `POST /api/v1/radio/session/test/confirm`
+- `POST /api/v1/radio/session/start`
+- `POST /api/v1/radio/session/stop`
 - `POST /api/v1/datasets/refresh`
 
 The cache is not cleared for unrelated state changes such as snapshot recording or cache-policy edits.

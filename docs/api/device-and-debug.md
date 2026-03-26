@@ -138,4 +138,4 @@ Rotator scene selection uses pass qualification rules in the frontend:
 
 ### Lite tracked-satellite enforcement
 
-Lite does not use the same rule as a general pass filter. It is limited by the saved tracked-satellite list that the backend enforces to a maximum of 8 valid satellites.
+Lite does not use the same rule as a general pass filter. It is limited by the saved tracked-satellite list that the backend enforces to a maximum of 5 valid satellites.

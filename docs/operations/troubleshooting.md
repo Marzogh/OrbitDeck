@@ -125,6 +125,18 @@ Notes:
 - Wi-Fi APRS does not use local OS audio devices for the active transport path
 - OrbitDeck uses decode-only Dire Wolf receive plus native Bell 202 AFSK transmit over the IC-705 LAN session
 
+## IC-705 Wi-Fi connect fails before the handshake starts
+
+OrbitDeck now performs a short reachability preflight before IC-705 Wi-Fi radio and APRS connects.
+
+Check:
+
+1. the configured `wifi_host` is correct
+2. the radio is powered on and attached to the same network
+3. the server host can reach the radio IP directly
+
+If the preflight fails, the API returns a clear error such as `did not respond to ping` instead of attempting the full Wi-Fi session setup.
+
 ## Satellite APRS target is selected, but transmit remains blocked
 
 Check the APRS runtime target fields:

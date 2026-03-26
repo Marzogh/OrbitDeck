@@ -216,7 +216,7 @@ Open `/lite/settings` and change the tracked set.
 Notes:
 
 - lite computes only the tracked satellites
-- the API enforces a maximum of 8 tracked satellites
+- the API enforces a maximum of 5 tracked satellites
 - if you remove the saved focus satellite from the list, lite clears that saved focus and falls back to automatic focus selection
 
 ## Change kiosk pass filtering
