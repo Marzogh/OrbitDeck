@@ -23,7 +23,7 @@ Lite settings are separate because lite has its own bounded-compute model. They 
 The lite settings endpoint enforces:
 
 - at least one valid tracked satellite
-- at most 8 tracked satellites
+- at most 5 tracked satellites
 
 The available satellite list is returned with the settings response so the frontend can build a valid picker without a second catalog-specific UI contract.
 

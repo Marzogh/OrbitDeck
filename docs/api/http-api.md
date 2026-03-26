@@ -23,6 +23,8 @@ Replace that host and port as needed.
 - [`GET /settings-v2`](http://127.0.0.1:8000/settings-v2) legacy alias to `/settings`
 - [`GET /kiosk-rotator`](http://127.0.0.1:8000/kiosk-rotator)
 
+On Pi Zero-class hardware, `/`, `/settings`, and `/kiosk-rotator` resolve to lite-oriented routes instead of the standard rotator/settings surfaces.
+
 ## Health
 
 ### `GET /health`

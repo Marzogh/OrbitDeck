@@ -1,70 +1,15 @@
 # Core Concepts
 
-OrbitDeck is easier to use once a few design choices are clear.
+OrbitDeck gets easier to use once a few product boundaries are clear.
 
-## OrbitDeck scope
+OrbitDeck is not one single screen with cosmetic variants. It has different operating surfaces because the job changes with the hardware. The standard rotator surface is about following one active or upcoming pass as the main thing on screen. Lite is about staying mobile, bounded, and touch-friendly on phones and Pi Zero-class systems.
 
-OrbitDeck provides:
+That difference matters most in satellite selection. Lite does not try to compute against the full amateur-satellite catalog. Instead, it works from a saved tracked set stored in `LiteSettings`, and the backend accepts at most 5 valid tracked satellite IDs for that mode. `GET /api/v1/lite/snapshot` computes tracks and passes only for that bounded set, and the frontend layers browser caching on top of that smaller payload.
 
-- satellite tracking
-- pass prediction
-- frequency guidance
-- AMSAT status comparison
-- kiosk, rotator, and lite dashboards
+This is separate from the main pass-filter system. The full settings surface can filter passes for the standard workflow, but that is not the same thing as lite’s tracked list. The pass filter decides what the main workflow should emphasize. The lite tracked set decides what lite is even allowed to compute.
 
-## Rotator vs kiosk vs lite
+ISS is also treated as a special case throughout the app. It influences ISS display mode, stream and video eligibility, and some fallback decisions when OrbitDeck chooses what to show first. Even when lite is focused on another satellite, ISS-related state can still appear where the product needs it.
 
-- `rotator` presents the active or upcoming pass as the primary object on screen
-- `kiosk` presents broader station state and pass summary information
-- `lite` presents a bounded subset of state for phones and low-power hardware
+The frequency guidance model is shared across lite, rotator, and the API. FM-style satellites usually resolve to one working recommendation. Linear satellites can expose a phase matrix across the pass. The correction policy can be `uhf_only`, `downlink_only`, or `full_duplex`, depending on the profile.
 
-## Lite tracked-satellite model
-
-Lite operates on a bounded tracked-satellite set.
-
-Relevant behavior:
-
-- the tracked list is stored in `LiteSettings`
-- the backend accepts at most 8 valid tracked satellite IDs
-- `GET /api/v1/lite/snapshot` computes tracks and passes for that bounded set
-- the lite frontend layers browser caching on top of the bounded snapshot payload
-
-This model is the basis for lite operation on Pi Zero-class hardware and mobile clients.
-
-## Pass filtering vs tracked satellites
-
-OrbitDeck has two separate selection models:
-
-### Kiosk pass filtering
-
-This controls which satellites appear in the kiosk pass workflow.
-
-### Lite tracked satellites
-
-This controls which satellites lite is even allowed to compute and display.
-
-They are independent settings with different effects.
-
-## ISS state handling
-
-OrbitDeck always treats ISS as a special case because it drives:
-
-- ISS display mode
-- stream/video eligibility logic
-- fallback logic when selecting a default active track
-
-Even when lite is tracking other satellites, ISS-related state can still appear where needed.
-
-## AMSAT status model
-
-OrbitDeck enriches satellites with AMSAT status summaries derived from recent reports. Those summaries are cached and refresh-limited.
-
-## Frequency guidance model
-
-The frequency recommendation system computes the frequencies associated with the current pass state and selected profile.
-
-Important distinctions:
-
-- FM passes often resolve to a single recommendation
-- linear satellites can expose a matrix across pass phases
-- correction side may be `uhf_only`, `downlink_only`, or `full_duplex`
+OrbitDeck also enriches the catalog with AMSAT status summaries built from recent reports. Those enrichments are cached and refresh-limited, so they are intended as useful operating context rather than a guaranteed real-time truth source.

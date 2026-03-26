@@ -1,10 +1,10 @@
 # First Hour
 
-This walkthrough covers the first-run path from server startup to pass tracking.
+This walkthrough is the shortest sensible path from first launch to a real pass workflow.
 
-## 0-10 minutes: Start the server
+## 0-10 minutes: start the server
 
-On macOS or Linux:
+On macOS or Linux, create the virtual environment, install the requirements, and launch OrbitDeck:
 
 ```bash
 python3 -m venv .venv
@@ -13,86 +13,28 @@ python3 -m pip install -r requirements.txt
 python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --port 8000
 ```
 
-After startup, the launcher should open a browser window. If it does not, open these routes manually:
+The launcher should open the browser. If it does not, open `/`, `/lite`, and `/docs` manually on `127.0.0.1:8000`.
 
-- <http://127.0.0.1:8000/>
-- <http://127.0.0.1:8000/lite>
-- <http://127.0.0.1:8000/docs>
+## 10-20 minutes: understand the two main operating surfaces
 
-## 10-20 minutes: Understand the main screens
+Start with `/`. On standard hardware that is the main rotator landing surface, and it is the best place to see one active or upcoming pass with its geometry, timing, and RF guidance together.
 
-Open each of these once:
+Then open `/lite`. Lite is the mobile-first and Pi Zero-safe surface. It is the better place to understand the bounded, focused workflow the project now uses for low-power hardware and phone access.
 
-### Rotator landing: `/`
+## 20-35 minutes: set the observer location
 
-Primary uses:
+OrbitDeck is only as useful as its observer location. On standard hardware, open `/settings` and choose browser location, manual coordinates, or GPS-backed location. On lite, open `/lite/settings` and choose the current Pi setting, phone location, manual coordinates, or Pi GPS. If you choose GPS, the extra USB or Bluetooth GPS fields appear there.
 
-- tracking one current or upcoming pass
-- seeing where the pass moves through the sky
-- reading the Doppler guidance and RF details for a pass
+## 35-45 minutes: configure lite tracking
 
-### Lite: `/lite`
+Open `/lite/settings` and save a tracked-satellite list. Lite requires at least one valid satellite and allows at most 5. `ISS (ZARYA)` is the default starting point when the catalog has it available. This limit is deliberate: lite stays usable on low-power hardware by only computing against that small saved set.
 
-Primary uses:
+## 45-60 minutes: run a real pass workflow
 
-- a phone-friendly remote screen
-- a Pi Zero-friendly screen
-- cached behavior if the network drops briefly
+Open `/lite`, tap a pass or radio card, and confirm that the focus card becomes the working view. The compass should update for the selected satellite. If the pass is still upcoming, you should see the AOS cue. If the pass is active, the focus card should switch into the live pass and RF presentation.
 
-## 20-35 minutes: Set the location correctly
+To check the shared frequency model directly, open `/api/v1/frequency-guides/recommendation?sat_id=iss-zarya` and confirm you get a live Doppler-aware payload back.
 
-OrbitDeck pass and track output depends on a correct observer location.
+## What success looks like
 
-### On the full settings screen
-
-Open `/settings` on standard hardware and choose one of:
-
-- browser location
-- manual coordinates
-- GPS
-
-### On lite settings
-
-Open `/lite/settings` and choose:
-
-- `Current Pi setting`
-- `Use this phone's location`
-- `Enter coordinates manually`
-- `Use Pi GPS receiver`
-
-If you choose GPS, extra setup fields appear for USB or Bluetooth GPS.
-
-## 35-45 minutes: Pick what lite should track
-
-On `/lite/settings`, save a tracked list of satellites.
-
-Rules:
-
-- at least one satellite must be selected
-- at most 8 satellites can be selected
-- `ISS (ZARYA)` is the default first choice when available
-
-This matters because lite intentionally limits itself to a small tracked set to stay usable on low-power hardware.
-
-## 45-60 minutes: Try a real pass workflow
-
-Use this checklist:
-
-1. Open `/lite`.
-2. Tap a pass card or radio card.
-3. Confirm the screen snaps back to the focus card.
-4. Confirm the compass/skyplot updates for that selected satellite.
-5. If a pass is active, confirm the focus card switches into live pass and RF detail mode.
-6. Open `/api/v1/frequency-guides/recommendation?sat_id=iss-zarya` and confirm you get a live Doppler-aware recommendation payload.
-
-If those steps work, the main user journey is healthy.
-
-## Verification Checklist
-
-Expected outcomes:
-
-- which OrbitDeck screen is for which job
-- where OrbitDeck is getting its observer location from
-- how lite differs from kiosk and rotator
-- how to inspect passes and frequency guidance
-- where the built-in API docs live
+By the end of the first hour, you should know which screen is meant for which job, where OrbitDeck is getting its observer location from, how lite differs from the full rotator workflow, and where to inspect the live API contract.
