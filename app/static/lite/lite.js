@@ -58,6 +58,23 @@ function fmtRelativeAge(iso) {
   return `${days}d ago`;
 }
 
+function syncMetaLine(snapshot, critical) {
+  const parts = [
+    snapshot.source === "live"
+      ? `Connected to Pi | Snapshot ${fmtLocalTime(snapshot.cachedAt)}`
+      : `Offline fallback | Last good snapshot ${fmtLocalTime(snapshot.cachedAt)}`,
+  ];
+  const catalogRefresh = snapshot.catalog?.lastSuccessUtc;
+  if (catalogRefresh) {
+    parts.push(`Catalog ${fmtLocalTime(catalogRefresh)} (${fmtRelativeAge(catalogRefresh)})`);
+  }
+  if (snapshot.catalog?.lastError) {
+    parts.push(`Catalog refresh failed: ${snapshot.catalog.lastError}`);
+  }
+  if (critical) parts.push("Cached data is older than 24h");
+  return parts.join(" | ");
+}
+
 function snapshotAgeHours(iso) {
   if (!iso) return Number.POSITIVE_INFINITY;
   const delta = Date.now() - new Date(iso).getTime();
@@ -490,22 +507,44 @@ function renderRigOps(snapshot) {
 function renderAprsOps(snapshot) {
   const focused = snapshot.aprs?.focused || {};
   const runtime = focused.runtime || {};
+  const preview = focused.previewTarget || null;
+  const state = focused.state || "unavailable";
+  const selectedChannel = focused.selectedChannel || null;
+  const sourceCall = runtime.effective_source_call || snapshot.stationIdentity?.callsign || "--";
+  const freqToken = normalizeFreqToken(String(preview?.corrected_frequency_hz || preview?.frequency_hz || ""));
+  const path = preview?.path_default || selectedChannel?.path_default || snapshot.aprs?.settings?.satellite_path || "--";
+  const activityBits = [];
+  if (runtime.last_packet_at) activityBits.push(`Last RX ${fmtRelativeAge(runtime.last_packet_at)}`);
+  if (runtime.last_tx_at) activityBits.push(`Last TX ${fmtRelativeAge(runtime.last_tx_at)}`);
+  activityBits.push(`RX ${runtime.packets_rx || 0}`);
+  activityBits.push(`TX ${runtime.packets_tx || 0}`);
+  const detailParts = [];
+  if (selectedChannel?.label) detailParts.push(selectedChannel.label);
+  if (freqToken && freqToken !== "") detailParts.push(freqToken);
+  detailParts.push(`Path ${path}`);
+  detailParts.push(`Source ${sourceCall}`);
+  if (focused.txBlockReason) detailParts.push(focused.txBlockReason);
+  if (activityBits.length) detailParts.push(activityBits.join(" | "));
   trackerById("liteAprsStatus").textContent = focused.status || "No APRS state available.";
-  trackerById("liteAprsReadout").textContent = focused.previewTarget
-    ? `${focused.previewTarget.label} | ${normalizeFreqToken(String(focused.previewTarget.corrected_frequency_hz || focused.previewTarget.frequency_hz || ""))}${focused.previewTarget.tx_block_reason ? ` | ${focused.previewTarget.tx_block_reason}` : ""}`
-    : "No APRS target selected for the current focus.";
+  trackerById("liteAprsReadout").textContent = detailParts.join(" | ") || "No APRS target selected for the current focus.";
   const compose = trackerById("liteAprsCompose");
   if (!focused.available) {
     compose.classList.add("hidden");
     trackerById("liteAprsActions").innerHTML = "";
     return;
   }
-  compose.classList.remove("hidden");
-  trackerById("liteAprsActions").innerHTML = [
-    `<button type="button" data-aprs-action="connect">${runtime.connected ? "Reconnect APRS" : "Connect APRS"}</button>`,
-    `<button type="button" data-aprs-action="disconnect">${runtime.connected ? "Disconnect APRS" : "Clear APRS Link"}</button>`,
-    '<button type="button" data-aprs-action="stopTx">Stop TX</button>',
-  ].join("");
+  const actions = [];
+  if (preview || focused.focusTargetSelected) {
+    actions.push(
+      `<button type="button" data-aprs-action="${runtime.connected ? "disconnect" : "connect"}">${runtime.connected ? "Disconnect APRS" : "Connect APRS"}</button>`
+    );
+  }
+  if (runtime.connected) {
+    actions.push('<button type="button" data-aprs-action="stopTx">Stop TX</button>');
+  }
+  trackerById("liteAprsActions").innerHTML = actions.join("");
+  const canCompose = runtime.connected && focused.focusTargetSelected && state !== "cataloged" && state !== "error";
+  compose.classList.toggle("hidden", !canCompose);
 }
 
 function renderSnapshot(snapshot) {
@@ -518,10 +557,7 @@ function renderSnapshot(snapshot) {
   trackerById("telemetry").textContent = snapshot.focusPass
     ? `Pass window ${fmtLocalTime(snapshot.focusPass.aos)} -> ${fmtLocalTime(snapshot.focusPass.los)}`
     : "Tap an upcoming pass to prepare radio and APRS operations";
-  trackerById("syncMeta").textContent = snapshot.source === "live"
-    ? `Connected to Pi | Snapshot ${fmtLocalTime(snapshot.cachedAt)}`
-    : `Offline fallback | Last good snapshot ${fmtLocalTime(snapshot.cachedAt)}`;
-  if (critical) trackerById("syncMeta").textContent += " | Cached data is older than 24h";
+  trackerById("syncMeta").textContent = syncMetaLine(snapshot, critical);
   trackerById("heroBadges").innerHTML = heroBadges(snapshot);
   renderControlSummary(snapshot);
   renderFocusCard(snapshot);

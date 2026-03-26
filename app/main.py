@@ -105,6 +105,10 @@ _lite_snapshot_cache: dict[tuple, tuple[datetime, dict]] = {}
 _CALLSIGN_PATTERN = re.compile(r"^[A-Z0-9]{3,10}$")
 _APRS_SESSION_IDENTITY_OVERRIDE: dict[str, object | None] = {"callsign": None, "ssid": None}
 _LITE_MAX_TRACKED_SATS = 5
+_BACKGROUND_REFRESH_INTERVAL = timedelta(hours=6)
+_BACKGROUND_REFRESH_FAILURE_BACKOFF = timedelta(minutes=30)
+_BACKGROUND_REFRESH_FAILURE_RETRY_INTERVAL = timedelta(seconds=30)
+_BACKGROUND_REFRESH_FAILURE_BURST_LIMIT = 3
 
 
 def _pass_cache_retention(state) -> timedelta:
@@ -951,6 +955,10 @@ def _first_aprs_channel_for_satellite(sat) -> object | None:
     return next((item for item in channels if item.kind == "aprs"), None)
 
 
+def _channel_has_tuned_frequency(channel) -> bool:
+    return bool(channel and (channel.downlink_hz or channel.uplink_hz))
+
+
 def _compact_radio_runtime(runtime) -> dict:
     return {
         "connected": runtime.connected,
@@ -995,6 +1003,58 @@ def _compact_aprs_runtime(runtime, settings) -> dict:
         "recent_packets": recent_packets[:5],
         "heard_stations": heard_stations[:5],
     }
+
+
+def _catalog_refresh_status() -> dict:
+    meta = {}
+    with suppress(Exception):
+        meta = ingestion_service._load_refresh_meta() or {}
+    return {
+        "lastAttemptUtc": meta.get("last_attempt_utc"),
+        "lastFailureUtc": meta.get("last_failure_utc"),
+        "lastSuccessUtc": meta.get("last_success_utc"),
+        "lastError": meta.get("last_error"),
+        "consecutiveFailureCount": int(meta.get("consecutive_failure_count") or 0),
+    }
+
+
+def _parse_refresh_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    with suppress(Exception):
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+    return None
+
+
+def _next_background_refresh_delay_seconds() -> float:
+    meta = _catalog_refresh_status()
+    last_failure = _parse_refresh_timestamp(meta.get("lastFailureUtc"))
+    last_success = _parse_refresh_timestamp(meta.get("lastSuccessUtc"))
+    consecutive_failures = int(meta.get("consecutiveFailureCount") or 0)
+    now = datetime.now(UTC)
+    success_due_at = (last_success + _BACKGROUND_REFRESH_INTERVAL) if last_success is not None else now
+    failure_backoff = (
+        _BACKGROUND_REFRESH_FAILURE_RETRY_INTERVAL
+        if 0 < consecutive_failures < _BACKGROUND_REFRESH_FAILURE_BURST_LIMIT
+        else _BACKGROUND_REFRESH_FAILURE_BACKOFF
+    )
+    failure_due_at = (last_failure + failure_backoff) if last_failure is not None else now
+    due_at = min(success_due_at, failure_due_at)
+    return max(0.0, (due_at - now).total_seconds())
+
+
+async def _run_background_refresh_cycle() -> None:
+    satellites, _ = ingestion_service.refresh_catalog(
+        min_interval_hours=_BACKGROUND_REFRESH_INTERVAL.total_seconds() / 3600.0
+    )
+    tracking_service.replace_catalog(satellites)
+    _invalidate_lite_snapshot_cache()
+    _invalidate_pass_cache()
+    with suppress(Exception):
+        ingestion_service.refresh_ephemeris()
+    with suppress(Exception):
+        statuses = ingestion_service.refresh_amsat_statuses(tracking_service.satellites())
+        tracking_service.merge_operational_statuses(statuses)
 
 
 def _build_lite_radio_focus(state, focus_sat, focus_pass) -> dict:
@@ -1048,28 +1108,54 @@ def _build_lite_aprs_focus(state, location, focus_sat) -> dict:
     current_target = runtime.target
     payload = {
         "available": False,
+        "state": "unavailable",
         "selectedChannel": None,
         "availableChannels": [],
         "previewTarget": None,
         "runtime": _compact_aprs_runtime(runtime, state.aprs_settings),
         "focusTargetSelected": False,
+        "txAllowed": False,
+        "txBlockReason": None,
         "status": "Focused satellite does not expose APRS channels.",
     }
     if focus_sat is None:
         return payload
-    channels = [
-        item
-        for item in list(focus_sat.radio_channels or [])
-        if item.kind == "aprs" and (item.downlink_hz or item.uplink_hz)
-    ]
+    channels = [item for item in list(focus_sat.radio_channels or []) if item.kind == "aprs"]
     if not channels:
         return payload
     payload["available"] = True
     payload["availableChannels"] = channels
+    payload["state"] = "cataloged"
+    selected_channel = None
+    if (
+        current_target
+        and current_target.operating_mode == AprsOperatingMode.satellite
+        and current_target.sat_id == focus_sat.sat_id
+        and current_target.channel_id is not None
+    ):
+        selected_channel = next((item for item in channels if item.channel_id == current_target.channel_id), None)
     selected_channel = next(
         (item for item in channels if item.channel_id == state.aprs_settings.selected_channel_id),
         None,
-    ) or channels[0]
+    ) if selected_channel is None else selected_channel
+    if selected_channel is not None and not _channel_has_tuned_frequency(selected_channel):
+        selected_channel = next((item for item in channels if _channel_has_tuned_frequency(item)), selected_channel)
+    if selected_channel is None:
+        selected_channel = next((item for item in channels if _channel_has_tuned_frequency(item)), None) or channels[0]
+    focus_target_selected = bool(
+        current_target
+        and current_target.operating_mode == AprsOperatingMode.satellite
+        and current_target.sat_id == focus_sat.sat_id
+        and current_target.channel_id == selected_channel.channel_id
+    )
+    payload["selectedChannel"] = selected_channel
+    payload["focusTargetSelected"] = focus_target_selected
+    if not _channel_has_tuned_frequency(selected_channel):
+        payload.update({
+            "state": "cataloged",
+            "status": "Satellite APRS is listed for this satellite, but no tuned frequency is available in the catalog yet.",
+        })
+        return payload
     settings = state.aprs_settings.model_copy(
         update={
             "operating_mode": AprsOperatingMode.satellite,
@@ -1081,23 +1167,33 @@ def _build_lite_aprs_focus(state, location, focus_sat) -> dict:
         preview = _resolve_aprs_target(settings, location)
     except ValueError as exc:
         payload.update({
-            "selectedChannel": selected_channel,
+            "state": "blocked",
             "status": str(exc),
         })
         return payload
+    state_name = "ready"
+    status = "Focused satellite APRS is ready."
+    if preview is not None and not preview.can_transmit:
+        state_name = "blocked"
+        status = preview.tx_block_reason or "Satellite APRS is blocked for this pass state."
+    if focus_target_selected and runtime.connected:
+        state_name = "connected"
+        status = "Satellite APRS is connected for the focused pass."
+        if runtime.audio_tx_active:
+            state_name = "transmitting"
+            status = "Satellite APRS is transmitting for the focused pass."
+        elif runtime.audio_rx_active:
+            state_name = "receiving"
+            status = "Satellite APRS is connected and receiving."
+    if runtime.last_error:
+        state_name = "error"
+        status = runtime.last_error
     payload.update({
-        "selectedChannel": selected_channel,
         "previewTarget": preview,
-        "focusTargetSelected": bool(
-            current_target
-            and current_target.operating_mode == AprsOperatingMode.satellite
-            and current_target.sat_id == focus_sat.sat_id
-        ),
-        "status": (
-            "Focused satellite APRS is ready."
-            if preview is not None
-            else "Focused satellite APRS target is unavailable."
-        ),
+        "state": state_name,
+        "txAllowed": bool(preview and preview.can_transmit and not state.aprs_settings.listen_only),
+        "txBlockReason": preview.tx_block_reason if preview is not None else None,
+        "status": status,
     })
     return payload
 
@@ -1236,6 +1332,7 @@ def _lite_snapshot(
         "frequencyMatrix": frequency_matrix,
         "timezone": {"timezone": state.settings.display_timezone},
         "gpsSettings": {"state": state.gps_settings},
+        "catalog": _catalog_refresh_status(),
         "liteSettings": state.lite_settings,
         "stationIdentity": _station_identity_status(state.aprs_settings),
         "radio": {
@@ -1259,18 +1356,15 @@ def _lite_snapshot(
 
 async def _periodic_refresh_loop() -> None:
     while True:
-        await asyncio.sleep(6 * 60 * 60)
+        delay = _next_background_refresh_delay_seconds()
+        if delay > 0:
+            await asyncio.sleep(delay)
         try:
-            satellites, _ = ingestion_service.refresh_catalog()
-            tracking_service.replace_catalog(satellites)
-            with suppress(Exception):
-                ingestion_service.refresh_ephemeris()
-            with suppress(Exception):
-                statuses = ingestion_service.refresh_amsat_statuses(tracking_service.satellites())
-                tracking_service.merge_operational_statuses(statuses)
+            await _run_background_refresh_cycle()
         except Exception:
             # Non-fatal background refresh failure.
             pass
+        await asyncio.sleep(5)
 
 
 @asynccontextmanager
@@ -1278,6 +1372,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     global _refresh_task
     with suppress(Exception):
         tracking_service.merge_operational_statuses(ingestion_service.cached_amsat_statuses())
+    with suppress(Exception):
+        if _next_background_refresh_delay_seconds() <= 0:
+            await _run_background_refresh_cycle()
     _refresh_task = asyncio.create_task(_periodic_refresh_loop())
     try:
         yield
