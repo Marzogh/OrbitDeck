@@ -1,6 +1,10 @@
 # OrbitDeck
 
 [![CI](https://github.com/Marzogh/OrbitDeck/actions/workflows/ci.yml/badge.svg)](https://github.com/Marzogh/OrbitDeck/actions/workflows/ci.yml)
+[![Release](https://github.com/Marzogh/OrbitDeck/actions/workflows/release.yml/badge.svg)](https://github.com/Marzogh/OrbitDeck/actions/workflows/release.yml)
+[![Docs](https://github.com/Marzogh/OrbitDeck/actions/workflows/docs.yml/badge.svg)](https://github.com/Marzogh/OrbitDeck/actions/workflows/docs.yml)
+[![Latest Release](https://img.shields.io/github/v/release/Marzogh/OrbitDeck?display_name=tag)](https://github.com/Marzogh/OrbitDeck/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Marzogh/OrbitDeck/blob/main/LICENSE)
 
 OrbitDeck is a FastAPI-based amateur-satellite operations dashboard. It brings pass prediction, live tracking, Doppler-aware frequency guidance, APRS operation, radio control, and ISS visibility state into one service with several purpose-built web surfaces.
 
