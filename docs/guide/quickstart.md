@@ -4,7 +4,7 @@ This page provides the shortest path from clone to a running OrbitDeck instance.
 
 ## macOS
 
-OrbitDeck has been tested on macOS for local development and windowed browser use.
+OrbitDeck has been tested on macOS for local development and launcher-driven browser use.
 
 ```bash
 python3 -m venv .venv
