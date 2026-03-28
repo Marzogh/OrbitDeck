@@ -36,6 +36,7 @@ const DEFAULT_YOUTUBE_ISS_EMBED_SOURCES = [
 let activeVideoSourceIndex = 0;
 let youtubeIssEmbedSources = [...DEFAULT_YOUTUBE_ISS_EMBED_SOURCES];
 const TRACKED_SAT_KEY = "kioskTrackedSatId";
+const DISPLAY_TIMEZONE_CHOICE_KEY = "orbitdeckDisplayTimezoneChoice";
 const BODY_COLORS = {
   Sun: "#ffd400",
   Moon: "#7fe0ff",
@@ -60,9 +61,17 @@ function renderStationIdentity(identity, settings) {
 }
 
 function effectiveDisplayTimezone() {
-  return selectedDisplayTimezone === "BrowserLocal"
+  const selection = resolvedDisplayTimezoneSelection();
+  return selection === "BrowserLocal"
     ? Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
-    : selectedDisplayTimezone;
+    : selection;
+}
+
+function resolvedDisplayTimezoneSelection() {
+  if (selectedDisplayTimezone === "UTC" && !localStorage.getItem(DISPLAY_TIMEZONE_CHOICE_KEY)) {
+    return "BrowserLocal";
+  }
+  return selectedDisplayTimezone || "BrowserLocal";
 }
 
 function fmtDisplayTime(iso) {
@@ -275,8 +284,8 @@ function scoreHamUsefulness(row) {
   const hasPair = row.uplink !== "—" || row.downlink !== "—";
   if (!hasPair) return -100;
   if (/(crew|soyuz|spacex|service module|zvezda|telemetry|control)/i.test(text)) return -50;
-  if (/aprs/i.test(text)) return 100;
-  if (/(voice repeater|repeater|ctcss)/i.test(text)) return 90;
+  if (/(voice repeater|repeater|ctcss)/i.test(text)) return 100;
+  if (/aprs/i.test(text)) return 90;
   if (/transponder/i.test(text)) return 80;
   if (/(ssb|cw|fm|afsk|fsk|bpsk|packet|sstv)/i.test(text)) return 60;
   return 20;
@@ -822,10 +831,11 @@ function syncPassProfileUi() {
 function syncTimezoneUi() {
   const select = trackerById("displayTimezone");
   if (!select) return;
-  if (![...select.options].some((o) => o.value === selectedDisplayTimezone)) {
-    select.insertAdjacentHTML("beforeend", `<option value="${selectedDisplayTimezone}">${selectedDisplayTimezone}</option>`);
+  const selection = resolvedDisplayTimezoneSelection();
+  if (![...select.options].some((o) => o.value === selection)) {
+    select.insertAdjacentHTML("beforeend", `<option value="${selection}">${selection}</option>`);
   }
-  select.value = selectedDisplayTimezone;
+  select.value = selection;
 }
 
 function ensureTimezoneSelector() {
@@ -995,7 +1005,7 @@ async function loadState() {
   selectedPassSatIds = Array.isArray(passFilter.satIds) && passFilter.satIds.length
     ? passFilter.satIds
     : ["iss-zarya"];
-  selectedDisplayTimezone = timezone.timezone || "UTC";
+  selectedDisplayTimezone = timezone.timezone || "BrowserLocal";
   updateClock();
   const locationMode = trackerById("locationMode");
   if (locationMode) locationMode.value = locationState.state.source_mode;
@@ -1079,10 +1089,10 @@ async function savePassProfile() {
 async function saveTimezone() {
   const picked = trackerById("displayTimezone").value;
   if (!picked) return;
-  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const tzToSave = picked === "BrowserLocal" ? browserTz : picked;
+  const tzToSave = picked;
   await trackerApi.post("/api/v1/settings/timezone", { timezone: tzToSave });
-  selectedDisplayTimezone = picked === "BrowserLocal" ? "BrowserLocal" : tzToSave;
+  selectedDisplayTimezone = tzToSave;
+  localStorage.setItem(DISPLAY_TIMEZONE_CHOICE_KEY, tzToSave);
   updateClock();
   syncTimezoneUi();
   await refreshPassesOnly();

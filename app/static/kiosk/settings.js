@@ -26,6 +26,8 @@ import {
   getTrackedSatelliteId,
   setTrackedSatelliteId,
   escapeHtml,
+  resolveDisplayTimezoneChoice,
+  saveDisplayTimezoneChoice,
 } from "./settings/shared.js";
 import { renderOverviewSection, bindOverviewSection } from "./settings/overview-section.js";
 import { renderRadioSection, bindRadioSection } from "./settings/radio-section.js";
@@ -94,7 +96,7 @@ function renderRuntimeRail() {
   const locationState = stateCache.location.state || {};
   const trackedSat = stateCache.satellites.find((sat) => sat.sat_id === getTrackedSatelliteId()) || null;
   const displayMode = stateCache.system.issDisplayMode?.mode || "--";
-  const timezone = stateCache.system.timezone?.timezone || "UTC";
+  const timezone = resolveDisplayTimezoneChoice(stateCache.system.timezone?.timezone || "BrowserLocal");
   const warnings = buildWarnings();
 
   trackerById("settingsV2RuntimeCards").innerHTML = `
@@ -324,7 +326,7 @@ async function refreshState({ preserveDraft = false } = {}) {
     aprsSettings: system.aprsSettings,
     issDisplayMode,
     passFilter,
-    timezone,
+    timezone: { timezone: resolveDisplayTimezoneChoice(timezone.timezone || "BrowserLocal") },
     cachePolicy,
   };
   stateCache.radioPorts = radioPorts.items || [];
@@ -441,8 +443,7 @@ async function saveTrackingSection() {
 
 async function saveDisplaySection() {
   const picked = trackerById("v2DisplayTimezone").value;
-  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const tzToSave = picked === "BrowserLocal" ? browserTz : picked;
+  const tzToSave = picked || "BrowserLocal";
   saveVideoSourcesLocal(
     {
       mode: trackerById("v2VideoSourcePrimaryMode").value,
@@ -462,6 +463,7 @@ async function saveDisplaySection() {
       video_sources: loadVideoSources(),
     };
   });
+  saveDisplayTimezoneChoice(tzToSave);
   recordEvent("Display settings saved", `${trackerById("v2IssMode").value} | ${tzToSave}`);
   await refreshState();
 }
@@ -618,6 +620,18 @@ function setActiveSection(sectionId) {
   renderAll();
 }
 
+function hasDirtySections() {
+  return Object.values(viewState.dirtySections).some(Boolean) || !!viewState.aprsDrawerDirty;
+}
+
+function returnToKiosk() {
+  if (hasDirtySections()) {
+    const confirmed = window.confirm("You have unsaved changes in settings. Leave this page and return to the kiosk anyway?");
+    if (!confirmed) return;
+  }
+  window.location.assign("/");
+}
+
 function buildContext() {
   return {
     stateCache,
@@ -686,6 +700,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     log.classList.toggle("hidden");
     trackerById("v2ToggleRuntime").textContent = log.classList.contains("hidden") ? "Show Debug" : "Hide Debug";
   });
+
+  trackerById("settingsV2ReturnKiosk").addEventListener("click", returnToKiosk);
 
   updateClock();
   window.setInterval(updateClock, 1000);

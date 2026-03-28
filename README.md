@@ -52,6 +52,46 @@ If you only want the API server and not the launcher behavior, run:
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
+## Release Artifacts
+
+OrbitDeck now includes planned release packaging for two operator-facing install artifacts:
+
+- macOS: unsigned `OrbitDeck-<version>-macos-arm64.dmg`
+- Raspberry Pi: `orbitdeck_<version>_arm64.deb`
+
+The macOS app is intentionally unsigned for now. On first launch, macOS may block it. The supported bypass is:
+
+1. attempt to open the installed app
+2. open `System Settings > Privacy & Security`
+3. click `Open Anyway`
+
+The packaged macOS app runs OrbitDeck inside its own native window. It does not rely on the default browser. If `direwolf` is missing, APRS surfaces stay available but clearly report that Dire Wolf must be installed separately.
+
+The Raspberry Pi `.deb` installs OrbitDeck under `/opt/orbitdeck`, enables the API service, and installs a Chromium kiosk autostart entry. The package expects these runtime dependencies on the target system:
+
+- `python3`
+- `python3-venv`
+- `direwolf`
+- `chromium-browser` or `chromium`
+
+The current `.deb` build targets `arm64` Raspberry Pi OS systems with Python `3.11.x`.
+
+## Packaging Builds
+
+Local packaging commands:
+
+```bash
+python3 -m pip install -r requirements-packaging.txt
+./scripts/build_dmg.sh 0.1.0
+./scripts/build_deb.sh 0.1.0
+```
+
+GitHub release automation:
+
+- pushing a tag like `v0.1.0` triggers the release workflow
+- GitHub Actions builds the macOS `.dmg` and Raspberry Pi `.deb`
+- the workflow attaches both artifacts to the GitHub release for that tag
+
 ## Lite Mode
 
 Lite is the mobile-first and Pi Zero-safe operating surface. On first run it asks the operator to choose a tracked set of up to 5 satellites, with `ISS (ZARYA)` preselected when available. The lite dashboard keeps a single focused pass/ops card, uses cached shell and snapshot fallback behavior when connectivity is poor, and can surface both radio-control readiness and APRS target state for the currently focused pass. When a satellite only has a usable downlink and no full control pair, lite can still expose a receive-only tuning target.

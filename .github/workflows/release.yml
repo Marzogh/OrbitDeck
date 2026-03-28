@@ -1,0 +1,209 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    env:
+      ORBITDECK_VERSION: ${{ github.ref_name }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packaging dependencies
+        run: python3 -m pip install -r requirements-packaging.txt
+
+      - name: Run macOS packaging regression checks
+        run: |
+          python3 -m pytest \
+            tests/test_api.py \
+            tests/test_runtime_paths.py \
+            tests/test_desktop_main.py \
+            -k "accepts_receive_only_payload_and_applies_doppler or supports_receive_only_downlink or normalizes_invalid_uplink_to_receive_only or direwolf or runtime_paths or initial_url or setup_ready or first_run_uses_desktop_launch_marker"
+          node --check app/static/kiosk/rotator.js
+          node --check app/static/kiosk/aprs.js
+          node --check app/static/common/aprs-console.js
+
+      - name: Build macOS DMG
+        run: |
+          VERSION="${ORBITDECK_VERSION#v}"
+          ./scripts/build_dmg.sh "$VERSION"
+
+      - name: Verify packaged macOS bundle contents
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          bundle_root = Path("dist/OrbitDeck.app/Contents/Resources")
+          guide_path = bundle_root / "data" / "frequency_guides.json"
+          if not guide_path.exists():
+            print(f"Missing packaged guide data: {guide_path}", file=sys.stderr)
+            sys.exit(1)
+
+          expected_html = [
+            bundle_root / "app" / "static" / "kiosk" / "rotator.html",
+            bundle_root / "app" / "static" / "kiosk" / "index.html",
+            bundle_root / "app" / "static" / "kiosk" / "aprs.html",
+          ]
+          token_pattern = re.compile(r"\?v=([0-9a-f]{12})")
+          tokens = set()
+          for html_path in expected_html:
+            if not html_path.exists():
+              print(f"Missing packaged HTML asset: {html_path}", file=sys.stderr)
+              sys.exit(1)
+            matches = token_pattern.findall(html_path.read_text(encoding="utf-8"))
+            if not matches:
+              print(f"Missing generated static asset token in {html_path}", file=sys.stderr)
+              sys.exit(1)
+            tokens.update(matches)
+
+          if len(tokens) != 1:
+            print(f"Expected one shared generated asset token, found: {sorted(tokens)}", file=sys.stderr)
+            sys.exit(1)
+
+          print(f"Verified packaged guide data and static asset token {next(iter(tokens))}")
+          PY
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: orbitdeck-macos-dmg
+          path: dist/OrbitDeck-*-macos-arm64.dmg
+
+  build-debian:
+    runs-on: ubuntu-latest
+    env:
+      ORBITDECK_VERSION: ${{ github.ref_name }}
+      ORBITDECK_DEB_ARCH: arm64
+      ORBITDECK_DEB_PYTHON_VERSION: 311
+      ORBITDECK_DEB_PYTHON_ABI: cp311
+      ORBITDECK_DEB_PLATFORM: manylinux2014_aarch64
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: python3 -m pip install -r requirements.txt
+
+      - name: Run shared radio/APRS regression checks
+        run: |
+          python3 -m pytest \
+            tests/test_api.py \
+            -k "accepts_receive_only_payload_and_applies_doppler or supports_receive_only_downlink or normalizes_invalid_uplink_to_receive_only or direwolf"
+          node --check app/static/kiosk/rotator.js
+          node --check app/static/kiosk/aprs.js
+          node --check app/static/common/aprs-console.js
+
+      - name: Build Debian package
+        run: |
+          VERSION="${ORBITDECK_VERSION#v}"
+          ./scripts/build_deb.sh "$VERSION"
+
+      - name: Verify Debian package contents
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+          import tempfile
+
+          debs = sorted(Path("dist").glob("orbitdeck_*_arm64.deb"))
+          if not debs:
+            print("No Debian artifact found in dist/", file=sys.stderr)
+            sys.exit(1)
+          deb_path = debs[0]
+
+          with tempfile.TemporaryDirectory() as tmpdir:
+            unpack_dir = Path(tmpdir) / "pkg"
+            control_dir = Path(tmpdir) / "control"
+            subprocess.run(["dpkg-deb", "-x", str(deb_path), str(unpack_dir)], check=True)
+            subprocess.run(["dpkg-deb", "-e", str(deb_path), str(control_dir)], check=True)
+
+            required_payload = [
+              unpack_dir / "opt" / "orbitdeck" / "app" / "main.py",
+              unpack_dir / "opt" / "orbitdeck" / "data" / "frequency_guides.json",
+              unpack_dir / "opt" / "orbitdeck" / "references" / "icom-lan" / "src",
+              unpack_dir / "opt" / "orbitdeck" / "requirements.txt",
+              unpack_dir / "usr" / "lib" / "systemd" / "system" / "orbitdeck.service",
+              unpack_dir / "etc" / "xdg" / "autostart" / "orbitdeck-kiosk.desktop",
+            ]
+            for path in required_payload:
+              if not path.exists():
+                print(f"Missing Debian payload file: {path}", file=sys.stderr)
+                sys.exit(1)
+
+            wheel_dir = unpack_dir / "opt" / "orbitdeck" / "vendor" / "wheels"
+            if not wheel_dir.is_dir() or not any(wheel_dir.iterdir()):
+              print(f"Missing vendored wheels in {wheel_dir}", file=sys.stderr)
+              sys.exit(1)
+
+            control_files = [
+              control_dir / "control",
+              control_dir / "postinst",
+              control_dir / "prerm",
+            ]
+            for path in control_files:
+              if not path.exists():
+                print(f"Missing Debian control file: {path}", file=sys.stderr)
+                sys.exit(1)
+
+            control_text = (control_dir / "control").read_text(encoding="utf-8")
+            if "Depends: python3 (>= 3.11), python3 (<< 3.12), python3-venv, direwolf, chromium-browser | chromium" not in control_text:
+              print("Debian control dependencies are missing or changed unexpectedly", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Verified Debian package payload and control metadata for {deb_path.name}")
+          PY
+
+      - name: Upload Debian artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: orbitdeck-debian-deb
+          path: dist/orbitdeck_*_arm64.deb
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - build-macos
+      - build-debian
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: orbitdeck-macos-dmg
+          path: dist
+
+      - name: Download Debian artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: orbitdeck-debian-deb
+          path: dist
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.dmg
+            dist/*.deb
+          generate_release_notes: true

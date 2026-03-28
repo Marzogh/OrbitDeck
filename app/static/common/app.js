@@ -347,6 +347,36 @@ function createRigConnectController(config) {
 }
 
 async function setBrowserLocation() {
+  try {
+    const nativeResponse = await api.post("/api/v1/desktop/native-location", {});
+    const nativeLocation = nativeResponse?.state?.browser_location || nativeResponse?.resolved || null;
+    if (nativeLocation && nativeLocation.lat != null && nativeLocation.lon != null) {
+      return {
+        lat: Number(Number(nativeLocation.lat).toFixed(6)),
+        lon: Number(Number(nativeLocation.lon).toFixed(6)),
+        alt_m: Number(Number(nativeLocation.alt_m || 0).toFixed(1)),
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("404")) {
+      throw error;
+    }
+  }
+
+  const nativeLocationApi = window.pywebview?.api?.native_location;
+  if (typeof nativeLocationApi === "function") {
+    const native = await nativeLocationApi();
+    const payload = {
+      browser_location: {
+        lat: Number(Number(native.lat).toFixed(6)),
+        lon: Number(Number(native.lon).toFixed(6)),
+        alt_m: Number(Number(native.alt_m || 0).toFixed(1)),
+      },
+    };
+    await api.post("/api/v1/location", payload);
+    return payload.browser_location;
+  }
   if (!navigator.geolocation) {
     throw new Error("Browser geolocation not supported");
   }

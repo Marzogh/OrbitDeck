@@ -5,11 +5,12 @@ from pathlib import Path
 from threading import Lock
 
 from app.models import PersistedState
+from app.runtime_paths import data_path
 
 
 class StateStore:
-    def __init__(self, path: str = "data/state.json") -> None:
-        self.path = Path(path)
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path is not None else data_path("state.json")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = Lock()
         self._state = self._load()

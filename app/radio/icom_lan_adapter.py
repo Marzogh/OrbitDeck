@@ -12,10 +12,26 @@ from pathlib import Path
 import sys
 
 
-_ROOT = Path(__file__).resolve().parents[2]
-_ICOM_LAN_SRC = _ROOT / "references" / "icom-lan" / "src"
+def _candidate_roots() -> list[Path]:
+    roots: list[Path] = []
+    frozen_root = getattr(sys, "_MEIPASS", None)
+    if frozen_root:
+        roots.append(Path(frozen_root))
+    roots.append(Path(__file__).resolve().parents[2])
+    return roots
 
-if _ICOM_LAN_SRC.is_dir():
+
+def _icom_lan_src() -> Path | None:
+    for root in _candidate_roots():
+        candidate = root / "references" / "icom-lan" / "src"
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+_ICOM_LAN_SRC = _icom_lan_src()
+
+if _ICOM_LAN_SRC and _ICOM_LAN_SRC.is_dir():
     path = str(_ICOM_LAN_SRC)
     if path not in sys.path:
         sys.path.insert(0, path)

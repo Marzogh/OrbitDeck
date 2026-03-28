@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=OrbitDeck Kiosk
+Comment=Launch OrbitDeck in Chromium kiosk mode
+Exec=/bin/sh -lc '/usr/bin/chromium-browser --kiosk --incognito --disable-pinch --overscroll-history-navigation=0 http://127.0.0.1:8000/ || /usr/bin/chromium --kiosk --incognito --disable-pinch --overscroll-history-navigation=0 http://127.0.0.1:8000/'
+Terminal=false
+X-GNOME-Autostart-enabled=true

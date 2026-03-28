@@ -8,14 +8,15 @@ from time import monotonic, sleep
 from typing import Callable
 
 from app.models import AprsSettings, AprsTargetState
+from app.runtime_paths import data_path
 
 
 OutputObserver = Callable[[str], None]
 
 
 class DireWolfProcess:
-    def __init__(self, workdir: str = "data/aprs", output_observer: OutputObserver | None = None) -> None:
-        self.workdir = Path(workdir)
+    def __init__(self, workdir: str | Path | None = None, output_observer: OutputObserver | None = None) -> None:
+        self.workdir = Path(workdir) if workdir is not None else data_path("aprs")
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.process: subprocess.Popen[str] | None = None
         self.config_path: Path | None = None

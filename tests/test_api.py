@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 import shutil
 import subprocess
 from time import sleep
+from types import SimpleNamespace
 from types import MethodType
 
 import pytest
@@ -61,6 +62,31 @@ def make_client(tmp_path):
 def configure_station_identity(client: TestClient, callsign: str = "VK4ABC") -> None:
     resp = client.post("/api/v1/settings/aprs", json={"callsign": callsign})
     assert resp.status_code == 200
+
+
+def test_packaged_native_location_endpoint_updates_browser_location(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    monkeypatch.setenv("ORBITDECK_PACKAGED_APP", "1")
+
+    class FakeDesktopApi:
+        def native_location(self):
+            return {"lat": -27.47, "lon": 153.03, "alt_m": 12.3}
+
+    monkeypatch.setattr("app.desktop_main.DesktopApi", FakeDesktopApi)
+
+    resp = client.post("/api/v1/desktop/native-location", json={})
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["state"]["browser_location"]["lat"] == -27.47
+    assert payload["state"]["browser_location"]["lon"] == 153.03
+    assert payload["state"]["browser_location"]["alt_m"] == 12.3
+
+
+def test_timezone_endpoint_accepts_browserlocal(tmp_path):
+    client = make_client(tmp_path)
+    resp = client.post("/api/v1/settings/timezone", json={"timezone": "BrowserLocal"})
+    assert resp.status_code == 200
+    assert resp.json()["timezone"] == "BrowserLocal"
 
 
 class FakeRigController(BaseIcomController):
@@ -853,6 +879,49 @@ def test_radio_session_select_marks_downlink_only_satellite_eligible(tmp_path):
     assert payload["has_test_pair"] is True
 
 
+def test_radio_session_test_pair_accepts_receive_only_payload_and_applies_doppler(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    configure_station_identity(client)
+    aos = datetime.now(UTC) + timedelta(minutes=5)
+    los = aos + timedelta(minutes=10)
+
+    monkeypatch.setattr(
+        main.tracking_service,
+        "live_tracks",
+        lambda now, location, sat_ids=None: [
+            SimpleNamespace(sat_id="silversat", range_rate_km_s=-7.0)
+        ],
+    )
+
+    select_resp = client.post(
+        "/api/v1/radio/session/select",
+        json={
+            "sat_id": "silversat",
+            "sat_name": "SILVERSAT",
+            "pass_aos": aos.isoformat(),
+            "pass_los": los.isoformat(),
+            "max_el_deg": 42.5,
+        },
+    )
+    assert select_resp.status_code == 200
+
+    resp = client.post(
+        "/api/v1/radio/session/test-pair",
+        json={
+            "label": "Mode U - CW - Beacon | RX only",
+            "uplink_hz": None,
+            "downlink_hz": 437175000,
+            "uplink_mode": None,
+            "downlink_mode": "CW",
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()["session"]["test_pair"]
+    expected = main.frequency_guide_service.corrected_downlink_mhz(437.175, -7.0, 5000)
+    assert payload["uplink_mhz"] is None
+    assert payload["downlink_mhz"] == pytest.approx(expected)
+
+
 def test_radio_session_test_and_confirm_release(tmp_path):
     client = make_client(tmp_path)
     configure_station_identity(client)
@@ -1126,6 +1195,35 @@ def test_ic705_apply_target_supports_receive_only_downlink():
     assert state.raw_state["split_enabled"] is False
     assert state.raw_state["receive_only"] is True
     assert state.raw_state["selected_vfo"] == "B"
+
+
+def test_rig_control_service_normalizes_invalid_uplink_to_receive_only():
+    service = RigControlService()
+    settings = RadioSettings(rig_model=RadioRigModel.ic705)
+    recommendation = FrequencyRecommendation(
+        sat_id="silversat",
+        mode=FrequencyGuideMode.fm,
+        phase=GuidePassPhase.mid,
+        label="SilverSat beacon",
+        is_upcoming=True,
+        is_ongoing=False,
+        correction_side=CorrectionSide.full_duplex,
+        doppler_direction=DopplerDirection.high_to_low,
+        uplink_mhz=0.0,
+        downlink_mhz=437.175,
+        uplink_mode="CW",
+        downlink_mode="CW",
+    )
+
+    normalized = service._normalized_recommendation(recommendation, settings)
+
+    assert normalized is not None
+    assert normalized.uplink_mhz is None
+    assert normalized.downlink_mhz == pytest.approx(437.175)
+    assert normalized.correction_side == CorrectionSide.downlink_only
+    is_supported, reason = service._recommendation_supported(recommendation, settings)
+    assert is_supported is True
+    assert reason is None
 
 
 def test_aprs_emergency_stop_disconnects_runtime(tmp_path):
@@ -3159,6 +3257,36 @@ def test_aprs_connect_reuses_connected_radio_settings(tmp_path, monkeypatch):
     assert resp.json()["settings"]["serial_device"] == "/dev/cu.usbmodem114201"
 
 
+def test_system_state_preserves_aprs_runtime_after_connect(tmp_path):
+    client = make_client(tmp_path)
+    main.aprs_service = FakeAprsService()
+    configure_station_identity(client)
+    client.post(
+        "/api/v1/location",
+        json={
+            "source_mode": "manual",
+            "add_profile": {
+                "id": "brisbane",
+                "name": "Brisbane",
+                "point": {"lat": -27.4698, "lon": 153.0251, "alt_m": 25},
+            },
+            "selected_profile_id": "brisbane",
+        },
+    )
+    client.post("/api/v1/settings/aprs", json={"serial_device": "/dev/ttyUSB0"})
+    client.post("/api/v1/aprs/session/select", json={"operating_mode": "terrestrial"})
+
+    connect = client.post("/api/v1/aprs/connect")
+    assert connect.status_code == 200
+    assert connect.json()["runtime"]["connected"] is True
+
+    system = client.get("/api/v1/system/state")
+    assert system.status_code == 200
+    payload = system.json()
+    assert payload["aprsRuntime"]["connected"] is True
+    assert payload["aprsRuntime"]["session_active"] is True
+
+
 def test_aprs_wifi_connect_requires_reachable_host(tmp_path, monkeypatch):
     client = make_client(tmp_path)
     configure_station_identity(client)
@@ -3200,6 +3328,28 @@ def test_aprs_direwolf_status_reports_missing_binary(tmp_path, monkeypatch):
     assert payload["installer"] == "brew"
 
 
+def test_aprs_direwolf_status_disables_install_flow_in_packaged_app(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    monkeypatch.setattr(
+        main.shutil,
+        "which",
+        lambda name: "/opt/homebrew/bin/brew" if name == "brew" else ("/usr/bin/osascript" if name == "osascript" else None),
+    )
+    monkeypatch.setenv("ORBITDECK_PACKAGED_APP", "1")
+
+    resp = client.get("/api/v1/aprs/direwolf/status")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["installed"] is False
+    assert payload["packagedApp"] is True
+    assert payload["canInstall"] is True
+    assert payload["canLaunchTerminal"] is True
+    assert payload["installer"] == "brew"
+    assert payload["requiresHomebrew"] is False
+    assert payload["actionLabel"] == "Install Dire Wolf"
+    assert "guided installer" in payload["installHint"]
+
+
 def test_aprs_direwolf_install_updates_configured_binary(tmp_path, monkeypatch):
     client = make_client(tmp_path)
 
@@ -3228,6 +3378,45 @@ def test_aprs_direwolf_install_updates_configured_binary(tmp_path, monkeypatch):
     assert settings["direwolf_binary"] == "/opt/homebrew/bin/direwolf"
 
 
+def test_aprs_direwolf_install_launches_guided_installer_in_packaged_app(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    calls = {"cmd": None}
+
+    def fake_which(name):
+        if name == "brew":
+            return "/opt/homebrew/bin/brew"
+        if name == "osascript":
+            return "/usr/bin/osascript"
+        return None
+
+    def fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(main.shutil, "which", fake_which)
+    monkeypatch.setattr(main.subprocess, "run", fake_run)
+    monkeypatch.setenv("ORBITDECK_PACKAGED_APP", "1")
+
+    install_resp = client.post("/api/v1/aprs/direwolf/install")
+    assert install_resp.status_code == 200
+    assert install_resp.json()["launched"] is True
+    assert calls["cmd"][0] == "/usr/bin/osascript"
+
+
+def test_aprs_direwolf_status_packaged_app_can_bootstrap_homebrew(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    monkeypatch.setattr(main.shutil, "which", lambda name: "/usr/bin/osascript" if name == "osascript" else None)
+    monkeypatch.setenv("ORBITDECK_PACKAGED_APP", "1")
+
+    resp = client.get("/api/v1/aprs/direwolf/status")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["canInstall"] is True
+    assert payload["requiresHomebrew"] is True
+    assert payload["actionLabel"] == "Install Homebrew + Dire Wolf"
+    assert payload["installer"] == "brew-bootstrap"
+
+
 def test_aprs_direwolf_install_terminal_launches_osascript(tmp_path, monkeypatch):
     client = make_client(tmp_path)
     calls = {"cmd": None}
@@ -3252,6 +3441,25 @@ def test_aprs_direwolf_install_terminal_launches_osascript(tmp_path, monkeypatch
     assert payload["ok"] is True
     assert payload["launched"] is True
     assert calls["cmd"][0] == "/usr/bin/osascript"
+
+
+def test_aprs_connect_rejects_missing_direwolf_before_radio_disconnect(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    disconnect_called = {"count": 0}
+
+    monkeypatch.setattr(main, "_ensure_station_identity_ready", lambda: None)
+    monkeypatch.setattr(main, "_resolved_location_for_aprs", lambda: (main.store.get(), main.GeoPoint(lat=0.0, lon=0.0, alt_m=0.0)))
+    monkeypatch.setattr(main, "_ensure_direwolf_ready_for_aprs", lambda state: (_ for _ in ()).throw(RuntimeError("Dire Wolf missing")))
+    monkeypatch.setattr(
+        main.radio_control_service,
+        "disconnect",
+        lambda: disconnect_called.__setitem__("count", disconnect_called["count"] + 1),
+    )
+
+    resp = client.post("/api/v1/aprs/connect")
+    assert resp.status_code == 400
+    assert "Dire Wolf missing" in resp.json()["detail"]
+    assert disconnect_called["count"] == 0
 
 
 def test_aprs_audio_devices_endpoint_parses_macos_devices(tmp_path, monkeypatch):

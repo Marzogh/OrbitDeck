@@ -1,0 +1,5 @@
+-r requirements.txt
+pyinstaller>=6.19,<7
+pywebview>=5.4,<6
+pillow>=12,<13
+pyobjc-framework-CoreLocation>=12.1,<13
