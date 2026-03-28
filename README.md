@@ -71,7 +71,7 @@ The macOS app is intentionally unsigned for now. On first launch, macOS may bloc
 2. open `System Settings > Privacy & Security`
 3. click `Open Anyway`
 
-The packaged macOS app runs OrbitDeck inside its own native window. It does not rely on the default browser. If `direwolf` is missing, APRS surfaces stay available but clearly report that Dire Wolf must be installed separately.
+The packaged macOS app runs OrbitDeck inside its own native window. It does not rely on the default browser. If `direwolf` is missing, APRS surfaces stay available, report that Dire Wolf must be installed separately, and can launch an explicit guided Terminal install flow for Homebrew plus Dire Wolf when the operator chooses it.
 
 The Raspberry Pi `.deb` installs OrbitDeck under `/opt/orbitdeck`, enables the API service, and installs a Chromium kiosk autostart entry. The package expects these runtime dependencies on the target system:
 
@@ -128,7 +128,7 @@ OrbitDeck exposes a wider API than the web UI uses directly. The live contract i
 
 ## Runtime Data
 
-OrbitDeck ships `data/ephemeris/de421.bsp` so sky and body calculations work on first run. At runtime it writes local state to `data/state.json`, cached refresh artifacts under `data/snapshots/`, and APRS receive history to `data/aprs/received_log.jsonl` when APRS logging is enabled. Lite also keeps client-side cache state in the browser so the mobile surface can reopen cleanly when the Pi or network is briefly unavailable.
+OrbitDeck ships `data/ephemeris/de421.bsp` so sky and body calculations work on first run. In source-tree runs it writes local state to `data/state.json`, cached refresh artifacts under `data/snapshots/`, and APRS receive history to `data/aprs/received_log.jsonl` when APRS logging is enabled. In packaged runs, writable state moves to the platform app-data location, such as `~/Library/Application Support/OrbitDeck/data/` on macOS. Lite also keeps client-side cache state in the browser so the mobile surface can reopen cleanly when the Pi or network is briefly unavailable.
 
 ## Validation
 
@@ -151,4 +151,4 @@ node --check app/static/kiosk/settings.js
 
 macOS support is for development and windowed operation. Raspberry Pi is still the primary kiosk deployment target.
 
-Pi service units and kiosk or networking helpers live in `scripts/`, including `orbitdeck_api.service`, `pi_kiosk.service`, and `network_fallback.sh`. The hemisphere and globe view depends on `app/static/common/hemisphere.js` and `app/static/common/hemisphere-land.js`, and the `references/` tree is design and research material rather than a runtime dependency.
+Pi service units and kiosk or networking helpers live in `scripts/`, including `orbitdeck_api.service`, `pi_kiosk.service`, and `network_fallback.sh`. The hemisphere and globe view depends on `app/static/common/hemisphere.js` and `app/static/common/hemisphere-land.js`. Most of the `references/` tree remains design and research material, but packaged radio-control builds now also depend on `references/icom-lan/src` at runtime for the current IC-705 LAN control path.

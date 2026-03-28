@@ -47,7 +47,8 @@ The packaged macOS app runs OrbitDeck in its own native window rather than openi
 
 - APRS support still depends on a separate `direwolf` install
 - the packaged app detects whether `direwolf` is available and surfaces that state in `/aprs`
-- the packaged app does not attempt an in-app Homebrew installation flow
+- the packaged app can launch an explicit guided Terminal install flow for `direwolf`
+- if Homebrew is missing, that guided flow can bootstrap Homebrew first and then install `direwolf`
 - non-APRS surfaces remain usable when `direwolf` is absent
 
 ## 5) Run on macOS from source
@@ -180,7 +181,7 @@ OrbitDeck exposes Dire Wolf status and install routes through `GET /api/v1/aprs/
 
 Wi-Fi APRS expects the radio to already be in a compatible saved packet or data profile before you connect.
 
-For packaged macOS builds, treat Dire Wolf as an external dependency. The packaged app reports whether it is present, but does not run the Homebrew installer flow itself.
+For packaged macOS builds, treat Dire Wolf as an external dependency. The packaged app reports whether it is present and can launch an explicit guided Terminal install flow, but it does not silently mutate the machine without operator action.
 
 ### Logging, digipeater, and iGate
 
