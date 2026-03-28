@@ -71,7 +71,7 @@ The macOS app is intentionally unsigned for now. On first launch, macOS may bloc
 2. open `System Settings > Privacy & Security`
 3. click `Open Anyway`
 
-The packaged macOS app runs OrbitDeck inside its own native window. It does not rely on the default browser. If `direwolf` is missing, APRS surfaces stay available, report that Dire Wolf must be installed separately, and can launch an explicit guided Terminal install flow for Homebrew plus Dire Wolf when the operator chooses it.
+The packaged macOS app runs OrbitDeck inside its own native window. It does not rely on the default browser. If `direwolf` is missing, APRS surfaces stay available, report that Dire Wolf must be installed separately, and can launch an explicit guided Terminal install flow for Homebrew plus Dire Wolf when the operator chooses it. The full manual install steps are documented in [docs/INSTALL_AND_RUN.md](docs/INSTALL_AND_RUN.md).
 
 The Raspberry Pi `.deb` installs OrbitDeck under `/opt/orbitdeck`, enables the API service, and installs a Chromium kiosk autostart entry. The package expects these runtime dependencies on the target system:
 
