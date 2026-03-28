@@ -167,6 +167,8 @@ def _resolve_brew_binary_path() -> str | None:
 
 
 def _terminal_installer_available() -> bool:
+    if packaged_app_runtime():
+        return bool(shutil.which("osascript"))
     if platform.system() != "Darwin":
         return False
     return bool(shutil.which("osascript")) and os.path.exists("/bin/bash") and os.path.exists("/usr/bin/curl")
