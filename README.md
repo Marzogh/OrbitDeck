@@ -1,5 +1,7 @@
 # OrbitDeck
 
+[![CI](https://github.com/Marzogh/OrbitDeck/actions/workflows/ci.yml/badge.svg)](https://github.com/Marzogh/OrbitDeck/actions/workflows/ci.yml)
+
 OrbitDeck is a FastAPI-based amateur-satellite operations dashboard. It brings pass prediction, live tracking, Doppler-aware frequency guidance, APRS operation, radio control, and ISS visibility state into one service with several purpose-built web surfaces.
 
 On standard hardware, `/` and `/kiosk-rotator` are the main pass-operations views. `/lite` is the lighter mobile-first surface, `/lite/settings` holds the lite-specific setup, `/aprs` is the dedicated APRS console, `/radio` is the direct rig-validation screen, and `/settings` is the combined operator settings console. On Pi Zero-class hardware, OrbitDeck automatically falls back to the lite-oriented routes for `/`, `/settings`, and `/kiosk-rotator`.
