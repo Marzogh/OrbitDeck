@@ -82,13 +82,23 @@ class ControlPhaseRuntime:
         h._civ_recovering = False
         h._last_status_error = 0
         h._last_status_disconnected = False
+        local_bind_host = self._resolve_local_bind_host()
+        h._local_bind_host = local_bind_host
 
         _reconnect = getattr(h, "_has_connected_once", False)
         try:
             if _reconnect:
-                await h._ctrl_transport.reconnect(h._host, h._port)
+                await h._ctrl_transport.reconnect(
+                    h._host,
+                    h._port,
+                    local_host=local_bind_host,
+                )
             else:
-                await h._ctrl_transport.connect(h._host, h._port)
+                await h._ctrl_transport.connect(
+                    h._host,
+                    h._port,
+                    local_host=local_bind_host,
+                )
         except OSError as exc:
             raise ConnectionError(
                 f"Failed to connect to {h._host}:{h._port}: {exc}"
@@ -126,9 +136,6 @@ class ControlPhaseRuntime:
         await self._send_token_ack()
 
         guid = await self._receive_guid()
-
-        local_bind_host = self._resolve_local_bind_host()
-        h._local_bind_host = local_bind_host
 
         _civ_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
         _civ_sock.bind((local_bind_host, 0))

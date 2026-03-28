@@ -167,7 +167,13 @@ class IcomTransport:
 
         logger.info("Discovery complete, remote_id=0x%08X", self.remote_id)
 
-    async def reconnect(self, host: str, port: int) -> None:
+    async def reconnect(
+        self,
+        host: str,
+        port: int,
+        *,
+        local_host: str | None = None,
+    ) -> None:
         """Reconnect to a known radio, skipping discovery.
 
         Reuses the previously learned ``remote_id`` and skips the
@@ -176,15 +182,17 @@ class IcomTransport:
         """
         if self.remote_id == 0:
             # No cached remote_id — do full connect
-            await self.connect(host, port)
+            await self.connect(host, port, local_host=local_host)
             return
 
         saved_remote_id = self.remote_id
         self.state = ConnectionState.CONNECTING
         loop = asyncio.get_event_loop()
+        local_addr = (local_host, 0) if local_host else None
         await loop.create_datagram_endpoint(
             lambda: _UdpProtocol(self),
             remote_addr=(host, port),
+            local_addr=local_addr,
         )
         saved_my_id = self.my_id
         if self._udp_transport is not None:
