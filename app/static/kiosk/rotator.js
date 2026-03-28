@@ -8,6 +8,7 @@ const DEV_MODE_KEY = "kioskDevModeEnabled";
 const DEV_FORCE_SCENE_KEY = "kioskDevForceScene";
 const PINNED_VIEW_KEY = "rotatorPinnedView";
 const APRS_PINNED_KEY = "rotatorAprsPinned";
+const DISPLAY_TIMEZONE_CHOICE_KEY = "orbitdeckDisplayTimezoneChoice";
 const DEFAULT_VIDEO_SOURCES = [
   "https://www.youtube.com/embed/fO9e9jnhYK8?autoplay=1&mute=1&rel=0&modestbranding=1",
   "https://www.youtube.com/embed/sWasdbDVNvc?autoplay=1&mute=1&rel=0&modestbranding=1",
@@ -26,7 +27,7 @@ let state = {
   system: null,
   passes: [],
   sats: [],
-  timezone: "UTC",
+  timezone: "BrowserLocal",
 };
 let sceneOrder = [];
 let sceneIdx = 0;
@@ -138,9 +139,23 @@ function getVideoSources() {
   }
 }
 
+function resolvedDisplayTimezoneSelection() {
+  if (state.timezone === "UTC" && !localStorage.getItem(DISPLAY_TIMEZONE_CHOICE_KEY)) {
+    return "BrowserLocal";
+  }
+  return state.timezone || "BrowserLocal";
+}
+
+function effectiveDisplayTimezone() {
+  const selection = resolvedDisplayTimezoneSelection();
+  return selection === "BrowserLocal"
+    ? Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+    : selection;
+}
+
 function fmtClockPair(nowIso) {
   const now = new Date(nowIso || Date.now());
-  const tz = state.timezone || "UTC";
+  const tz = effectiveDisplayTimezone();
   const utc = `${now.toISOString().replace("T", " ").slice(0, 19)} UTC`;
   try {
     return {
@@ -154,7 +169,7 @@ function fmtClockPair(nowIso) {
 
 function fmtLocal(iso) {
   const d = new Date(iso);
-  const tz = state.timezone || "UTC";
+  const tz = effectiveDisplayTimezone();
   try {
     return d.toLocaleString("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
   } catch (_) {
@@ -1006,14 +1021,25 @@ function currentRigModel() {
 }
 
 function choiceSupportedByRig(choice) {
-  if (!choice) return false;
+  return Boolean(normalizeChoiceForRig(choice));
+}
+
+function normalizeChoiceForRig(choice) {
+  if (!choice) return null;
   const uplinkMhz = choice.uplink_hz ? (choice.uplink_hz / 1_000_000) : null;
   const downlinkMhz = choice.downlink_hz ? (choice.downlink_hz / 1_000_000) : null;
   const hasUplink = Number.isFinite(uplinkMhz);
   const hasDownlink = Number.isFinite(downlinkMhz);
-  const uplinkOk = !hasUplink || supportsAmateurTx(uplinkMhz);
-  const downlinkOk = !hasDownlink || supportsRigReceive(downlinkMhz, currentRigModel());
-  return (hasUplink || hasDownlink) && uplinkOk && downlinkOk;
+  const uplinkOk = hasUplink && supportsAmateurTx(uplinkMhz);
+  const downlinkOk = hasDownlink && supportsRigReceive(downlinkMhz, currentRigModel());
+  const normalized = {
+    ...choice,
+    uplink_hz: uplinkOk ? choice.uplink_hz : null,
+    uplink_mode: uplinkOk ? choice.uplink_mode || null : null,
+    downlink_hz: downlinkOk ? choice.downlink_hz : null,
+    downlink_mode: downlinkOk ? choice.downlink_mode || null : null,
+  };
+  return (normalized.uplink_hz || normalized.downlink_hz) ? normalized : null;
 }
 
 function radioControlChoiceFromRow(row) {
@@ -1025,26 +1051,25 @@ function radioControlChoiceFromRow(row) {
 }
 
 function recommendationFromChannelChoice(satId, choice) {
-  if (!choice || (!choice.uplink_hz && !choice.downlink_hz)) return null;
+  const normalized = normalizeChoiceForRig(choice);
+  if (!normalized || (!normalized.uplink_hz && !normalized.downlink_hz)) return null;
   return {
     sat_id: satId || "",
-    label: choice.label || "Channel",
-    uplink_mhz: choice.uplink_hz ? (choice.uplink_hz / 1_000_000) : null,
-    downlink_mhz: choice.downlink_hz ? (choice.downlink_hz / 1_000_000) : null,
-    uplink_mode: choice.uplink_mode || null,
-    downlink_mode: choice.downlink_mode || null,
+    label: normalized.label || "Channel",
+    uplink_mhz: normalized.uplink_hz ? (normalized.uplink_hz / 1_000_000) : null,
+    downlink_mhz: normalized.downlink_hz ? (normalized.downlink_hz / 1_000_000) : null,
+    uplink_mode: normalized.uplink_mode || null,
+    downlink_mode: normalized.downlink_mode || null,
   };
 }
 
 function radioControlSupportFromDisplay(satId, recommendation, rows = []) {
   const fallbackChoice = (rows || []).map(radioControlChoiceFromRow).find(Boolean) || null;
-  const recommendationCandidate = choiceSupportedByRig(choiceFromRecommendation(recommendation))
-    ? recommendation
-    : null;
+  const recommendationCandidate = recommendationFromChannelChoice(satId, choiceFromRecommendation(recommendation));
   const candidate = recommendationCandidate || recommendationFromChannelChoice(satId, fallbackChoice);
   return {
     availability: radioControlAvailability(candidate),
-    fallbackChoice,
+    fallbackChoice: normalizeChoiceForRig(fallbackChoice),
   };
 }
 
@@ -1080,12 +1105,17 @@ function deriveFallbackRadioChoiceForSelection(target) {
 }
 
 function buildRadioSessionTestPairPayload(choice) {
-  if (!choice) return null;
-  const uplink_hz = Number.isFinite(Number(choice.uplink_hz)) ? Math.round(Number(choice.uplink_hz)) : null;
-  const downlink_hz = Number.isFinite(Number(choice.downlink_hz)) ? Math.round(Number(choice.downlink_hz)) : null;
-  const uplink_mode = uplink_hz ? String(choice.uplink_mode || "").trim().toUpperCase() || null : null;
-  const downlink_mode = downlink_hz ? String(choice.downlink_mode || "").trim().toUpperCase() || null : null;
-  const label = String(choice.label || "Fallback channel").trim() || "Fallback channel";
+  const normalized = normalizeChoiceForRig(choice);
+  if (!normalized) return null;
+  const uplink_hz = normalized.uplink_hz != null && Number.isFinite(Number(normalized.uplink_hz))
+    ? Math.round(Number(normalized.uplink_hz))
+    : null;
+  const downlink_hz = normalized.downlink_hz != null && Number.isFinite(Number(normalized.downlink_hz))
+    ? Math.round(Number(normalized.downlink_hz))
+    : null;
+  const uplink_mode = uplink_hz ? String(normalized.uplink_mode || "").trim().toUpperCase() || null : null;
+  const downlink_mode = downlink_hz ? String(normalized.downlink_mode || "").trim().toUpperCase() || null : null;
+  const label = String(normalized.label || "Fallback channel").trim() || "Fallback channel";
   if (!uplink_hz && !downlink_hz) return null;
   return { label, uplink_hz, downlink_hz, uplink_mode, downlink_mode };
 }
@@ -1125,39 +1155,38 @@ function supportsRigReceive(freqMhz, rigModel = currentRigModel()) {
   return supportsAmateurTx(value);
 }
 
+function normalizeRecommendationForRig(recommendation) {
+  if (!recommendation) return null;
+  const uplinkMhz = Number(recommendation.uplink_mhz);
+  const downlinkMhz = Number(recommendation.downlink_mhz);
+  const hasUplink = Number.isFinite(uplinkMhz);
+  const hasDownlink = Number.isFinite(downlinkMhz);
+  const uplinkOk = hasUplink && supportsAmateurTx(uplinkMhz);
+  const downlinkOk = hasDownlink && supportsRigReceive(downlinkMhz);
+  const normalized = {
+    ...recommendation,
+    uplink_mhz: uplinkOk ? uplinkMhz : null,
+    uplink_mode: uplinkOk ? recommendation.uplink_mode || null : null,
+    downlink_mhz: downlinkOk ? downlinkMhz : null,
+    downlink_mode: downlinkOk ? recommendation.downlink_mode || null : null,
+  };
+  return (normalized.uplink_mhz !== null || normalized.downlink_mhz !== null) ? normalized : null;
+}
+
 function radioControlAvailability(recommendation) {
-  const hasUplink = Number.isFinite(Number(recommendation?.uplink_mhz));
-  const hasDownlink = Number.isFinite(Number(recommendation?.downlink_mhz));
-  if (!recommendation || (!hasUplink && !hasDownlink)) {
+  const normalized = normalizeRecommendationForRig(recommendation);
+  const hasUplink = Number.isFinite(Number(normalized?.uplink_mhz));
+  const hasDownlink = Number.isFinite(Number(normalized?.downlink_mhz));
+  if (!normalized || (!hasUplink && !hasDownlink)) {
     return {
       eligible: false,
       reason: "Radio control unavailable: no usable in-range uplink or downlink is defined for this pass.",
     };
   }
-  const uplinkOk = !hasUplink || supportsAmateurTx(recommendation.uplink_mhz);
-  const downlinkOk = !hasDownlink || supportsRigReceive(recommendation.downlink_mhz);
-  if (!uplinkOk && !hasDownlink) {
+  if (hasDownlink && !hasUplink) {
     return {
-      eligible: false,
-      reason: `Radio control unavailable: uplink ${Number(recommendation.uplink_mhz).toFixed(3)} MHz is outside the allowed amateur transmit ranges.`,
-    };
-  }
-  if (!downlinkOk && !hasUplink) {
-    return {
-      eligible: false,
-      reason: `Radio control unavailable: downlink ${Number(recommendation.downlink_mhz).toFixed(3)} MHz is outside ${rigModelLabel(currentRigModel())} receive coverage.`,
-    };
-  }
-  if (!uplinkOk) {
-    return {
-      eligible: false,
-      reason: `Radio control unavailable: uplink ${Number(recommendation.uplink_mhz).toFixed(3)} MHz is outside the allowed amateur transmit ranges.`,
-    };
-  }
-  if (!downlinkOk) {
-    return {
-      eligible: false,
-      reason: `Radio control unavailable: downlink ${Number(recommendation.downlink_mhz).toFixed(3)} MHz is outside ${rigModelLabel(currentRigModel())} receive coverage.`,
+      eligible: true,
+      reason: `Receive-only radio control is available for this pass on ${rigModelLabel(currentRigModel())}.`,
     };
   }
   return {
@@ -1173,8 +1202,8 @@ function scoreHamUsefulness(row) {
   const hasPair = row.up !== "—" || row.down !== "—";
   if (!hasPair) return -100;
   if (/(crew|soyuz|spacex|service module|zvezda|telemetry|control)/i.test(text)) return -50;
-  if (/aprs/i.test(text)) return 100;
-  if (/(voice repeater|repeater|ctcss)/i.test(text)) return 90;
+  if (/(voice repeater|repeater|ctcss)/i.test(text)) return 100;
+  if (/aprs/i.test(text)) return 90;
   if (/transponder/i.test(text)) return 80;
   if (/(ssb|cw|fm|afsk|fsk|gfsk|gmsk|bpsk|packet|sstv|dvb-s2)/i.test(text)) return 60;
   return 20;
@@ -1932,7 +1961,7 @@ function renderPassesScene(passes) {
     <div class="passes-summary-tags">
       <div class="passes-summary-tag">
         <span class="passes-summary-tag-label">Timezone</span>
-        <strong>${escapeHtml(state.timezone || "UTC")}</strong>
+        <strong>${escapeHtml(effectiveDisplayTimezone())}</strong>
       </div>
       <div class="passes-summary-tag">
         <span class="passes-summary-tag-label">Filter</span>
@@ -2757,11 +2786,12 @@ async function commitSelectedRadioChannel() {
     savePersistedRadioChannelDraft(sessionResp.session, choice.key);
     chooseScene();
     if (runtime?.connected) {
+      const correctedPair = sessionResp.session?.test_pair || null;
       const pairResp = await trackerApi.post("/api/v1/radio/pair", {
-        uplink_hz: choice.uplink_hz,
-        downlink_hz: choice.downlink_hz,
-        uplink_mode: choice.uplink_mode,
-        downlink_mode: choice.downlink_mode,
+        uplink_hz: correctedPair?.uplink_mhz != null ? Math.round(Number(correctedPair.uplink_mhz) * 1_000_000) : null,
+        downlink_hz: correctedPair?.downlink_mhz != null ? Math.round(Number(correctedPair.downlink_mhz) * 1_000_000) : null,
+        uplink_mode: correctedPair?.uplink_mode || null,
+        downlink_mode: correctedPair?.downlink_mode || null,
       });
       state.system.radioRuntime = pairResp.runtime;
       state.system.radioControlSession = pairResp.session || state.system.radioControlSession;
@@ -2995,7 +3025,7 @@ async function fetchState(progress = null) {
   if (requestId !== fetchStateRequestId) {
     return;
   }
-  state = { system, passes: passesResp.items || [], sats: sats.items || [], timezone: tz.timezone || "UTC" };
+  state = { system, passes: passesResp.items || [], sats: sats.items || [], timezone: tz.timezone || "BrowserLocal" };
   await populatePathCache(system, state.passes, report);
 }
 

@@ -9,6 +9,7 @@ let pageState = {
   targets: { satellites: [], terrestrial: null },
   system: {},
   audioDevices: { inputs: [], outputs: [] },
+  direwolfStatus: null,
   logSettings: {},
   log: { items: [] },
   radioState: { settings: {}, runtime: {} },
@@ -176,6 +177,41 @@ function updatePositionPreview() {
   }, trackerById("aprsPositionCommentPage").value);
 }
 
+function renderDirewolfStatus() {
+  const card = trackerById("direwolfInstallCard");
+  const statusNode = trackerById("direwolfInstallStatus");
+  const installBtn = trackerById("installDirewolfBtn");
+  const refreshBtn = trackerById("refreshDirewolfStatusBtn");
+  const status = pageState.direwolfStatus;
+  if (!status) {
+    card.classList.remove("hidden");
+    installBtn.classList.add("hidden");
+    refreshBtn.classList.remove("hidden");
+    statusNode.textContent = "Dire Wolf status unavailable. Refresh to retry detection.";
+    return;
+  }
+
+  const bits = [];
+  bits.push(status.installed ? "Dire Wolf detected." : "Dire Wolf not found.");
+  if (status.resolvedBinary) bits.push(`Binary: ${status.resolvedBinary}`);
+  if (!status.installed && status.installHint) bits.push(status.installHint);
+  if (!status.installed && !status.installHint) {
+    bits.push(
+      status.canInstall
+        ? "OrbitDeck can launch the supported installer flow for this machine."
+        : "Install Dire Wolf separately to enable APRS decode and local audio APRS workflows."
+    );
+  }
+  if (!status.installed && status.requiresHomebrew) {
+    bits.push("Homebrew is also required for the guided install path.");
+  }
+  statusNode.textContent = bits.join(" ");
+  installBtn.textContent = status.actionLabel || "Install Dire Wolf";
+  installBtn.classList.toggle("hidden", !status.canInstall);
+  refreshBtn.classList.remove("hidden");
+  card.classList.toggle("hidden", !!status.installed && !status.packagedApp);
+}
+
 async function loadAprsPage() {
   const bundle = await aprsClient.loadBundle(trackerApi);
   const [radioState, location] = await Promise.all([
@@ -187,6 +223,7 @@ async function loadAprsPage() {
     targets: bundle.targets.targets || { satellites: [], terrestrial: null },
     system: bundle.system || {},
     audioDevices: bundle.audioDevices || { inputs: [], outputs: [] },
+    direwolfStatus: bundle.direwolfStatus || null,
     logSettings: bundle.logSettings || {},
     log: bundle.logRecent || { items: [] },
     radioState,
@@ -254,6 +291,7 @@ async function loadAprsPage() {
   renderStoredLog();
   renderGatewayPolicy();
   updatePositionPreview();
+  renderDirewolfStatus();
   setRuntime("loadAprsPage", { status: "ok", response: pageState.aprs });
 }
 
@@ -372,6 +410,14 @@ window.addEventListener("DOMContentLoaded", async () => {
   trackerById("clearAprsLogPage").addEventListener("click", async () => {
     await runAction("POST /api/v1/aprs/log/clear", () => aprsClient.clearLog(trackerApi, trackerById("aprsClearAgePage").value));
     await loadAprsPage();
+  });
+  trackerById("installDirewolfBtn").addEventListener("click", async () => {
+    await runAction("POST /api/v1/aprs/direwolf/install", () => trackerApi.post("/api/v1/aprs/direwolf/install", {}));
+    await loadAprsPage();
+  });
+  trackerById("refreshDirewolfStatusBtn").addEventListener("click", async () => {
+    pageState.direwolfStatus = await runAction("GET /api/v1/aprs/direwolf/status", () => trackerApi.get("/api/v1/aprs/direwolf/status"));
+    renderDirewolfStatus();
   });
 
   await loadAprsPage();

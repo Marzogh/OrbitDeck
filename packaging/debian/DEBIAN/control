@@ -1,0 +1,10 @@
+Package: orbitdeck
+Version: __VERSION__
+Section: hamradio
+Priority: optional
+Architecture: arm64
+Maintainer: OrbitDeck maintainers
+Depends: python3 (>= 3.11), python3 (<< 3.12), python3-venv, direwolf, chromium-browser | chromium
+Description: OrbitDeck amateur satellite operations dashboard
+ OrbitDeck provides local amateur satellite operations dashboards,
+ APRS support, and kiosk/mobile surfaces for station operation.

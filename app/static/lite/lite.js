@@ -3,6 +3,7 @@ let trackerById;
 
 const LITE_CACHE_KEY = "issTrackerLiteSnapshotV3";
 const LITE_FOCUS_SAT_KEY = "issTrackerLiteFocusSatId";
+const DISPLAY_TIMEZONE_CHOICE_KEY = "orbitdeckDisplayTimezoneChoice";
 const LIVE_REFRESH_MS = 30000;
 const HIDDEN_REFRESH_MS = 120000;
 const SNAPSHOT_WARN_AFTER_HOURS = 12;
@@ -29,7 +30,14 @@ function updateClock() {
 }
 
 function effectiveDisplayTimezone() {
-  return latestRenderedSnapshot?.timezone?.timezone || "UTC";
+  const saved = latestRenderedSnapshot?.timezone?.timezone || "BrowserLocal";
+  if (saved === "BrowserLocal") {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  }
+  if (saved === "UTC" && !localStorage.getItem(DISPLAY_TIMEZONE_CHOICE_KEY)) {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  }
+  return saved;
 }
 
 function fmtLocalTime(iso) {

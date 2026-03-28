@@ -215,13 +215,14 @@ class RigControlService:
         recommendation: FrequencyRecommendation | None,
         settings: RadioSettings | None = None,
     ) -> tuple[bool, str | None]:
-        if recommendation is None:
+        normalized = self._normalized_recommendation(recommendation, settings)
+        if normalized is None:
             return False, "No usable radio frequency is defined for this satellite"
         rig_model = self._effective_rig_model(settings)
-        has_uplink = recommendation.uplink_mhz is not None
-        has_downlink = recommendation.downlink_mhz is not None
-        uplink_ok = self._freq_supported_for_transmit(recommendation.uplink_mhz)
-        downlink_ok = self._freq_supported_for_receive(recommendation.downlink_mhz, rig_model)
+        has_uplink = normalized.uplink_mhz is not None
+        has_downlink = normalized.downlink_mhz is not None
+        uplink_ok = self._freq_supported_for_transmit(normalized.uplink_mhz)
+        downlink_ok = self._freq_supported_for_receive(normalized.downlink_mhz, rig_model)
         if has_uplink and has_downlink and uplink_ok and downlink_ok:
             return True, None
         if has_downlink and not has_uplink and downlink_ok:
@@ -231,17 +232,46 @@ class RigControlService:
         if not has_uplink and not has_downlink:
             return False, "No usable radio frequency is defined for this satellite"
         if has_uplink and not uplink_ok and not has_downlink:
-            return False, f"Uplink {recommendation.uplink_mhz:.3f} MHz is outside the allowed amateur transmit ranges"
+            return False, f"Uplink {normalized.uplink_mhz:.3f} MHz is outside the allowed amateur transmit ranges"
         if has_downlink and not downlink_ok and not has_uplink:
-            return False, f"Downlink {recommendation.downlink_mhz:.3f} MHz is outside {rig_model.value.upper()} receive coverage"
+            return False, f"Downlink {normalized.downlink_mhz:.3f} MHz is outside {rig_model.value.upper()} receive coverage"
         if has_uplink and has_downlink and not uplink_ok and downlink_ok:
-            return False, f"Uplink {recommendation.uplink_mhz:.3f} MHz is outside the allowed amateur transmit ranges"
+            return False, f"Uplink {normalized.uplink_mhz:.3f} MHz is outside the allowed amateur transmit ranges"
         if has_uplink and has_downlink and uplink_ok and not downlink_ok:
-            return False, f"Downlink {recommendation.downlink_mhz:.3f} MHz is outside {rig_model.value.upper()} receive coverage"
+            return False, f"Downlink {normalized.downlink_mhz:.3f} MHz is outside {rig_model.value.upper()} receive coverage"
         return (
             False,
-            f"Uplink {recommendation.uplink_mhz:.3f} MHz is outside the allowed amateur transmit ranges and downlink {recommendation.downlink_mhz:.3f} MHz is outside {rig_model.value.upper()} receive coverage",
+            f"Uplink {normalized.uplink_mhz:.3f} MHz is outside the allowed amateur transmit ranges and downlink {normalized.downlink_mhz:.3f} MHz is outside {rig_model.value.upper()} receive coverage",
         )
+
+    def _normalized_recommendation(
+        self,
+        recommendation: FrequencyRecommendation | None,
+        settings: RadioSettings | None = None,
+    ) -> FrequencyRecommendation | None:
+        if recommendation is None:
+            return None
+        rig_model = self._effective_rig_model(settings)
+        uplink_ok = self._freq_supported_for_transmit(recommendation.uplink_mhz)
+        downlink_ok = self._freq_supported_for_receive(recommendation.downlink_mhz, rig_model)
+        normalized = recommendation.model_copy(
+            update={
+                "uplink_mhz": recommendation.uplink_mhz if uplink_ok else None,
+                "uplink_mode": recommendation.uplink_mode if uplink_ok else None,
+                "uplink_label": recommendation.uplink_label if uplink_ok else None,
+                "downlink_mhz": recommendation.downlink_mhz if downlink_ok else None,
+                "downlink_mode": recommendation.downlink_mode if downlink_ok else None,
+                "downlink_label": recommendation.downlink_label if downlink_ok else None,
+                "correction_side": (
+                    CorrectionSide.full_duplex
+                    if uplink_ok and downlink_ok and recommendation.uplink_mhz is not None and recommendation.downlink_mhz is not None
+                    else (CorrectionSide.downlink_only if downlink_ok and recommendation.downlink_mhz is not None else CorrectionSide.uplink_only)
+                ),
+            }
+        )
+        if normalized.uplink_mhz is None and normalized.downlink_mhz is None:
+            return None
+        return normalized
 
     def runtime(self) -> RadioRuntimeState:
         return RadioRuntimeState.model_validate(self._runtime.model_dump(mode="python"))
@@ -457,6 +487,7 @@ class RigControlService:
             uplink_mode=(payload.uplink_mode or "FM").upper() if payload.uplink_hz else None,
             downlink_mode=(payload.downlink_mode or "FM").upper() if payload.downlink_hz else None,
         )
+        recommendation = self._normalized_recommendation(recommendation, settings)
         is_eligible, reason = self._recommendation_supported(recommendation, settings)
         self._session.is_eligible = is_eligible
         self._session.eligibility_reason = reason
@@ -478,7 +509,7 @@ class RigControlService:
             raise RuntimeError("radio is not connected")
         if not self._session.is_eligible:
             raise ValueError(self._session.eligibility_reason or "Selected satellite is not eligible for VHF/UHF radio control")
-        recommendation = self._session.test_pair
+        recommendation = self._normalized_recommendation(self._session.test_pair, self._current_settings)
         if recommendation is None or (recommendation.uplink_mhz is None and recommendation.downlink_mhz is None):
             raise ValueError(self._session.test_pair_reason or "No usable supported radio frequency for this satellite")
         self._capture_restore_snapshot()
@@ -608,6 +639,7 @@ class RigControlService:
         if not self._runtime.connected or self._controller is None:
             raise RuntimeError("radio is not connected")
         recommendation, pass_event = resolver(payload.sat_id, payload.location_source, payload.selected_column_index)
+        recommendation = self._normalized_recommendation(recommendation, settings)
         if recommendation is None or (recommendation.uplink_mhz is None and recommendation.downlink_mhz is None):
             raise ValueError("recommendation is unavailable for the selected target")
         apply_mode_and_tone = settings.default_apply_mode_and_tone if payload.apply_mode_and_tone is None else payload.apply_mode_and_tone
@@ -727,6 +759,7 @@ class RigControlService:
             uplink_mode=(payload.uplink_mode or "FM").upper() if payload.uplink_hz is not None else None,
             downlink_mode=(payload.downlink_mode or "FM").upper() if payload.downlink_hz is not None else None,
         )
+        recommendation = self._normalized_recommendation(recommendation, settings)
         is_supported, reason = self._recommendation_supported(recommendation, settings)
         if not is_supported:
             raise ValueError(reason or "Manual pair is outside supported VHF/UHF range")

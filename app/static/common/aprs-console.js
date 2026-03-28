@@ -109,15 +109,16 @@
   }
 
   async function loadBundle(api) {
-    const [aprs, targets, system, audioDevices, logSettings, logRecent] = await Promise.all([
+    const [aprs, targets, system, audioDevices, logSettings, logRecent, direwolfStatus] = await Promise.all([
       api.get("/api/v1/aprs/state"),
       api.get("/api/v1/aprs/targets"),
       api.get("/api/v1/system/state"),
       api.get("/api/v1/aprs/audio-devices").catch(() => ({ inputs: [], outputs: [] })),
       api.get("/api/v1/aprs/log/settings"),
       api.get("/api/v1/aprs/log?limit=50"),
+      api.get("/api/v1/aprs/direwolf/status").catch(() => null),
     ]);
-    return { aprs, targets, system, audioDevices, logSettings, logRecent };
+    return { aprs, targets, system, audioDevices, logSettings, logRecent, direwolfStatus };
   }
 
   async function saveAprsSettings(api, payload) {

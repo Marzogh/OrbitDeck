@@ -2,6 +2,7 @@ export const TRACKED_SAT_KEY = "kioskTrackedSatId";
 export const VIDEO_SOURCES_KEY = "kioskVideoSources";
 export const DEV_MODE_KEY = "kioskDevModeEnabled";
 export const DEV_FORCE_SCENE_KEY = "kioskDevForceScene";
+export const DISPLAY_TIMEZONE_CHOICE_KEY = "orbitdeckDisplayTimezoneChoice";
 
 export const DEFAULT_VIDEO_SOURCES = [
   "https://www.youtube.com/embed/fO9e9jnhYK8?autoplay=1&mute=1&rel=0&modestbranding=1",
@@ -189,6 +190,23 @@ export function saveDevSettings({ enabled, forceScene, selection } = {}) {
   }
   localStorage.setItem(DEV_MODE_KEY, "1");
   localStorage.setItem(DEV_FORCE_SCENE_KEY, nextSelection || forceScene || "auto");
+}
+
+export function saveDisplayTimezoneChoice(choice) {
+  const value = String(choice || "").trim() || "BrowserLocal";
+  localStorage.setItem(DISPLAY_TIMEZONE_CHOICE_KEY, value);
+}
+
+export function getDisplayTimezoneChoice() {
+  return localStorage.getItem(DISPLAY_TIMEZONE_CHOICE_KEY);
+}
+
+export function resolveDisplayTimezoneChoice(savedTimezone) {
+  const normalized = String(savedTimezone || "").trim() || "BrowserLocal";
+  if (normalized === "UTC" && !getDisplayTimezoneChoice()) {
+    return "BrowserLocal";
+  }
+  return normalized;
 }
 
 export function setRuntime(action, value) {

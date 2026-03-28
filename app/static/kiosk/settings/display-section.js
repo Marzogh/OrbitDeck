@@ -1,4 +1,9 @@
-import { escapeHtml, loadVideoSourceSelections, resolveVideoSourceSelection } from "./shared.js";
+import {
+  escapeHtml,
+  loadVideoSourceSelections,
+  resolveDisplayTimezoneChoice,
+  resolveVideoSourceSelection,
+} from "./shared.js";
 
 function validateSource(value) {
   try {
@@ -130,7 +135,7 @@ export function bindDisplaySection(ctx) {
   const secondaryCustomField = document.getElementById("v2VideoSourceSecondaryCustomField");
   mode.value = ctx.stateCache.system.issDisplayMode?.mode || "SunlitOnlyVideo";
   ctx.ensureTimezoneSelector(timezone, ctx.stateCache.timezones);
-  timezone.value = ctx.stateCache.system.timezone?.timezone || "UTC";
+  timezone.value = resolveDisplayTimezoneChoice(ctx.stateCache.system.timezone?.timezone || "BrowserLocal");
   primaryMode.value = selections.primary.mode;
   primary.value = selections.primary.url || "";
   secondaryMode.value = selections.secondary.mode;

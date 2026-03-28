@@ -1,5 +1,11 @@
 # OrbitDeck
 
+[![CI](https://github.com/Marzogh/OrbitDeck/actions/workflows/ci.yml/badge.svg)](https://github.com/Marzogh/OrbitDeck/actions/workflows/ci.yml)
+[![Release](https://github.com/Marzogh/OrbitDeck/actions/workflows/release.yml/badge.svg)](https://github.com/Marzogh/OrbitDeck/actions/workflows/release.yml)
+[![Docs](https://github.com/Marzogh/OrbitDeck/actions/workflows/docs.yml/badge.svg)](https://github.com/Marzogh/OrbitDeck/actions/workflows/docs.yml)
+[![Latest Release](https://img.shields.io/github/v/release/Marzogh/OrbitDeck?display_name=tag)](https://github.com/Marzogh/OrbitDeck/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Marzogh/OrbitDeck/blob/main/LICENSE)
+
 OrbitDeck is a FastAPI-based amateur-satellite operations dashboard. It brings pass prediction, live tracking, Doppler-aware frequency guidance, APRS operation, radio control, and ISS visibility state into one service with several purpose-built web surfaces.
 
 On standard hardware, `/` and `/kiosk-rotator` are the main pass-operations views. `/lite` is the lighter mobile-first surface, `/lite/settings` holds the lite-specific setup, `/aprs` is the dedicated APRS console, `/radio` is the direct rig-validation screen, and `/settings` is the combined operator settings console. On Pi Zero-class hardware, OrbitDeck automatically falls back to the lite-oriented routes for `/`, `/settings`, and `/kiosk-rotator`.
@@ -52,6 +58,46 @@ If you only want the API server and not the launcher behavior, run:
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
+## Release Artifacts
+
+OrbitDeck now includes planned release packaging for two operator-facing install artifacts:
+
+- macOS: unsigned `OrbitDeck-<version>-macos-arm64.dmg`
+- Raspberry Pi: `orbitdeck_<version>_arm64.deb`
+
+The macOS app is intentionally unsigned for now. On first launch, macOS may block it. The supported bypass is:
+
+1. attempt to open the installed app
+2. open `System Settings > Privacy & Security`
+3. click `Open Anyway`
+
+The packaged macOS app runs OrbitDeck inside its own native window. It does not rely on the default browser. If `direwolf` is missing, APRS surfaces stay available, report that Dire Wolf must be installed separately, and can launch an explicit guided Terminal install flow for Homebrew plus Dire Wolf when the operator chooses it. The full manual install steps are documented in [docs/INSTALL_AND_RUN.md](docs/INSTALL_AND_RUN.md).
+
+The Raspberry Pi `.deb` installs OrbitDeck under `/opt/orbitdeck`, enables the API service, and installs a Chromium kiosk autostart entry. The package expects these runtime dependencies on the target system:
+
+- `python3`
+- `python3-venv`
+- `direwolf`
+- `chromium-browser` or `chromium`
+
+The current `.deb` build targets `arm64` Raspberry Pi OS systems with Python `3.11.x`.
+
+## Packaging Builds
+
+Local packaging commands:
+
+```bash
+python3 -m pip install -r requirements-packaging.txt
+./scripts/build_dmg.sh 0.1.0
+./scripts/build_deb.sh 0.1.0
+```
+
+GitHub release automation:
+
+- pushing a tag like `v0.1.0` triggers the release workflow
+- GitHub Actions builds the macOS `.dmg` and Raspberry Pi `.deb`
+- the workflow attaches both artifacts to the GitHub release for that tag
+
 ## Lite Mode
 
 Lite is the mobile-first and Pi Zero-safe operating surface. On first run it asks the operator to choose a tracked set of up to 5 satellites, with `ISS (ZARYA)` preselected when available. The lite dashboard keeps a single focused pass/ops card, uses cached shell and snapshot fallback behavior when connectivity is poor, and can surface both radio-control readiness and APRS target state for the currently focused pass. When a satellite only has a usable downlink and no full control pair, lite can still expose a receive-only tuning target.
@@ -82,7 +128,7 @@ OrbitDeck exposes a wider API than the web UI uses directly. The live contract i
 
 ## Runtime Data
 
-OrbitDeck ships `data/ephemeris/de421.bsp` so sky and body calculations work on first run. At runtime it writes local state to `data/state.json`, cached refresh artifacts under `data/snapshots/`, and APRS receive history to `data/aprs/received_log.jsonl` when APRS logging is enabled. Lite also keeps client-side cache state in the browser so the mobile surface can reopen cleanly when the Pi or network is briefly unavailable.
+OrbitDeck ships `data/ephemeris/de421.bsp` so sky and body calculations work on first run. In source-tree runs it writes local state to `data/state.json`, cached refresh artifacts under `data/snapshots/`, and APRS receive history to `data/aprs/received_log.jsonl` when APRS logging is enabled. In packaged runs, writable state moves to the platform app-data location, such as `~/Library/Application Support/OrbitDeck/data/` on macOS. Lite also keeps client-side cache state in the browser so the mobile surface can reopen cleanly when the Pi or network is briefly unavailable.
 
 ## Validation
 
@@ -105,4 +151,4 @@ node --check app/static/kiosk/settings.js
 
 macOS support is for development and windowed operation. Raspberry Pi is still the primary kiosk deployment target.
 
-Pi service units and kiosk or networking helpers live in `scripts/`, including `orbitdeck_api.service`, `pi_kiosk.service`, and `network_fallback.sh`. The hemisphere and globe view depends on `app/static/common/hemisphere.js` and `app/static/common/hemisphere-land.js`, and the `references/` tree is design and research material rather than a runtime dependency.
+Pi service units and kiosk or networking helpers live in `scripts/`, including `orbitdeck_api.service`, `pi_kiosk.service`, and `network_fallback.sh`. The hemisphere and globe view depends on `app/static/common/hemisphere.js` and `app/static/common/hemisphere-land.js`. Most of the `references/` tree remains design and research material, but packaged radio-control builds now also depend on `references/icom-lan/src` at runtime for the current IC-705 LAN control path.

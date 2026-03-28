@@ -1,0 +1,78 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - "**"
+    tags-ignore:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shared-regressions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Python dependencies
+        run: python3 -m pip install -r requirements.txt
+
+      - name: Run shared radio/APRS regressions
+        run: |
+          python3 -m pytest \
+            tests/test_api.py \
+            -k "accepts_receive_only_payload_and_applies_doppler or supports_receive_only_downlink or normalizes_invalid_uplink_to_receive_only or direwolf"
+
+      - name: Check kiosk/APRS frontend syntax
+        run: |
+          node --check app/static/kiosk/rotator.js
+          node --check app/static/kiosk/aprs.js
+          node --check app/static/common/aprs-console.js
+
+  macos-packaged-regressions:
+    runs-on: macos-14
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install packaging dependencies
+        run: python3 -m pip install -r requirements-packaging.txt
+
+      - name: Run packaged desktop/runtime regressions
+        run: |
+          python3 -m pytest \
+            tests/test_api.py \
+            tests/test_runtime_paths.py \
+            tests/test_desktop_main.py \
+            -k "accepts_receive_only_payload_and_applies_doppler or supports_receive_only_downlink or normalizes_invalid_uplink_to_receive_only or direwolf or runtime_paths or initial_url or setup_ready or first_run_uses_desktop_launch_marker"
+
+      - name: Check kiosk/APRS frontend syntax
+        run: |
+          node --check app/static/kiosk/rotator.js
+          node --check app/static/kiosk/aprs.js
+          node --check app/static/common/aprs-console.js

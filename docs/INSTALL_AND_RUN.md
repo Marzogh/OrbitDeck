@@ -10,7 +10,16 @@ On macOS, you need Python 3.11 or newer, a modern browser, network access if you
 
 On Raspberry Pi, use a current Raspberry Pi OS desktop environment such as Bookworm, Python 3.11 or newer, and Chromium for kiosk mode. Network access is still needed for fresh remote data. USB radio or USB APRS testing needs the matching serial device path. GPS hardware and `nmcli` are optional unless you want Pi GPS or the fallback networking scripts.
 
-## 2) Clone and install
+## 2) Release artifacts
+
+OrbitDeck now has two release artifact targets:
+
+- macOS: unsigned `OrbitDeck-<version>-macos-arm64.dmg`
+- Raspberry Pi: `orbitdeck_<version>_arm64.deb`
+
+The GitHub release workflow builds these artifacts from version tags such as `v0.1.0`.
+
+## 3) Clone and install from source
 
 ```bash
 git clone <your-repo-url> orbitdeck
@@ -20,7 +29,58 @@ source .venv/bin/activate
 python3 -m pip install -r requirements.txt
 ```
 
-## 3) Run on macOS
+## 4) Install the macOS app from the DMG
+
+1. Download the matching `OrbitDeck-<version>-macos-arm64.dmg` asset from GitHub Releases.
+2. Open the DMG and drag `OrbitDeck.app` into `Applications`.
+3. Launch `OrbitDeck.app`.
+
+OrbitDeck for macOS is intentionally unsigned for now. If macOS blocks the first launch:
+
+1. try to open the app once
+2. open `System Settings > Privacy & Security`
+3. click `Open Anyway`
+
+The packaged macOS app runs OrbitDeck in its own native window rather than opening the default browser.
+
+### macOS packaged-app dependency notes
+
+- APRS support still depends on a separate `direwolf` install
+- the packaged app detects whether `direwolf` is available and surfaces that state in `/aprs`
+- the packaged app can launch an explicit guided Terminal install flow for `direwolf`
+- if Homebrew is missing, that guided flow can bootstrap Homebrew first and then install `direwolf`
+- non-APRS surfaces remain usable when `direwolf` is absent
+
+### Install Dire Wolf on macOS
+
+If you want APRS support in the packaged macOS app, install `direwolf` first.
+
+Recommended path from inside OrbitDeck:
+
+1. open `/aprs`
+2. let OrbitDeck check whether `direwolf` is available
+3. if it is missing, use the guided install action
+4. OrbitDeck will open Terminal and:
+   - install Homebrew first if needed
+   - install `direwolf`
+
+Manual path:
+
+If Homebrew is not installed yet:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Then install Dire Wolf:
+
+```bash
+brew install direwolf
+```
+
+After installation, relaunch OrbitDeck or reopen `/aprs` and let it refresh Dire Wolf status.
+
+## 5) Run on macOS from source
 
 The normal desktop launcher flow is:
 
@@ -46,7 +106,51 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 The tested macOS flow covers FastAPI startup, launcher-driven browser opening, the main UI routes, the API docs, and the local test workflow. macOS is not meant to replace Raspberry Pi kiosk deployment.
 
-## 4) Run on Raspberry Pi
+## 6) Install the Raspberry Pi package
+
+Install the Debian package from GitHub Releases on a Raspberry Pi OS `arm64` system:
+
+```bash
+sudo dpkg -i orbitdeck_<version>_arm64.deb
+sudo apt-get install -f
+sudo systemctl status orbitdeck.service
+```
+
+What the package does:
+
+- installs OrbitDeck under `/opt/orbitdeck`
+- creates `/opt/orbitdeck/.venv`
+- installs vendored Python wheels into that venv without hitting PyPI
+- installs and enables `orbitdeck.service`
+- installs a Chromium kiosk autostart entry
+
+Pi package runtime dependencies:
+
+- `python3`
+- `python3-venv`
+- `direwolf`
+- `chromium-browser` or `chromium`
+
+Current package target:
+
+- Raspberry Pi OS `arm64`
+- Python `3.11.x`
+
+Package behavior notes:
+
+- the main API runs as `orbitdeck.service`
+- Chromium kiosk mode opens `http://127.0.0.1:8000/` on login
+- APRS remains explicitly dependent on `direwolf`
+- radio and tracking surfaces continue to work even if APRS-specific tooling is unavailable or misconfigured
+
+Upgrade and removal:
+
+```bash
+sudo dpkg -i orbitdeck_<new-version>_arm64.deb
+sudo dpkg -r orbitdeck
+```
+
+## 7) Run on Raspberry Pi from source
 
 For a local kiosk-style run:
 
@@ -70,7 +174,7 @@ On Pi Zero-class hardware, OrbitDeck routes `/`, `/settings`, and `/kiosk-rotato
 
 The reason is compute budget. Lite opens with a setup gate, asks the operator to choose a tracked set of up to 5 satellites, and keeps pass prediction and live tracking bounded to that saved set. When the user taps an upcoming pass, lite loads an AOS cue into the focus compass rather than trying to act like the full kiosk.
 
-## 5) Radio control setup and validation
+## 8) Radio control setup and validation
 
 OrbitDeck includes a native Icom control path and a dedicated validation page at `/radio`. The persisted settings model currently includes `ic705` and `id5100`. The IC-705 path has live validation for connect, poll, direct frequency write, and manual pair application. The ID-5100 path exists in the controller layer and settings model but does not yet have the same depth of live confirmation.
 
@@ -90,7 +194,7 @@ The current pass-driven workflow accepts recommendations inside VHF `144.000 MHz
 
 The radio APIs you will touch most often in that workflow are `POST /api/v1/radio/frequency`, `POST /api/v1/radio/pair`, `POST /api/v1/radio/session/select`, `POST /api/v1/radio/session/test-pair`, `POST /api/v1/radio/session/test`, `POST /api/v1/radio/session/start`, and `POST /api/v1/radio/session/stop`.
 
-## 6) APRS setup and validation
+## 9) APRS setup and validation
 
 OrbitDeck has a dedicated APRS console at `/aprs` and a full APRS section inside `/settings`. APRS supports `terrestrial` and `satellite` operating modes. Terrestrial mode uses a local or region-derived APRS frequency with the usual terrestrial path defaults. Satellite mode uses the selected APRS-capable satellite and channel and can expose pass state, transmit gating, and Doppler-corrected UHF tuning.
 
@@ -106,11 +210,15 @@ OrbitDeck exposes Dire Wolf status and install routes through `GET /api/v1/aprs/
 
 Wi-Fi APRS expects the radio to already be in a compatible saved packet or data profile before you connect.
 
+For packaged macOS builds, treat Dire Wolf as an external dependency. The packaged app reports whether it is present and can launch an explicit guided Terminal install flow, but it does not silently mutate the machine without operator action.
+
+If you need to do the install manually, use the Homebrew + `brew install direwolf` steps from the macOS install section above.
+
 ### Logging, digipeater, and iGate
 
 APRS logging is a first-class local feature. OrbitDeck can store received packets in `data/aprs/received_log.jsonl`, list them in the UI, export them as CSV or JSON, and clear them by age bucket. Digipeater and RX-only iGate policy are part of the persisted APRS settings model. Digipeater mode is intentionally disabled for satellite APRS targets, while iGate can remain enabled for receive when policy allows it.
 
-## 7) Raspberry Pi production install with systemd
+## 10) Raspberry Pi production install with systemd
 
 For a boot-time deployment, install the app into `/opt/orbitdeck`, create the virtual environment there, and install the Python requirements:
 

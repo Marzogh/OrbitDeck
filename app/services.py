@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from html import unescape
@@ -38,6 +39,7 @@ from app.models import (
     SatelliteRadioChannel,
     StatusReport,
 )
+from app.runtime_paths import data_path, packaged_app_runtime, resource_root
 
 
 SEED_SATELLITES: list[Satellite] = [
@@ -170,8 +172,8 @@ class LocationService:
 
 
 class TrackingService:
-    def __init__(self, cache_path: str = "data/snapshots/latest_catalog.json") -> None:
-        self.cache_path = Path(cache_path)
+    def __init__(self, cache_path: str | Path | None = None) -> None:
+        self.cache_path = Path(cache_path) if cache_path is not None else data_path("snapshots", "latest_catalog.json")
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         self._satellites = self._normalize_catalog(self._filter_amateur_catalog(self._ensure_iss(self._load_cached_catalog())))
         self._sat_cache: dict[str, Any] = {}
@@ -346,7 +348,7 @@ class TrackingService:
         self._sky_load = load
         self._sky_wgs84 = wgs84
         self._sky_ts = load.timescale()
-        eph_path = Path("data/ephemeris/de421.bsp")
+        eph_path = data_path("ephemeris", "de421.bsp")
         if eph_path.exists():
             try:
                 self._sky_eph = load(str(eph_path))
@@ -604,8 +606,8 @@ class NetworkService:
 
 
 class CacheService:
-    def __init__(self, snapshots_dir: str = "data/snapshots") -> None:
-        self.snapshots_dir = Path(snapshots_dir)
+    def __init__(self, snapshots_dir: str | Path | None = None) -> None:
+        self.snapshots_dir = Path(snapshots_dir) if snapshots_dir is not None else data_path("snapshots")
         self.snapshots_dir.mkdir(parents=True, exist_ok=True)
 
     def apply_policy(self, current: CachePolicy, update: CachePolicyUpdate) -> CachePolicy:
@@ -620,8 +622,10 @@ class CacheService:
 
 
 class PassPredictionCacheService:
-    def __init__(self, cache_path: str = "data/snapshots/pass_predictions_cache.json") -> None:
-        self.cache_path = Path(cache_path)
+    def __init__(self, cache_path: str | Path | None = None) -> None:
+        self.cache_path = (
+            Path(cache_path) if cache_path is not None else data_path("snapshots", "pass_predictions_cache.json")
+        )
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         self._entries: dict[str, dict[str, Any]] = {}
         self._load()
@@ -709,9 +713,19 @@ class FrequencyGuideService:
         GuidePassPhase.los: 1.0,
     }
 
-    def __init__(self, path: str = "data/frequency_guides.json") -> None:
-        self.path = Path(path)
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path is not None else data_path("frequency_guides.json")
+        self._seed_from_bundled_resource_if_needed()
         self._profiles = self._load_profiles()
+
+    def _seed_from_bundled_resource_if_needed(self) -> None:
+        if self.path.exists() or not packaged_app_runtime():
+            return
+        bundled = resource_root() / "data" / "frequency_guides.json"
+        if not bundled.exists():
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(bundled, self.path)
 
     def _load_profiles(self) -> dict[str, FrequencyGuideProfile]:
         if not self.path.exists():
@@ -945,13 +959,13 @@ class DataIngestionService:
     AMSAT_STATUS_INDEX_URL = "https://www.amsat.org/status/index.php"
     AMSAT_STATUS_API_URL = "https://www.amsat.org/status/api/v1/sat_info.php"
 
-    def __init__(self, eph_path: str = "data/ephemeris/de421.bsp") -> None:
-        self.eph_path = Path(eph_path)
+    def __init__(self, eph_path: str | Path | None = None) -> None:
+        self.eph_path = Path(eph_path) if eph_path is not None else data_path("ephemeris", "de421.bsp")
         self.eph_path.parent.mkdir(parents=True, exist_ok=True)
-        self.refresh_meta_path = Path("data/snapshots/catalog_refresh_meta.json")
+        self.refresh_meta_path = data_path("snapshots", "catalog_refresh_meta.json")
         self.refresh_meta_path.parent.mkdir(parents=True, exist_ok=True)
-        self.amsat_status_cache_path = Path("data/snapshots/amsat_status.json")
-        self.amsat_refresh_meta_path = Path("data/snapshots/amsat_status_refresh_meta.json")
+        self.amsat_status_cache_path = data_path("snapshots", "amsat_status.json")
+        self.amsat_refresh_meta_path = data_path("snapshots", "amsat_status_refresh_meta.json")
         self._ephem_loaded = None
         self._ephem_ts = None
 

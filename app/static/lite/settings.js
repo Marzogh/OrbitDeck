@@ -5,6 +5,7 @@ let trackerSetBrowserLocation;
 const MAX_TRACKED_SATS = 5;
 const MANUAL_LOCATION_DEBOUNCE_MS = 700;
 const LITE_FOCUS_SAT_KEY = "issTrackerLiteFocusSatId";
+const DISPLAY_TIMEZONE_CHOICE_KEY = "orbitdeckDisplayTimezoneChoice";
 
 let currentLiteSettings = null;
 let availableSatellites = [];
@@ -28,7 +29,9 @@ function ensureTimezoneSelector(selectedTimezone) {
   select.innerHTML = ordered
     .map((tz) => `<option value="${tz}">${tz === "BrowserLocal" ? `Browser local (${browserTz})` : tz}</option>`)
     .join("");
-  const desired = selectedTimezone === browserTz ? "BrowserLocal" : selectedTimezone;
+  const desired = selectedTimezone === browserTz || (selectedTimezone === "UTC" && !localStorage.getItem(DISPLAY_TIMEZONE_CHOICE_KEY))
+    ? "BrowserLocal"
+    : selectedTimezone;
   if ([...select.options].some((o) => o.value === desired)) select.value = desired;
 }
 
@@ -134,9 +137,9 @@ async function saveTrackedSatellites() {
 
 async function saveTimezone() {
   const picked = trackerById("displayTimezoneLite").value;
-  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const tzToSave = picked === "BrowserLocal" ? browserTz : picked;
+  const tzToSave = picked || "BrowserLocal";
   await trackerApi.post("/api/v1/settings/timezone", { timezone: tzToSave });
+  localStorage.setItem(DISPLAY_TIMEZONE_CHOICE_KEY, tzToSave);
 }
 
 async function saveManual() {

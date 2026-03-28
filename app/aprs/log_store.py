@@ -6,11 +6,12 @@ from pathlib import Path
 from threading import Lock
 
 from app.models import AprsLogEntry
+from app.runtime_paths import data_path
 
 
 class AprsLogStore:
-    def __init__(self, path: str = "data/aprs/received_log.jsonl") -> None:
-        self.path = Path(path)
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path is not None else data_path("aprs", "received_log.jsonl")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = Lock()
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import subprocess
 import shutil
@@ -42,6 +43,7 @@ from app.models import (
     GuidePassPhase,
     IssDisplayMode,
     LiteSettingsUpdate,
+    GeoPoint,
     LocationSourceMode,
     LocationUpdate,
     NetworkUpdate,
@@ -62,6 +64,7 @@ from app.models import (
 )
 from app.radio.civ import normalize_civ_address
 from app.radio.service import RigControlService
+from app.runtime_paths import packaged_app_runtime, static_path, static_root
 from app.services import (
     CacheService,
     DataIngestionService,
@@ -109,6 +112,14 @@ _BACKGROUND_REFRESH_INTERVAL = timedelta(hours=6)
 _BACKGROUND_REFRESH_FAILURE_BACKOFF = timedelta(minutes=30)
 _BACKGROUND_REFRESH_FAILURE_RETRY_INTERVAL = timedelta(seconds=30)
 _BACKGROUND_REFRESH_FAILURE_BURST_LIMIT = 3
+_DIREWOLF_COMMON_PATHS = (
+    "/opt/homebrew/bin/direwolf",
+    "/usr/local/bin/direwolf",
+)
+_BREW_COMMON_PATHS = (
+    "/opt/homebrew/bin/brew",
+    "/usr/local/bin/brew",
+)
 
 
 def _pass_cache_retention(state) -> timedelta:
@@ -127,30 +138,162 @@ def _invalidate_lite_snapshot_cache() -> None:
     _lite_snapshot_cache.clear()
 
 
+def _resolve_binary_path(binary: str | None, *, common_paths: tuple[str, ...] = (), fallback_name: str | None = None) -> str | None:
+    seen: set[str] = set()
+    candidates: list[str] = []
+    configured = str(binary or "").strip()
+    if configured:
+        candidates.append(configured)
+    candidates.extend(common_paths)
+    if fallback_name:
+        candidates.append(fallback_name)
+    for candidate in candidates:
+        candidate = str(candidate or "").strip()
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+    return None
+
+
 def _resolve_direwolf_binary_path(binary: str | None) -> str | None:
-    candidate = str(binary or "").strip()
-    if not candidate:
+    return _resolve_binary_path(binary, common_paths=_DIREWOLF_COMMON_PATHS, fallback_name="direwolf")
+
+
+def _resolve_brew_binary_path() -> str | None:
+    return _resolve_binary_path(None, common_paths=_BREW_COMMON_PATHS, fallback_name="brew")
+
+
+def _terminal_installer_available() -> bool:
+    return bool(shutil.which("osascript"))
+
+
+def _direwolf_install_action_label(*, brew_path: str | None, installed: bool) -> str | None:
+    if installed:
         return None
-    if "/" in candidate:
-        return candidate if shutil.which(candidate) else None
-    return shutil.which(candidate)
+    if brew_path:
+        return "Install Dire Wolf"
+    return "Install Homebrew + Dire Wolf"
 
 
-def _direwolf_install_status() -> dict[str, object]:
-    state = store.get()
+def _direwolf_install_status(state=None) -> dict[str, object]:
+    state = state or store.get()
     configured = state.aprs_settings.direwolf_binary
     resolved = _resolve_direwolf_binary_path(configured)
-    brew_path = shutil.which("brew")
-    osascript_path = shutil.which("osascript")
+    brew_path = _resolve_brew_binary_path()
+    packaged_app = packaged_app_runtime()
+    can_launch_terminal = _terminal_installer_available()
+    requires_homebrew = not bool(brew_path)
+    can_install = bool(brew_path) if not packaged_app else can_launch_terminal
+    install_hint = None
+    if not resolved:
+        if packaged_app:
+            install_hint = (
+                "Dire Wolf is required for APRS. OrbitDeck can launch a guided installer, "
+                "or you can install Dire Wolf manually and then refresh this status."
+            )
+        else:
+            install_hint = (
+                "Install Dire Wolf to enable APRS decode and local audio APRS workflows."
+            )
     return {
         "configuredBinary": configured,
         "resolvedBinary": resolved,
         "installed": bool(resolved),
-        "canInstall": bool(brew_path),
-        "installer": "brew" if brew_path else None,
+        "canInstall": can_install,
+        "installer": "brew" if brew_path else "brew-bootstrap",
         "brewPath": brew_path,
-        "canLaunchTerminal": bool(brew_path and osascript_path),
+        "canLaunchTerminal": can_launch_terminal,
+        "packagedApp": packaged_app,
+        "requiresHomebrew": requires_homebrew,
+        "actionLabel": _direwolf_install_action_label(brew_path=brew_path, installed=bool(resolved)),
+        "installHint": install_hint,
     }
+
+
+def _persist_resolved_direwolf_binary(state) -> str | None:
+    resolved = _resolve_direwolf_binary_path(state.aprs_settings.direwolf_binary)
+    if resolved and state.aprs_settings.direwolf_binary != resolved:
+        state.aprs_settings.direwolf_binary = resolved
+        store.save(state)
+    return resolved
+
+
+def _ensure_direwolf_ready_for_aprs(state) -> str:
+    resolved = _persist_resolved_direwolf_binary(state)
+    if resolved:
+        return resolved
+    status = _direwolf_install_status(state)
+    detail = str(status.get("installHint") or "Dire Wolf is not installed or could not be found on this Mac.").strip()
+    raise RuntimeError(detail)
+
+
+def _direwolf_install_terminal_command(*, brew_path: str | None) -> str:
+    bootstrap_brew = not bool(brew_path)
+    parts = [
+        "clear",
+        "echo 'OrbitDeck APRS setup'",
+        "echo",
+    ]
+    if bootstrap_brew:
+        parts.extend(
+            [
+                "echo 'Homebrew was not found. Installing Homebrew first...'",
+                '/bin/bash -c "$(/usr/bin/curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+                "STATUS=$?",
+                'if [ "$STATUS" -ne 0 ]; then',
+                '  echo "Homebrew install failed with status $STATUS."',
+                "  echo",
+                '  echo "Press any key to close this window."',
+                "  read -n 1",
+                "  exit $STATUS",
+                "fi",
+                "echo",
+            ]
+        )
+    parts.extend(
+        [
+            'if [ -x "/opt/homebrew/bin/brew" ]; then BREW="/opt/homebrew/bin/brew"; '
+            'elif [ -x "/usr/local/bin/brew" ]; then BREW="/usr/local/bin/brew"; '
+            'elif command -v brew >/dev/null 2>&1; then BREW="$(command -v brew)"; '
+            'else echo "Homebrew is still unavailable after setup."; echo; echo "Press any key to close this window."; read -n 1; exit 1; fi',
+            'echo "Installing Dire Wolf with $BREW ..."',
+            '"$BREW" install direwolf',
+            "STATUS=$?",
+            "echo",
+            'if [ "$STATUS" -eq 0 ]; then echo "Dire Wolf install finished."; else echo "Dire Wolf install failed with status $STATUS."; fi',
+            "echo",
+            'echo "Press any key to close this window."',
+            "read -n 1",
+            "exit $STATUS",
+        ]
+    )
+    return "; ".join(parts)
+
+
+def _launch_direwolf_install_terminal(*, brew_path: str | None) -> None:
+    osascript_path = shutil.which("osascript")
+    if not osascript_path:
+        raise HTTPException(status_code=400, detail="Terminal-based Dire Wolf install is not available on this system")
+    command = _direwolf_install_terminal_command(brew_path=brew_path)
+    escaped_command = command.replace("\\", "\\\\").replace('"', '\\"')
+    script = (
+        'tell application "Terminal"\n'
+        "activate\n"
+        f'do script "{escaped_command}"\n'
+        "end tell\n"
+    )
+    result = subprocess.run(
+        [osascript_path, "-e", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "Unable to launch Terminal for Dire Wolf install").strip()
+        raise HTTPException(status_code=400, detail=detail)
 
 
 def _aprs_audio_devices() -> dict[str, list[dict[str, object]]]:
@@ -302,7 +445,7 @@ def _pass_sat_ids(settings) -> set[str]:
 
 
 def _is_valid_timezone(tz_name: str) -> bool:
-    if tz_name == "UTC":
+    if tz_name in {"UTC", "BrowserLocal"}:
         return True
     try:
         ZoneInfo(tz_name)
@@ -934,6 +1077,48 @@ def _resolve_default_test_pair_for_radio(payload: RadioControlSessionSelectReque
     return recommendation
 
 
+def _correct_radio_session_test_pair_payload(payload: RadioControlSessionTestPairUpdateRequest) -> RadioControlSessionTestPairUpdateRequest:
+    session = radio_control_service.session_state()
+    sat_id = session.selected_sat_id
+    if not sat_id:
+        return payload
+    _, location = _resolve_location(None)
+    now = datetime.now(UTC)
+    tracks = tracking_service.live_tracks(now, location, sat_ids={sat_id})
+    current_track = tracks[0] if tracks else None
+    if current_track is None:
+        return payload
+
+    def corrected_uplink(freq_hz: int | None) -> int | None:
+        if freq_hz is None:
+            return None
+        mhz = freq_hz / 1_000_000.0
+        corrected = (
+            frequency_guide_service.corrected_uplink_mhz(mhz, current_track.range_rate_km_s, 1000)
+            if mhz >= 400.0
+            else frequency_guide_service.quantize_mhz(mhz, 1000)
+        )
+        return int(round(corrected * 1_000_000)) if corrected is not None else None
+
+    def corrected_downlink(freq_hz: int | None) -> int | None:
+        if freq_hz is None:
+            return None
+        mhz = freq_hz / 1_000_000.0
+        corrected = (
+            frequency_guide_service.corrected_downlink_mhz(mhz, current_track.range_rate_km_s, 5000)
+            if mhz >= 400.0
+            else frequency_guide_service.quantize_mhz(mhz, 5000)
+        )
+        return int(round(corrected * 1_000_000)) if corrected is not None else None
+
+    return payload.model_copy(
+        update={
+            "uplink_hz": corrected_uplink(payload.uplink_hz),
+            "downlink_hz": corrected_downlink(payload.downlink_hz),
+        }
+    )
+
+
 def _same_focus_pass(session, focus_pass) -> bool:
     if session is None or focus_pass is None:
         return False
@@ -1456,30 +1641,36 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+_STATIC_ROOT = static_root()
+
+app.mount("/static", StaticFiles(directory=str(_STATIC_ROOT)), name="static")
+
+
+def _static_file_response(*parts: str) -> FileResponse:
+    return FileResponse(str(static_path(*parts)))
 
 
 @app.get("/")
 def kiosk_index() -> FileResponse:
     if lite_only_ui():
-        return FileResponse("app/static/lite/index.html")
-    return FileResponse("app/static/kiosk/rotator.html")
+        return _static_file_response("lite", "index.html")
+    return _static_file_response("kiosk", "rotator.html")
 
 @app.get("/lite")
 def lite_index() -> FileResponse:
-    return FileResponse("app/static/lite/index.html")
+    return _static_file_response("lite", "index.html")
 
 
 @app.get("/lite/settings")
 def lite_settings_index() -> FileResponse:
-    return FileResponse("app/static/lite/settings.html")
+    return _static_file_response("lite", "settings.html")
 
 
 @app.get("/settings")
 def settings_index() -> FileResponse:
     if lite_only_ui():
-        return FileResponse("app/static/lite/settings.html")
-    return FileResponse("app/static/kiosk/settings.html")
+        return _static_file_response("lite", "settings.html")
+    return _static_file_response("kiosk", "settings.html")
 
 
 @app.get("/settings-v2")
@@ -1489,29 +1680,29 @@ def settings_v2_index() -> Response:
 
 @app.get("/radio")
 def radio_index() -> FileResponse:
-    return FileResponse("app/static/kiosk/radio.html")
+    return _static_file_response("kiosk", "radio.html")
 
 
 @app.get("/aprs")
 def aprs_index() -> FileResponse:
-    return FileResponse("app/static/kiosk/aprs.html")
+    return _static_file_response("kiosk", "aprs.html")
 
 
 @app.get("/internal/radio")
 def internal_radio_index() -> FileResponse:
-    return FileResponse("app/static/kiosk/radio.html")
+    return _static_file_response("kiosk", "radio.html")
 
 
 @app.get("/internal/aprs")
 def internal_aprs_index() -> FileResponse:
-    return FileResponse("app/static/kiosk/aprs.html")
+    return _static_file_response("kiosk", "aprs.html")
 
 
 @app.get("/kiosk-rotator")
 def kiosk_rotator_index() -> FileResponse:
     if lite_only_ui():
-        return FileResponse("app/static/lite/index.html")
-    return FileResponse("app/static/kiosk/rotator.html")
+        return _static_file_response("lite", "index.html")
+    return _static_file_response("kiosk", "rotator.html")
 
 
 @app.get("/health")
@@ -1775,6 +1966,29 @@ def get_location() -> dict:
 
 @app.post("/api/v1/location")
 def post_location(payload: LocationUpdate) -> dict:
+    state = store.get()
+    state.location = location_service.apply_update(state.location, payload)
+    store.save(state)
+    _invalidate_lite_snapshot_cache()
+    _invalidate_pass_cache()
+    resolved = location_service.resolve(state.location)
+    return {"state": state.location, "resolved": resolved.__dict__}
+
+
+@app.post("/api/v1/desktop/native-location")
+def post_desktop_native_location() -> dict:
+    if not packaged_app_runtime():
+        raise HTTPException(status_code=404, detail="Desktop native location is only available in the packaged app runtime.")
+    from app.desktop_main import DesktopApi
+
+    native = DesktopApi().native_location()
+    payload = LocationUpdate(
+        browser_location=GeoPoint(
+            lat=float(native["lat"]),
+            lon=float(native["lon"]),
+            alt_m=float(native.get("alt_m") or 0.0),
+        )
+    )
     state = store.get()
     state.location = location_service.apply_update(state.location, payload)
     store.save(state)
@@ -2076,16 +2290,24 @@ def get_aprs_direwolf_status() -> dict:
 
 @app.post("/api/v1/aprs/direwolf/install")
 def install_aprs_direwolf() -> dict:
-    status = _direwolf_install_status()
+    state = store.get()
+    status = _direwolf_install_status(state)
     if status["installed"]:
-        state = store.get()
-        resolved = str(status["resolvedBinary"] or "").strip()
-        if resolved and state.aprs_settings.direwolf_binary != resolved:
-            state.aprs_settings.direwolf_binary = resolved
-            store.save(state)
+        _persist_resolved_direwolf_binary(state)
         return {"ok": True, "status": _direwolf_install_status()}
     brew_path = status["brewPath"]
+    if status["packagedApp"]:
+        if not status["canLaunchTerminal"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Guided Dire Wolf install is not available on this Mac. Install Homebrew and Dire Wolf manually, then refresh APRS status.",
+            )
+        _launch_direwolf_install_terminal(brew_path=str(brew_path or "").strip() or None)
+        return {"ok": True, "status": _direwolf_install_status(), "launched": True}
     if not brew_path:
+        if status["canLaunchTerminal"]:
+            _launch_direwolf_install_terminal(brew_path=None)
+            return {"ok": True, "status": _direwolf_install_status(), "launched": True}
         raise HTTPException(status_code=400, detail="No supported Dire Wolf installer is available on this system")
     result = subprocess.run(
         [brew_path, "install", "direwolf"],
@@ -2096,11 +2318,7 @@ def install_aprs_direwolf() -> dict:
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "brew install direwolf failed").strip()
         raise HTTPException(status_code=400, detail=detail)
-    state = store.get()
-    resolved = _resolve_direwolf_binary_path(state.aprs_settings.direwolf_binary) or shutil.which("direwolf")
-    if resolved:
-        state.aprs_settings.direwolf_binary = resolved
-        store.save(state)
+    _persist_resolved_direwolf_binary(state)
     return {"ok": True, "status": _direwolf_install_status(), "stdout": (result.stdout or "").strip()}
 
 
@@ -2109,32 +2327,9 @@ def launch_aprs_direwolf_install_terminal() -> dict:
     status = _direwolf_install_status()
     if status["installed"]:
         return {"ok": True, "status": status, "launched": False}
-    brew_path = status["brewPath"]
-    osascript_path = shutil.which("osascript")
-    if not brew_path or not osascript_path:
+    if not status["canLaunchTerminal"]:
         raise HTTPException(status_code=400, detail="Terminal-based Dire Wolf install is not available on this system")
-    command = (
-        f"{brew_path} install direwolf; "
-        "echo; "
-        "echo 'Dire Wolf install finished. Press any key to close this window.'; "
-        "read -n 1"
-    )
-    escaped_command = command.replace("\\", "\\\\").replace('"', '\\"')
-    script = (
-        'tell application "Terminal"\n'
-        "activate\n"
-        f'do script "{escaped_command}"\n'
-        "end tell\n"
-    )
-    result = subprocess.run(
-        [osascript_path, "-e", script],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "Unable to launch Terminal for Dire Wolf install").strip()
-        raise HTTPException(status_code=400, detail=detail)
+    _launch_direwolf_install_terminal(brew_path=str(status["brewPath"] or "").strip() or None)
     return {"ok": True, "status": _direwolf_install_status(), "launched": True}
 
 
@@ -2207,6 +2402,9 @@ def connect_aprs() -> dict:
         effective_settings = _effective_aprs_settings_for_connect(state)
         _ensure_wifi_host_reachable(state.radio_settings)
         _validate_aprs_gateway_settings(effective_settings)
+        resolved_direwolf = _ensure_direwolf_ready_for_aprs(state)
+        effective_settings.direwolf_binary = resolved_direwolf
+        state.aprs_settings.direwolf_binary = resolved_direwolf
         target = _resolve_aprs_target(effective_settings, location)
         if target.region_label is not None:
             state.aprs_settings.terrestrial_region_label = target.region_label
@@ -2215,6 +2413,7 @@ def connect_aprs() -> dict:
         state.aprs_settings.serial_device = effective_settings.serial_device
         state.aprs_settings.baud_rate = effective_settings.baud_rate
         state.aprs_settings.civ_address = effective_settings.civ_address
+        store.save(state)
         radio_control_service.disconnect()
         runtime = aprs_service.connect(
             effective_settings,
@@ -2222,7 +2421,6 @@ def connect_aprs() -> dict:
             radio_settings=state.radio_settings,
             retune_resolver=(lambda: _resolve_aprs_target(_effective_aprs_settings_for_connect(store.get()), _resolve_location()[1])),
         )
-        store.save(state)
     except (RuntimeError, ValueError, TimeoutError, OSError, subprocess.SubprocessError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     _invalidate_lite_snapshot_cache()
@@ -2363,7 +2561,8 @@ def update_radio_session_test_pair(payload: RadioControlSessionTestPairUpdateReq
     _ensure_station_identity_ready()
     state = store.get()
     try:
-        session = radio_control_service.set_session_test_pair(payload, state.radio_settings)
+        corrected_payload = _correct_radio_session_test_pair_payload(payload)
+        session = radio_control_service.set_session_test_pair(corrected_payload, state.radio_settings)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"session": session, "runtime": radio_control_service.runtime()}

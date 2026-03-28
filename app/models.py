@@ -276,7 +276,7 @@ class AppSettings(BaseModel):
         ]
     )
     force_stream_unhealthy: bool = False
-    display_timezone: str = "UTC"
+    display_timezone: str = "BrowserLocal"
     pass_profile: PassProfileMode = PassProfileMode.iss_only
     pass_sat_ids: list[str] = Field(default_factory=lambda: ["iss-zarya"])
     developer_overrides: DeveloperOverridesSettings = Field(default_factory=DeveloperOverridesSettings)
