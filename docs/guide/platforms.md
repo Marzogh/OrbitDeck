@@ -5,14 +5,16 @@
 macOS is a supported OrbitDeck runtime for:
 
 - local development
-- browser-launched windowed use
+- browser-launched source runs
+- packaged native-app use from the DMG release
 - API inspection through FastAPI docs
 - local test execution
 
 What has been exercised on macOS:
 
 - FastAPI startup
-- launcher-driven browser opening
+- launcher-driven browser opening for source runs
+- packaged native-window launch from `OrbitDeck.app`
 - the kiosk, rotator, lite, and settings routes
 - the local pytest workflow
 

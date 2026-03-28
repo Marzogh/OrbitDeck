@@ -51,7 +51,7 @@ This route serves the lite-specific configuration surface. It exposes:
 
 ## `/settings`
 
-On standard hardware this route serves the `settings-v2` surface. That UI exposes:
+On standard hardware this route serves the combined settings console. That UI exposes:
 
 - overview and runtime status
 - radio configuration

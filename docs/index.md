@@ -24,7 +24,7 @@ This documentation set covers:
 - `/lite` opens the phone-friendly and low-power screen.
 - `/lite/settings` opens the lite setup and configuration screen.
 - `/aprs` opens the APRS console and test surface.
-- `/settings` opens settings-v2 on standard hardware and lite settings on Pi Zero-class hardware.
+- `/settings` opens the combined settings console on standard hardware and lite settings on Pi Zero-class hardware.
 - Pi Zero-class hardware is switched into lite-oriented routing automatically.
 
 ## Project Links

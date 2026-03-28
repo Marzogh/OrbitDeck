@@ -19,6 +19,8 @@ OrbitDeck now has two release artifact targets:
 
 The GitHub release workflow builds these artifacts from version tags such as `v0.1.0`.
 
+At the moment, the Raspberry Pi `.deb` is distributed through GitHub Releases only. OrbitDeck is not yet published through a Raspberry Pi `apt` repository.
+
 ## 3) Clone and install from source
 
 ```bash
@@ -89,7 +91,7 @@ source .venv/bin/activate
 python3 scripts/run_tracker.py --mode windowed --ui kiosk --host 127.0.0.1 --port 8000
 ```
 
-That starts the FastAPI service and opens the browser window for you. From there, `/` is the main rotator landing view, `/lite` is the mobile-first lite surface, `/lite/settings` is the lite setup page, `/aprs` is the APRS console, `/radio` is the direct rig-validation screen, `/kiosk-rotator` is the pass-driven rotator surface, `/settings` is the combined settings console, and `/docs` is the live Swagger schema.
+That starts the FastAPI service and lets the launcher open the default browser for you. From there, `/` is the main rotator landing view, `/lite` is the mobile-first lite surface, `/lite/settings` is the lite setup page, `/aprs` is the APRS console, `/radio` is the direct rig-validation screen, `/kiosk-rotator` is the pass-driven rotator surface, `/settings` is the combined settings console, and `/docs` is the live Swagger schema.
 
 If you want to start directly into lite for a quick check, use:
 
@@ -108,7 +110,21 @@ The tested macOS flow covers FastAPI startup, launcher-driven browser opening, t
 
 ## 6) Install the Raspberry Pi package
 
-Install the Debian package from GitHub Releases on a Raspberry Pi OS `arm64` system:
+Install the built Debian package from GitHub Releases on a Raspberry Pi OS `arm64` system. OrbitDeck does not yet publish this package through a Raspberry Pi `apt` repository, so download the `.deb` asset first and then install the local file.
+
+Build and install use different Debian tools:
+
+- building the `.deb` uses `dpkg-deb` inside `scripts/build_deb.sh`, so that step needs Debian/Ubuntu tooling or GitHub Actions
+- installing an already-built `.deb` on the Pi can use `dpkg`, but `apt` is the smoother operator path because it resolves dependencies in one step
+
+Preferred install flow on the Pi:
+
+```bash
+sudo apt install ./orbitdeck_<version>_arm64.deb
+sudo systemctl status orbitdeck.service
+```
+
+Equivalent lower-level install flow if you want to use `dpkg` directly:
 
 ```bash
 sudo dpkg -i orbitdeck_<version>_arm64.deb
@@ -146,7 +162,7 @@ Package behavior notes:
 Upgrade and removal:
 
 ```bash
-sudo dpkg -i orbitdeck_<new-version>_arm64.deb
+sudo apt install ./orbitdeck_<new-version>_arm64.deb
 sudo dpkg -r orbitdeck
 ```
 

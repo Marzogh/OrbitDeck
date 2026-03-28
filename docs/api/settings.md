@@ -72,7 +72,7 @@ Interpretation:
 
 ### APRS settings
 
-APRS settings define the station identity, transport parameters, target selection, logging behavior, and gateway policy used by the APRS console and the APRS section in `settings-v2`.
+APRS settings define the station identity, transport parameters, target selection, logging behavior, and gateway policy used by the APRS console and the APRS section in the combined `/settings` console.
 
 Persisted fields:
 
