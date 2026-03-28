@@ -27,9 +27,11 @@ python3 -m pip download \
 
 cp -R app "$PKG_ROOT/opt/orbitdeck/"
 cp -R data "$PKG_ROOT/opt/orbitdeck/"
-cp -R references "$PKG_ROOT/opt/orbitdeck/"
 cp -R scripts "$PKG_ROOT/opt/orbitdeck/"
 cp requirements.txt README.md "$PKG_ROOT/opt/orbitdeck/"
+mkdir -p "$PKG_ROOT/opt/orbitdeck/references/icom-lan"
+cp references/icom-lan/LICENSE "$PKG_ROOT/opt/orbitdeck/references/icom-lan/LICENSE"
+cp -R references/icom-lan/src "$PKG_ROOT/opt/orbitdeck/references/icom-lan/"
 cp -R packaging/debian/DEBIAN "$PKG_ROOT/"
 mkdir -p "$PKG_ROOT/usr/lib/systemd/system" "$PKG_ROOT/etc/xdg/autostart"
 cp packaging/debian/usr/lib/systemd/system/orbitdeck.service "$PKG_ROOT/usr/lib/systemd/system/orbitdeck.service"

@@ -5,7 +5,12 @@ __pycache__/
 .pytest_cache/
 site/
 articles/
-references/
+references/*
+!references/icom-lan/
+references/icom-lan/*
+!references/icom-lan/LICENSE
+!references/icom-lan/src/
+!references/icom-lan/src/**
 data/state.json
 data/snapshots/*.json
 docs/*proposal*.md

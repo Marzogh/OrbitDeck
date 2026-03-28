@@ -1,0 +1,195 @@
+"""icom-lan: Python library for controlling Icom transceivers over LAN."""
+
+__version__ = "0.13.0"
+
+from .auth import (
+    AuthResponse,
+    StatusResponse,
+    build_conninfo_packet,
+    build_login_packet,
+    encode_credentials,
+    parse_auth_response,
+    parse_status_response,
+)
+from .exceptions import (
+    AudioCodecBackendError,
+    AudioError,
+    AudioFormatError,
+    AudioTranscodeError,
+    AuthenticationError,
+    CommandError,
+    ConnectionError,
+    IcomLanError,
+    TimeoutError,
+)
+from .protocol import identify_packet_type, parse_header, serialize_header
+from .audio import (
+    AUDIO_HEADER_SIZE,
+    AudioPacket,
+    AudioState,
+    AudioStats,
+    AudioStream,
+    JitterBuffer,
+)
+from .transport import ConnectionState, IcomTransport
+from ._connection_state import RadioConnectionState
+from .commander import IcomCommander, Priority
+from .radio import AudioRecoveryState, IcomRadio  # noqa: TID251
+from .radio_protocol import (
+    AdvancedControlCapable,
+    AudioCapable,
+    CivCommandCapable,
+    DualReceiverCapable,
+    LevelsCapable,
+    MetersCapable,
+    ModeInfoCapable,
+    PowerControlCapable,
+    Radio,
+    RecoverableConnection,
+    ScopeCapable,
+    StateCacheCapable,
+    StateNotifyCapable,
+)
+from .radio_state import RadioState
+from .profiles import RadioProfile, get_radio_profile, resolve_radio_profile
+from .radios import RADIOS, RadioModel, get_civ_addr
+from .backends import BackendConfig, LanBackendConfig, SerialBackendConfig, create_radio
+from .commands import (
+    CONTROLLER_ADDR,
+    IC_7610_ADDR,
+    RECEIVER_MAIN,
+    RECEIVER_SUB,
+    build_civ_frame,
+    build_cmd29_frame,
+    get_alc,
+    get_attenuator,
+    get_frequency,
+    get_mode,
+    get_power,
+    get_preamp,
+    get_s_meter,
+    get_swr,
+    parse_ack_nak,
+    parse_civ_frame,
+    parse_frequency_response,
+    parse_meter_response,
+    parse_mode_response,
+    ptt_off,
+    ptt_on,
+    get_scope_center_type,
+    get_scope_during_tx,
+    get_scope_edge,
+    get_scope_fixed_edge,
+    get_scope_hold,
+    get_scope_main_sub,
+    get_scope_mode,
+    get_scope_rbw,
+    get_scope_ref,
+    get_scope_single_dual,
+    get_scope_span,
+    get_scope_speed,
+    get_scope_vbw,
+    scope_data_output_off,
+    scope_data_output_on,
+    scope_main_sub,
+    scope_off,
+    scope_on,
+    scope_set_center_type,
+    scope_set_during_tx,
+    scope_set_edge,
+    scope_set_fixed_edge,
+    scope_set_hold,
+    scope_set_mode,
+    scope_set_rbw,
+    scope_set_ref,
+    scope_set_span,
+    scope_set_speed,
+    scope_set_vbw,
+    scope_single_dual,
+    set_attenuator,
+    set_attenuator_level,
+    set_frequency,
+    set_mode,
+    set_power,
+    get_af_level,
+    get_rf_gain,
+    set_af_level,
+    set_rf_gain,
+    set_preamp,
+)
+from .scope import ScopeAssembler, ScopeFrame
+
+# scope_render is an optional dep (Pillow); import lazily to avoid hard crash
+try:
+    from .scope_render import (  # noqa: F401
+        THEMES as SCOPE_THEMES,
+        amplitude_to_color,
+        render_scope_image,
+        render_spectrum,
+        render_waterfall,
+    )
+
+    _SCOPE_RENDER_AVAILABLE = True
+except ImportError:
+    _SCOPE_RENDER_AVAILABLE = False
+from .types import (
+    HEADER_SIZE,
+    AudioCapabilities,
+    AudioCodec,
+    CivFrame,
+    Mode,
+    PacketHeader,
+    PacketType,
+    ScopeCompletionPolicy,
+    ScopeFixedEdge,
+    bcd_decode,
+    bcd_encode,
+    get_audio_capabilities,
+)
+
+# Public API surface. See docs/api/public-api-surface.md.
+# All other symbols remain importable by name but are not part of the supported API.
+__all__ = [
+    "__version__",
+    # --- Core ---
+    "create_radio",
+    "Radio",
+    "IcomRadio",
+    "LanBackendConfig",
+    "SerialBackendConfig",
+    "BackendConfig",
+    "RadioState",
+    "RadioProfile",
+    "get_radio_profile",
+    "resolve_radio_profile",
+    "RADIOS",
+    "RadioModel",
+    "get_civ_addr",
+    # --- Capability protocols ---
+    "AudioCapable",
+    "ScopeCapable",
+    "DualReceiverCapable",
+    "LevelsCapable",
+    "MetersCapable",
+    "PowerControlCapable",
+    "StateNotifyCapable",
+    "CivCommandCapable",
+    "ModeInfoCapable",
+    "RecoverableConnection",
+    "AdvancedControlCapable",
+    "StateCacheCapable",
+    # --- Exceptions ---
+    "IcomLanError",
+    "ConnectionError",
+    "AuthenticationError",
+    "CommandError",
+    "TimeoutError",
+    "AudioError",
+    "AudioCodecBackendError",
+    "AudioFormatError",
+    "AudioTranscodeError",
+    # --- Types/Enums ---
+    "AudioRecoveryState",
+    "RadioConnectionState",
+    "Mode",
+]

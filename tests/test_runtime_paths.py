@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
+import pathlib
+import sys
 
+import pytest
 from app import runtime_paths
 from app import services
 
@@ -48,3 +52,35 @@ def test_frequency_guide_service_seeds_packaged_data_from_bundle(tmp_path, monke
     assert expected.exists()
     assert expected.read_text(encoding="utf-8") == seeded.read_text(encoding="utf-8")
     assert svc.profile_for_satellite("iss-zarya") is not None
+
+
+def test_icom_lan_adapter_soft_fails_when_vendor_tree_is_missing(monkeypatch):
+    adapter_path = Path(__file__).resolve().parents[1] / "app" / "radio" / "icom_lan_adapter.py"
+    original_is_dir = pathlib.Path.is_dir
+    original_import = __import__
+
+    def fake_is_dir(self):
+        path_text = str(self).replace("\\", "/")
+        if path_text.endswith("references/icom-lan/src"):
+            return False
+        return original_is_dir(self)
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "icom_lan":
+            raise ModuleNotFoundError("icom_lan unavailable in test")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(pathlib.Path, "is_dir", fake_is_dir)
+    monkeypatch.setattr("builtins.__import__", fake_import)
+    monkeypatch.setattr(sys, "_MEIPASS", None, raising=False)
+
+    spec = importlib.util.spec_from_file_location("test_missing_icom_lan_adapter", adapter_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+
+    with pytest.raises(RuntimeError, match="icom-lan support is not available"):
+        _ = module.AudioCodec.PCM_1CH_16BIT
+
+    with pytest.raises(RuntimeError, match="icom-lan support is not available"):
+        module.IcomRadio("host", 50001, "user", "password")
