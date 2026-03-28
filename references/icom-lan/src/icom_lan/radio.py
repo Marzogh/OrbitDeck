@@ -1555,6 +1555,7 @@ class Icom7610CoreRadio:
             await self._audio_transport.connect(
                 self._host,
                 self._audio_port,
+                local_host=getattr(self, "_local_bind_host", None),
                 local_port=getattr(self, "_audio_local_port", 0),
             )
         except OSError as exc:

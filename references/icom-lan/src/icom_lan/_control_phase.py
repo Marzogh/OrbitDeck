@@ -55,6 +55,25 @@ class ControlPhaseRuntime:
     def __init__(self, host: ControlPhaseHost) -> None:
         self._host = host
 
+    def _resolve_local_bind_host(self) -> str:
+        """Resolve the routed local interface IP used to reach the radio."""
+        h = self._host
+        probe = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        try:
+            probe.connect((h._host, h._port))
+            local_host = probe.getsockname()[0]
+        except OSError:
+            logger.debug(
+                "Falling back to wildcard UDP bind while resolving local interface for %s:%d",
+                h._host,
+                h._port,
+                exc_info=True,
+            )
+            return "0.0.0.0"
+        finally:
+            probe.close()
+        return local_host or "0.0.0.0"
+
     async def connect(self) -> None:
         """Open connection to the radio and authenticate."""
         h = self._host
@@ -108,16 +127,20 @@ class ControlPhaseRuntime:
 
         guid = await self._receive_guid()
 
+        local_bind_host = self._resolve_local_bind_host()
+        h._local_bind_host = local_bind_host
+
         _civ_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
-        _civ_sock.bind(("", 0))
+        _civ_sock.bind((local_bind_host, 0))
         _civ_local_port = _civ_sock.getsockname()[1]
         _civ_sock.close()
         _audio_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
-        _audio_sock.bind(("", 0))
+        _audio_sock.bind((local_bind_host, 0))
         _audio_local_port = _audio_sock.getsockname()[1]
         _audio_sock.close()
         logger.debug(
-            "Reserved local ports: civ=%d, audio=%d",
+            "Reserved local ports on %s: civ=%d, audio=%d",
+            local_bind_host,
             _civ_local_port,
             _audio_local_port,
         )
@@ -178,6 +201,7 @@ class ControlPhaseRuntime:
             await h._civ_transport.connect(
                 h._host,
                 h._civ_port,
+                local_host=getattr(h, "_local_bind_host", None),
                 local_port=h._civ_local_port,
             )
         except OSError as exc:
@@ -299,6 +323,7 @@ class ControlPhaseRuntime:
             await h._civ_transport.connect(
                 h._host,
                 h._civ_port,
+                local_host=getattr(h, "_local_bind_host", None),
                 local_port=getattr(h, "_civ_local_port", 0),
             )
         except OSError as exc:
@@ -588,4 +613,3 @@ class ControlPhaseRuntime:
         if h._reconnect_task is not None and not h._reconnect_task.done():
             h._reconnect_task.cancel()
             h._reconnect_task = None
-
