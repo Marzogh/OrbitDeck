@@ -1,6 +1,6 @@
 site_name: OrbitDeck
 site_description: Cross-platform amateur satellite operations dashboard documentation
-site_url: https://marzogh.github.io/OrbitDeck/
+site_url: https://chipsncode.com/OrbitDeck/
 repo_url: https://github.com/Marzogh/OrbitDeck
 repo_name: Marzogh/OrbitDeck
 edit_uri: edit/main/docs/
@@ -56,6 +56,9 @@ markdown_extensions:
   - tables
   - fenced_code
   - attr_list
+
+extra_css:
+  - stylesheets/docs-home.css
 
 extra:
   social:
