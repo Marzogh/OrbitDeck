@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0b0e11" />
     <title>OrbitDeck Operator Workspace</title>
-    <link rel="stylesheet" href="/static/next/next.css?v=20260915a" />
+    <link rel="stylesheet" href="/static/next/next.css?v=20260915b" />
     <script defer src="/static/common/hemisphere-land.js"></script>
-    <script defer src="/static/next/next.js?v=20260915a"></script>
+    <script defer src="/static/next/next.js?v=20260915b"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -20,7 +20,7 @@
           <button type="button" data-view="operate" aria-current="page">Operate</button>
           <button type="button" data-view="passes">Passes</button>
           <button type="button" data-view="activity">Activity</button>
-          <a href="/settings">Settings</a>
+          <button type="button" data-view="settings">Settings</button>
         </nav>
         <div class="clock"><strong id="localClock">--:--:--</strong><span id="clockZone">Local</span></div>
       </header>
@@ -180,12 +180,57 @@
           <div class="page-heading"><div><span class="eyebrow">Station activity</span><h1>APRS and session state</h1></div><a href="/aprs">Open full APRS console</a></div>
           <div id="activityContent" class="activity-grid"></div>
         </section>
+
+        <section id="settingsView" class="page-view hidden" data-panel="settings">
+          <div class="page-heading"><div><span class="eyebrow">Station</span><h1>Setup and health</h1></div><a href="/settings">Open full settings</a></div>
+          <div class="settings-grid">
+            <form id="stationIdentityForm" class="settings-card">
+              <div class="section-heading"><h2>Station identity</h2><span id="identityHealth">Required for control</span></div>
+              <p>Your amateur-radio callsign is used by radio-control policy and APRS packets.</p>
+              <div class="compact-fields"><label><span>Callsign</span><input id="stationCallsign" maxlength="10" autocomplete="off" /></label><label><span>APRS SSID</span><input id="stationSsid" type="number" min="0" max="15" /></label></div>
+              <button class="button" type="submit">Save identity</button>
+            </form>
+
+            <form id="stationLocationForm" class="settings-card">
+              <div class="section-heading"><h2>Station location</h2><span id="locationHealth">Pass timing source</span></div>
+              <p>Location drives pass predictions, pointing, Doppler, and APRS pass gating.</p>
+              <div class="compact-fields"><label><span>Source</span><select id="stationLocationMode"><option value="auto">Automatic</option><option value="browser">This device</option><option value="gps">GPS receiver</option><option value="manual">Saved coordinates</option></select></label><label data-manual-location><span>Saved location</span><select id="stationLocationProfile"></select></label></div>
+              <div class="compact-fields" data-manual-location><label><span>Name</span><input id="stationLocationName" maxlength="40" placeholder="Home station" /></label><label><span>Altitude (m)</span><input id="stationAltitude" type="number" step="1" /></label><label><span>Latitude</span><input id="stationLatitude" type="number" min="-90" max="90" step="0.000001" /></label><label><span>Longitude</span><input id="stationLongitude" type="number" min="-180" max="180" step="0.000001" /></label></div>
+              <div class="settings-actions"><button id="useDeviceLocation" class="button" type="button">Use this device</button><button class="button" type="submit">Save location</button></div>
+            </form>
+
+            <form id="stationTimeForm" class="settings-card">
+              <div class="section-heading"><h2>Clock</h2><span>Display timezone</span></div>
+              <p>Pass data remains absolute. This controls how OrbitDeck presents local times.</p>
+              <label class="single-field"><span>Timezone</span><select id="stationTimezone"></select></label>
+              <button class="button" type="submit">Save timezone</button>
+            </form>
+
+            <section class="settings-card health-card">
+              <div class="section-heading"><h2>Station health</h2><span id="overallHealth">Loading</span></div>
+              <div id="stationHealthList" class="health-list"></div>
+            </section>
+
+            <section class="settings-card data-card">
+              <div class="section-heading"><h2>Orbit data</h2><span>Read-only summary</span></div>
+              <div id="dataHealthList" class="health-list"></div>
+              <p>Dataset refresh stays policy-controlled to protect upstream services and rate limits.</p>
+            </section>
+
+            <section class="settings-card specialist-card">
+              <div class="section-heading"><h2>Specialist configuration</h2><span>When needed</span></div>
+              <p>The operational shell covers normal pass work. Detailed device, gateway, display, and developer options remain available without crowding it.</p>
+              <div class="context-actions"><button class="button" type="button" data-open-radio>Configure radio connection</button><a class="button" href="/aprs">Full APRS console</a><a class="button" href="/settings">All settings and diagnostics</a></div>
+            </section>
+          </div>
+        </section>
       </main>
 
       <nav class="mobile-nav" aria-label="Mobile navigation">
         <button type="button" data-view="operate" aria-current="page">Now</button>
         <button type="button" data-view="passes">Passes</button>
         <button type="button" data-view="activity">Activity</button>
+        <button type="button" data-view="settings">Station</button>
       </nav>
 
       <dialog id="radioSetupDialog" class="setup-dialog" aria-labelledby="radioSetupTitle">

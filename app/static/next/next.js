@@ -8,6 +8,7 @@ const state = {
   aprsTargets: null,
   aprsLog: [],
   aprsDrafts: { to: "", message: "", status: "", position: "" },
+  stationSettings: null,
   plannerView: "timeline",
   plannerSettings: null,
   availableSatellites: [],
@@ -704,11 +705,101 @@ function renderActivity() {
     <div class="activity-card wide activity-packets"><div class="section-heading"><h2>Recent APRS traffic</h2><a href="/aprs">Full console</a></div>${packets.length ? packets.map((packet) => `<div class="activity-packet"><strong>${escapeHtml(packet.source || "Unknown")}</strong><span>${escapeHtml(labelize(packet.packet_type))} · ${activityTime(packet.received_at)}</span><p>${escapeHtml(packet.text || packet.raw_tnc2 || "Packet received")}</p></div>`).join("") : '<p>No stored packet activity.</p>'}</div>`;
 }
 
+function healthRow(label, ok, detail) {
+  return `<div class="health-row ${ok ? "ready" : "attention"}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(detail)}</strong></div>`;
+}
+
+function syncLocationFields() {
+  const mode = byId("stationLocationMode").value;
+  document.querySelectorAll("[data-manual-location]").forEach((field) => field.classList.toggle("hidden", mode !== "manual"));
+}
+
+function fillLocationProfile() {
+  const location = state.stationSettings?.location;
+  if (!location) return;
+  const id = byId("stationLocationProfile").value;
+  const profile = (location.state?.profiles || []).find((item) => item.id === id);
+  const point = profile?.point || location.resolved || {};
+  byId("stationLocationName").value = profile?.name || "";
+  byId("stationLatitude").value = finite(point.lat) ? Number(point.lat).toFixed(6) : "";
+  byId("stationLongitude").value = finite(point.lon) ? Number(point.lon).toFixed(6) : "";
+  byId("stationAltitude").value = finite(point.alt_m) ? Number(point.alt_m).toFixed(0) : 0;
+}
+
+function renderSettings() {
+  const view = byId("settingsView");
+  const editing = view.contains(document.activeElement) && document.activeElement.matches("input, select");
+  if (editing || !state.stationSettings) return;
+  const system = state.system || {};
+  const identity = system.stationIdentity || {};
+  const aprsSettings = state.aprs?.settings || system.aprsSettings || {};
+  const location = state.stationSettings.location;
+  const locationState = location.state || {};
+  const profiles = locationState.profiles || [];
+  byId("stationCallsign").value = aprsSettings.callsign || "";
+  byId("stationSsid").value = Number(aprsSettings.ssid ?? 0);
+  byId("identityHealth").textContent = identity.configured ? identity.callsign : "Not configured";
+  byId("stationLocationMode").value = locationState.source_mode || "auto";
+  const selectedProfile = locationState.selected_profile_id || profiles[0]?.id || "__new";
+  byId("stationLocationProfile").innerHTML = profiles.map((profile) => `<option value="${escapeHtml(profile.id)}"${profile.id === selectedProfile ? " selected" : ""}>${escapeHtml(profile.name)}</option>`).join("") + `<option value="__new"${selectedProfile === "__new" ? " selected" : ""}>Add new location…</option>`;
+  byId("locationHealth").textContent = `${labelize(location.resolved?.source)} · ${number(location.resolved?.lat, 3)}, ${number(location.resolved?.lon, 3)}`;
+  syncLocationFields();
+  fillLocationProfile();
+  const timezone = state.stationSettings.timezone?.timezone || "BrowserLocal";
+  const timezones = ["BrowserLocal", ...new Set(state.stationSettings.timezones?.timezones || [])];
+  byId("stationTimezone").innerHTML = timezones.map((item) => `<option value="${escapeHtml(item)}"${item === timezone ? " selected" : ""}>${escapeHtml(item === "BrowserLocal" ? "This device timezone" : item)}</option>`).join("");
+
+  const stamp = asDate(system.timestamp);
+  const dataAge = stamp ? Date.now() - stamp.getTime() : Infinity;
+  const network = system.network || {};
+  const radio = system.radioRuntime || {};
+  const aprs = state.aprs?.runtime || system.aprsRuntime || {};
+  const locationOk = finite(location.resolved?.lat) && finite(location.resolved?.lon) && !(Number(location.resolved.lat) === 0 && Number(location.resolved.lon) === 0 && location.resolved.source === "default");
+  const health = [
+    ["Station identity", !!identity.configured, identity.callsign || identity.reason || "Required"],
+    ["Location", locationOk, locationOk ? `${number(location.resolved.lat, 3)}, ${number(location.resolved.lon, 3)}` : "No resolved station location"],
+    ["Live state", dataAge < 60000, dataAge < Infinity ? `${duration(dataAge)} old` : "Unavailable"],
+    ["Internet", !!network.internet_available, network.internet_available ? "Available" : "Offline or unchecked"],
+    ["Radio", !radio.last_error, radio.last_error || (radio.connected ? `${rigLabel(radio.rig_model)} connected` : "Configured, disconnected")],
+    ["APRS", !aprs.last_error, aprs.last_error || (aprs.connected ? "Connected" : "Configured, disconnected")],
+  ];
+  byId("stationHealthList").innerHTML = health.map((item) => healthRow(...item)).join("");
+  const issueCount = health.filter((item) => !item[1]).length;
+  byId("overallHealth").textContent = issueCount ? `${issueCount} need attention` : "Ready";
+  byId("overallHealth").className = issueCount ? "attention-text" : "ready-text";
+
+  const cache = state.stationSettings.cache || {};
+  const latest = cache.snapshots?.[0];
+  byId("dataHealthList").innerHTML = [
+    healthRow("Last external refresh", !!latest, latest ? `${labelize(latest.source)} · ${activityTime(latest.created_at)}` : "No refresh recorded"),
+    healthRow("Refresh snapshot", !!latest?.satellite_count, latest ? `${latest.satellite_count} satellites` : "Not recorded"),
+    healthRow("Stale threshold", true, `${cache.state?.stale_after_hours ?? 24} hours`),
+    healthRow("Retention", true, `${cache.state?.retention_days ?? 30} days · ${cache.state?.max_storage_mb ?? 512} MB`),
+  ].join("");
+}
+
+async function loadStationSettings(force = false) {
+  if (state.stationSettings && !force) { renderSettings(); return; }
+  try {
+    const [location, cache, timezone, timezones] = await Promise.all([
+      api("/api/v1/location"),
+      api("/api/v1/cache-policy"),
+      api("/api/v1/settings/timezone"),
+      api("/api/v1/settings/timezones"),
+    ]);
+    state.stationSettings = { location, cache, timezone, timezones };
+    renderSettings();
+  } catch (error) {
+    showNotice(`Unable to load station settings: ${error instanceof Error ? error.message : String(error)}`, true);
+  }
+}
+
 function render() {
   renderStationBar();
   renderOperate();
   renderPasses();
   renderActivity();
+  renderSettings();
   renderPlannerSettings();
   if (state.plannerView === "map") renderWorldMap();
 }
@@ -887,6 +978,86 @@ async function sendAprsPacket(kind) {
   }
 }
 
+async function saveStationIdentity(event) {
+  event.preventDefault();
+  const callsign = byId("stationCallsign").value.trim().toUpperCase();
+  const ssid = Number(byId("stationSsid").value);
+  if (!callsign || !Number.isInteger(ssid) || ssid < 0 || ssid > 15) {
+    showNotice("Enter a callsign and an APRS SSID from 0 to 15.", true);
+    return;
+  }
+  try {
+    await post("/api/v1/settings/aprs", { callsign, ssid });
+    showNotice("Station identity saved on OrbitDeck.");
+    await refreshData(false);
+  } catch (error) {
+    showNotice(error instanceof Error ? error.message : String(error), true);
+  }
+}
+
+async function saveStationLocation(event) {
+  event.preventDefault();
+  const mode = byId("stationLocationMode").value;
+  const payload = { source_mode: mode };
+  if (mode === "manual") {
+    const lat = Number(byId("stationLatitude").value);
+    const lon = Number(byId("stationLongitude").value);
+    const alt = Number(byId("stationAltitude").value || 0);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+      showNotice("Enter valid latitude and longitude values.", true);
+      return;
+    }
+    const selected = byId("stationLocationProfile").value;
+    const id = selected && selected !== "__new" ? selected : `station-${Date.now()}`;
+    const name = byId("stationLocationName").value.trim() || "Station location";
+    payload.selected_profile_id = id;
+    payload.add_profile = { id, name, point: { lat, lon, alt_m: alt } };
+  }
+  try {
+    await post("/api/v1/location", payload);
+    showNotice("Station location source saved.");
+    await loadStationSettings(true);
+    await refreshData(false);
+  } catch (error) {
+    showNotice(error instanceof Error ? error.message : String(error), true);
+  }
+}
+
+async function useDeviceLocation() {
+  if (!navigator.geolocation) {
+    showNotice("This browser does not provide device location.", true);
+    return;
+  }
+  byId("useDeviceLocation").disabled = true;
+  navigator.geolocation.getCurrentPosition(async (position) => {
+    try {
+      await post("/api/v1/location", { source_mode: "browser", browser_location: { lat: position.coords.latitude, lon: position.coords.longitude, alt_m: position.coords.altitude || 0 } });
+      showNotice("Station location updated from this device.");
+      await loadStationSettings(true);
+      await refreshData(false);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : String(error), true);
+    } finally {
+      byId("useDeviceLocation").disabled = false;
+    }
+  }, (error) => {
+    byId("useDeviceLocation").disabled = false;
+    showNotice(error.message || "Device location was unavailable.", true);
+  }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+}
+
+async function saveStationTimezone(event) {
+  event.preventDefault();
+  try {
+    const payload = await post("/api/v1/settings/timezone", { timezone: byId("stationTimezone").value });
+    state.stationSettings.timezone = payload;
+    showNotice("Display timezone saved.");
+    renderSettings();
+  } catch (error) {
+    showNotice(error instanceof Error ? error.message : String(error), true);
+  }
+}
+
 function radioTransportVisibility() {
   const wifi = byId("radioTransport").value === "wifi";
   document.querySelectorAll("[data-radio-wifi]").forEach((field) => field.classList.toggle("hidden", !wifi));
@@ -996,7 +1167,10 @@ async function refreshData(showErrors = true) {
 
 document.addEventListener("click", async (event) => {
   const view = event.target.closest("[data-view]");
-  if (view) switchView(view.dataset.view);
+  if (view) {
+    switchView(view.dataset.view);
+    if (view.dataset.view === "settings") await loadStationSettings();
+  }
 
   const plannerView = event.target.closest("[data-planner-view]");
   if (plannerView) await switchPlannerView(plannerView.dataset.plannerView);
@@ -1166,6 +1340,12 @@ byId("channelPairSelect").addEventListener("change", (event) => {
   if (pass) state.channelSelection[pass.sat_id] = event.target.value;
 });
 byId("radioSetupForm").addEventListener("submit", saveRadioProfile);
+byId("stationIdentityForm").addEventListener("submit", saveStationIdentity);
+byId("stationLocationForm").addEventListener("submit", saveStationLocation);
+byId("stationTimeForm").addEventListener("submit", saveStationTimezone);
+byId("useDeviceLocation").addEventListener("click", useDeviceLocation);
+byId("stationLocationMode").addEventListener("change", syncLocationFields);
+byId("stationLocationProfile").addEventListener("change", fillLocationProfile);
 byId("radioTransport").addEventListener("change", radioTransportVisibility);
 byId("radioRig").addEventListener("change", () => {
   if (byId("radioRig").value === "id5100" && byId("radioTransport").value === "wifi") byId("radioTransport").value = "usb";

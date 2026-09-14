@@ -73,6 +73,11 @@ def test_next_route_serves_operator_workspace(tmp_path):
     assert 'id="radioSetupDialog"' in resp.text
     assert "Save and connect" in resp.text
     assert "Open satellite APRS" in resp.text
+    assert 'id="settingsView"' in resp.text
+    assert 'id="stationIdentityForm"' in resp.text
+    assert 'id="stationLocationForm"' in resp.text
+    assert 'id="stationHealthList"' in resp.text
+    assert "Dataset refresh stays policy-controlled" in resp.text
 
     script = client.get("/static/next/next.js")
     assert script.status_code == 200

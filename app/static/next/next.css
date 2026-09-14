@@ -278,6 +278,22 @@ a { color: inherit; }
 .activity-packet { display: grid; grid-template-columns: minmax(100px, .35fr) minmax(120px, .35fr) minmax(0, 1fr); gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); font-size: .76rem; }
 .activity-packet span { text-align: left; }
 .activity-packet p { margin: 0; }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.settings-card { min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: 11px; background: var(--background); }
+.settings-card > p { margin: -2px 0 13px; color: var(--muted); font-size: .75rem; line-height: 1.45; }
+.settings-card > .button { margin-top: 12px; }
+.compact-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.compact-fields + .compact-fields { margin-top: 9px; }
+.compact-fields label, .single-field { display: grid; gap: 5px; color: var(--muted); font-size: .7rem; }
+.compact-fields input, .compact-fields select, .single-field select { width: 100%; min-width: 0; min-height: 42px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--surface-raised); }
+.settings-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.health-list { display: grid; }
+.health-row { display: grid; grid-template-columns: minmax(90px, .45fr) minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px 0; border-top: 1px solid var(--line); font-size: .74rem; }
+.health-row span { color: var(--muted); }
+.health-row strong { text-align: right; overflow-wrap: anywhere; }
+.health-row.ready strong, .ready-text { color: var(--ready) !important; }
+.health-row.attention strong, .attention-text { color: var(--attention) !important; }
+.specialist-card .context-actions { grid-template-columns: 1fr; }
 .mobile-nav { display: none; }
 
 @media (max-width: 1020px) {
@@ -321,6 +337,7 @@ a { color: inherit; }
   .map-layer-switch button { padding-inline: 8px; font-size: .72rem; }
   .activity-grid { grid-template-columns: 1fr; }
   .activity-card.wide { grid-column: auto; }
+  .settings-grid { grid-template-columns: 1fr; }
   .activity-packet { grid-template-columns: 1fr auto; }
   .activity-packet p { grid-column: 1 / -1; }
   .aprs-shortcut { display: block; }
@@ -332,7 +349,7 @@ a { color: inherit; }
   .dialog-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .dialog-actions .primary-button { grid-column: 1 / -1; grid-row: 1; }
   main { padding-bottom: 60px; }
-  .mobile-nav { position: fixed; z-index: 10; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(3, 1fr); min-height: 54px; border-top: 1px solid var(--line); background: rgba(17, 21, 26, .96); backdrop-filter: blur(12px); }
+  .mobile-nav { position: fixed; z-index: 10; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(4, 1fr); min-height: 54px; border-top: 1px solid var(--line); background: rgba(17, 21, 26, .96); backdrop-filter: blur(12px); }
   .mobile-nav [aria-current="page"] { color: var(--ready); }
 }
 
@@ -341,6 +358,7 @@ a { color: inherit; }
   .pass-heading h1 { font-size: 1.45rem; }
   .progress-times { font-size: .6rem; }
   .vfo-card strong { font-size: 1.2rem; }
+  .compact-fields { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
