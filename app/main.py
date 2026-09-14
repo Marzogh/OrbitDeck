@@ -1656,6 +1656,11 @@ def kiosk_index() -> FileResponse:
         return _static_file_response("lite", "index.html")
     return _static_file_response("kiosk", "rotator.html")
 
+
+@app.get("/next")
+def next_index() -> FileResponse:
+    return _static_file_response("next", "index.html")
+
 @app.get("/lite")
 def lite_index() -> FileResponse:
     return _static_file_response("lite", "index.html")

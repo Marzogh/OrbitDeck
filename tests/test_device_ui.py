@@ -53,3 +53,13 @@ def test_lite_settings_route_serves_lite_settings_ui(tmp_path, monkeypatch):
     resp = client.get("/lite/settings")
     assert resp.status_code == 200
     assert "Lite Settings" in resp.text
+
+
+def test_next_route_serves_operator_workspace(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.get("/next")
+
+    assert resp.status_code == 200
+    assert "OrbitDeck Operator Workspace" in resp.text
+    assert "/static/next/next.js" in resp.text

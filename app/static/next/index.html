@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b0e11" />
+    <title>OrbitDeck Operator Workspace</title>
+    <link rel="stylesheet" href="/static/next/next.css?v=20260914a" />
+    <script defer src="/static/next/next.js?v=20260914a"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/next" aria-label="OrbitDeck operate">
+          <span class="brand-mark" aria-hidden="true">◉</span>
+          <span>OrbitDeck</span>
+        </a>
+        <nav class="primary-nav" aria-label="Primary navigation">
+          <button type="button" data-view="operate" aria-current="page">Operate</button>
+          <button type="button" data-view="passes">Passes</button>
+          <button type="button" data-view="activity">Activity</button>
+          <a href="/settings">Settings</a>
+        </nav>
+        <div class="clock"><strong id="localClock">--:--:--</strong><span id="clockZone">Local</span></div>
+      </header>
+
+      <section class="station-bar" aria-label="Station state">
+        <span class="status-chip status-focus" id="focusStatus">No pass focused</span>
+        <span class="status-chip" id="radioStatus">Radio unknown</span>
+        <span class="status-chip" id="dopplerStatus">Doppler idle</span>
+        <span class="status-chip status-auth" id="txStatus">TX policy loading</span>
+        <span class="status-chip" id="dataStatus">Data loading</span>
+      </section>
+
+      <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
+
+      <main>
+        <section id="operateView" class="workspace" data-panel="operate">
+          <aside class="surface queue-panel">
+            <div class="section-heading"><h2>Pass queue</h2><span>Next 24 hours</span></div>
+            <div id="passQueue" class="pass-queue" aria-live="polite"></div>
+            <div class="readiness">
+              <div class="section-heading"><h3>Readiness</h3><span id="readinessScore">—</span></div>
+              <div id="readinessList"></div>
+            </div>
+          </aside>
+
+          <section class="surface operate-panel">
+            <div class="pass-heading">
+              <div>
+                <div class="eyebrow" id="phaseLabel">Loading station</div>
+                <h1 id="focusTitle">OrbitDeck</h1>
+                <p id="focusSubtitle">Preparing the operator workspace…</p>
+              </div>
+              <div class="countdown"><span id="countdownLabel">Status</span><strong id="countdownValue">—</strong></div>
+            </div>
+            <div class="pass-progress">
+              <div class="progress-track"><div id="progressValue"></div></div>
+              <div class="progress-times"><span id="aosTime">AOS —</span><span id="tcaTime">TCA —</span><span id="losTime">LOS —</span></div>
+            </div>
+
+            <div class="operate-grid">
+              <div class="plot-column">
+                <svg id="skyplot" viewBox="0 0 300 300" role="img" aria-labelledby="skyplotTitle skyplotDesc">
+                  <title id="skyplotTitle">Focused pass polar plot</title>
+                  <desc id="skyplotDesc">Azimuth and elevation path from acquisition to loss of signal.</desc>
+                  <circle class="plot-surface" cx="150" cy="150" r="112"></circle>
+                  <circle class="plot-grid" cx="150" cy="150" r="75"></circle>
+                  <circle class="plot-grid" cx="150" cy="150" r="38"></circle>
+                  <line class="plot-grid" x1="38" y1="150" x2="262" y2="150"></line>
+                  <line class="plot-grid" x1="150" y1="38" x2="150" y2="262"></line>
+                  <path id="passPath" class="pass-path" d=""></path>
+                  <circle id="satelliteDot" class="satellite-dot" cx="150" cy="150" r="9"></circle>
+                  <text x="150" y="24" text-anchor="middle">N</text>
+                  <text x="278" y="154" text-anchor="middle">E</text>
+                  <text x="150" y="288" text-anchor="middle">S</text>
+                  <text x="22" y="154" text-anchor="middle">W</text>
+                </svg>
+                <div class="pointing-grid">
+                  <div><span>Azimuth</span><strong id="azimuthValue">—</strong></div>
+                  <div><span>Elevation</span><strong id="elevationValue">—</strong></div>
+                  <div><span>Range</span><strong id="rangeValue">—</strong></div>
+                  <div><span>Max elevation</span><strong id="maxElevationValue">—</strong></div>
+                </div>
+              </div>
+
+              <div class="radio-deck">
+                <div class="section-heading"><h2>Radio deck</h2><span id="trackingState">Idle</span></div>
+                <div class="vfo-card receive-vfo">
+                  <div><span>Receive</span><span id="rxMode">—</span></div>
+                  <strong id="rxFrequency">—</strong>
+                  <small id="rxDetail">No receive target</small>
+                </div>
+                <div class="vfo-card transmit-vfo">
+                  <div><span>Transmit</span><span id="txMode">—</span></div>
+                  <strong id="txFrequency">—</strong>
+                  <small id="txDetail">No transmit target</small>
+                </div>
+                <div class="confirmation" id="radioConfirmation">Waiting for radio state</div>
+                <details class="technical-detail">
+                  <summary>Technical detail</summary>
+                  <div id="technicalDetail">—</div>
+                </details>
+              </div>
+            </div>
+
+            <div class="action-bar">
+              <button id="stopControl" class="button danger-button" type="button">Stop control</button>
+              <button id="secondaryAction" class="button" type="button">Open radio</button>
+              <button id="primaryAction" class="button primary-button" type="button">Prepare pass</button>
+            </div>
+          </section>
+
+          <aside class="surface context-panel">
+            <div class="context-tabs" role="tablist" aria-label="Operation context">
+              <button type="button" role="tab" data-context="radio" aria-selected="true">Radio</button>
+              <button type="button" role="tab" data-context="aprs" aria-selected="false">APRS</button>
+            </div>
+            <div id="contextContent" class="context-content"></div>
+          </aside>
+        </section>
+
+        <section id="passesView" class="page-view hidden" data-panel="passes">
+          <div class="page-heading"><div><span class="eyebrow">Planning</span><h1>Upcoming passes</h1></div><span id="passCount">—</span></div>
+          <div id="passTable" class="pass-table"></div>
+        </section>
+
+        <section id="activityView" class="page-view hidden" data-panel="activity">
+          <div class="page-heading"><div><span class="eyebrow">Station activity</span><h1>APRS and session state</h1></div><a href="/aprs">Open full APRS console</a></div>
+          <div id="activityContent" class="activity-grid"></div>
+        </section>
+      </main>
+
+      <nav class="mobile-nav" aria-label="Mobile navigation">
+        <button type="button" data-view="operate" aria-current="page">Now</button>
+        <button type="button" data-view="passes">Passes</button>
+        <button type="button" data-view="activity">Activity</button>
+      </nav>
+    </div>
+  </body>
+</html>
