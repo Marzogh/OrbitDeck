@@ -367,7 +367,11 @@ function mapOrigin() {
 }
 function projectWorld(lat, lon) {
   const origin = mapOrigin();
-  return { x: longitudeToWorld(lon) - origin.x, y: latitudeToWorld(lat) - origin.y };
+  const size = mapSize();
+  const centerX = longitudeToWorld(mapState.centerLon);
+  let x = longitudeToWorld(lon);
+  x += Math.round((centerX - x) / size) * size;
+  return { x: x - origin.x, y: latitudeToWorld(lat) - origin.y };
 }
 
 function worldPath(points) {
@@ -388,13 +392,10 @@ function worldPath(points) {
 }
 
 function constrainMapCenter() {
-  const { width, height } = mapDimensions();
+  const { height } = mapDimensions();
   const size = mapSize();
-  let x = longitudeToWorld(mapState.centerLon);
   let y = latitudeToWorld(mapState.centerLat);
-  x = size <= width ? size / 2 : Math.max(width / 2, Math.min(size - width / 2, x));
   y = size <= height ? size / 2 : Math.max(height / 2, Math.min(size - height / 2, y));
-  mapState.centerLon = worldToLongitude(x);
   mapState.centerLat = worldToLatitude(y);
 }
 
@@ -411,8 +412,9 @@ function renderMapTiles() {
   const endY = Math.min(count - 1, Math.floor((origin.y + height) / tileSize));
   const tiles = [];
   for (let y = startY; y <= endY; y += 1) {
-    for (let x = Math.max(0, startX); x <= Math.min(count - 1, endX); x += 1) {
-      const src = layer.url.replace("{z}", mapState.zoom).replace("{y}", y).replace("{x}", x);
+    for (let x = startX; x <= endX; x += 1) {
+      const wrappedX = ((x % count) + count) % count;
+      const src = layer.url.replace("{z}", mapState.zoom).replace("{y}", y).replace("{x}", wrappedX);
       tiles.push(`<img class="map-tile" alt="" src="${src}" style="left:${Math.round(x * tileSize - origin.x)}px;top:${Math.round(y * tileSize - origin.y)}px" />`);
     }
   }
@@ -441,6 +443,10 @@ function renderWorldMap() {
   const { width, height } = mapDimensions();
   if (!mapState.initialized) {
     mapState.zoom = width >= 850 ? 2 : 1;
+    if (finite(state.system?.location?.lat) && finite(state.system?.location?.lon)) {
+      mapState.centerLat = Number(state.system.location.lat);
+      mapState.centerLon = Number(state.system.location.lon);
+    }
     mapState.initialized = true;
   }
   byId("mapFallback").setAttribute("viewBox", `0 0 ${width} ${height}`);
