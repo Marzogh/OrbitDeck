@@ -68,3 +68,7 @@ def test_next_route_serves_operator_workspace(tmp_path):
     assert 'data-basemap="terrain"' in resp.text
     assert 'data-basemap="satellite"' in resp.text
     assert 'data-basemap="outline"' in resp.text
+    assert 'id="channelPairSelect"' in resp.text
+    assert 'id="releaseSession"' in resp.text
+    assert 'id="radioSetupDialog"' in resp.text
+    assert "Save and connect" in resp.text

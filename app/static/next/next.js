@@ -11,6 +11,8 @@ const state = {
   mapPaths: {},
   mapHiddenSatIds: new Set(),
   mapSelectedSatId: null,
+  radioPorts: [],
+  channelSelection: {},
   passVisible: 12,
   busy: false,
 };
@@ -129,6 +131,41 @@ function recommendationFor(pass) {
   return state.system?.activeTrack?.sat_id === pass.sat_id ? state.system.frequencyRecommendation : null;
 }
 
+function sessionRecommendation(pass) {
+  const session = state.system?.radioControlSession || {};
+  const focused = session.active && session.selected_sat_id === pass?.sat_id && (!session.selected_pass_aos || session.selected_pass_aos === pass?.aos);
+  return focused && session.test_pair ? session.test_pair : recommendationFor(pass);
+}
+
+function channelChoices(pass) {
+  if (!pass) return [];
+  const recommendation = recommendationFor(pass);
+  const choices = [];
+  const add = (choice) => {
+    if (!finite(choice.uplink_mhz) && !finite(choice.downlink_mhz)) return;
+    const key = `${choice.uplink_mhz || ""}|${choice.downlink_mhz || ""}|${choice.uplink_mode || ""}|${choice.downlink_mode || ""}`;
+    if (!choices.some((item) => item.key === key)) choices.push({ ...choice, key });
+  };
+  if (recommendation) add({ ...recommendation, label: recommendation.label || "Recommended channel" });
+  const matrix = pass.frequencyMatrix;
+  (matrix?.columns || []).forEach((column) => add({
+    uplink_mhz: column.uplink_mhz,
+    downlink_mhz: column.downlink_mid_mhz,
+    uplink_mode: recommendation?.uplink_mode || "FM",
+    downlink_mode: recommendation?.downlink_mode || "FM",
+    label: column.label || `Channel ${Number(column.index) + 1}`,
+  }));
+  const sessionPair = state.system?.radioControlSession?.test_pair;
+  if (sessionPair && state.system.radioControlSession.selected_sat_id === pass.sat_id) add(sessionPair);
+  return choices;
+}
+
+function pairSummary(pair) {
+  const rx = finite(pair?.downlink_mhz) ? `${Number(pair.downlink_mhz).toFixed(3)} RX` : "receive only unavailable";
+  const tx = finite(pair?.uplink_mhz) ? `${Number(pair.uplink_mhz).toFixed(3)} TX` : "RX only";
+  return `${rx} · ${tx}`;
+}
+
 function renderStationBar() {
   const pass = passForFocus();
   const radio = state.system?.radioRuntime || {};
@@ -221,7 +258,7 @@ function primaryWorkflow(pass) {
 function renderOperate() {
   const pass = passForFocus();
   const track = matchingTrack(pass);
-  const recommendation = recommendationFor(pass);
+  const recommendation = sessionRecommendation(pass);
   const radio = state.system?.radioRuntime || {};
   const session = state.system?.radioControlSession || {};
   const phase = passPhase(pass);
@@ -257,6 +294,13 @@ function renderOperate() {
   byId("txMode").textContent = [recommendation?.uplink_mode, recommendation?.tone].filter(Boolean).join(" · ") || "—";
   byId("rxDetail").textContent = recommendation?.correction_side ? `${labelize(recommendation.correction_side)} correction` : "No receive target";
   byId("txDetail").textContent = txAuthorization.status().detail;
+  const choices = channelChoices(pass);
+  const pairSelect = byId("channelPairSelect");
+  const wantedKey = state.channelSelection[pass?.sat_id] || choices[0]?.key || "";
+  pairSelect.innerHTML = choices.length ? choices.map((choice) => `<option value="${escapeHtml(choice.key)}"${choice.key === wantedKey ? " selected" : ""}>${escapeHtml(choice.label)} · ${escapeHtml(pairSummary(choice))}</option>`).join("") : '<option value="">No compatible channel pair</option>';
+  pairSelect.disabled = state.busy || !choices.length;
+  byId("applyChannelPair").disabled = state.busy || !choices.length || !pass;
+  byId("channelPairDetail").textContent = session.test_pair_reason || (choices.length ? "Applied during the radio test, with live Doppler correction." : "This satellite has no compatible radio guide.");
   byId("trackingState").textContent = labelize(session.control_state || radio.control_mode);
   const confirmation = byId("radioConfirmation");
   confirmation.textContent = radio.last_error ? radio.last_error : radio.connected ? `Radio connected${radio.last_poll_at ? ` · confirmed ${time(radio.last_poll_at)}` : ""}` : "Radio is not connected";
@@ -270,8 +314,9 @@ function renderOperate() {
   primary.disabled = !!workflow.disabled || state.busy;
   primary.dataset.action = workflow.action || "";
   primary.dataset.href = workflow.href || "";
-  byId("stopControl").disabled = state.busy || !session.active;
-  byId("secondaryAction").textContent = radio.connected ? "Disconnect radio" : "Open radio setup";
+  byId("stopControl").disabled = state.busy || !session.active || !["test", "armed", "active"].includes(session.screen_state);
+  byId("releaseSession").disabled = state.busy || !session.active;
+  byId("secondaryAction").textContent = radio.connected ? "Disconnect radio" : "Configure radio";
   renderQueue();
   renderContext();
 }
@@ -293,13 +338,17 @@ function renderContext() {
     const settings = system.radioSettings || {};
     const runtime = system.radioRuntime || {};
     const session = system.radioControlSession || {};
+    const stage = !session.active ? 0 : !runtime.connected ? 1 : session.screen_state === "idle" ? 2 : session.screen_state === "test" ? 3 : session.screen_state === "released" ? 4 : 5;
+    const steps = ["Prepare", "Connect", "Test", "Confirm", "Arm / track"];
     content.innerHTML = `<h2>${escapeHtml(rigLabel(settings.rig_model))}</h2><p>${runtime.connected ? "Connected and reporting state." : "Use the pass workflow to connect and validate the configured radio."}</p>
+      <div class="workflow-steps" aria-label="Radio workflow">${steps.map((label, index) => `<span class="${index < stage ? "done" : index === stage ? "current" : ""}">${escapeHtml(label)}</span>`).join("")}</div>
       <div class="context-row"><span>Connection</span><strong>${runtime.connected ? "Connected" : "Disconnected"}</strong></div>
       <div class="context-row"><span>Transport</span><strong>${labelize(settings.transport_mode)}</strong></div>
       <div class="context-row"><span>Session</span><strong>${labelize(session.control_state)}</strong></div>
       <div class="context-row"><span>Restore policy</span><strong>Restore prior state</strong></div>
-      <div class="context-actions"><a class="button" href="/radio">Open detailed radio controls</a></div>
-      <div class="context-note">Advanced CI-V, transport, and pairing controls remain available without competing with the live pass.</div>`;
+      <div class="context-row"><span>Selected pair</span><strong>${escapeHtml(session.test_pair?.label || "Not prepared")}</strong></div>
+      <div class="context-actions"><button class="button" type="button" data-open-radio>Configure connection</button><a class="button" href="/radio">Open engineering controls</a></div>
+      <div class="context-note">Choose the operational channel in the Radio deck. Connection and safe advanced settings stay here; manual tuning remains in engineering controls.</div>`;
   }
 }
 
@@ -647,6 +696,10 @@ async function switchPlannerView(view) {
   }
 }
 
+async function selectFocusedSession(pass) {
+  return post("/api/v1/radio/session/select", { sat_id: pass.sat_id, sat_name: pass.name, pass_aos: pass.aos, pass_los: pass.los, max_el_deg: pass.max_el_deg });
+}
+
 async function runPrimaryAction() {
   const button = byId("primaryAction");
   if (button.dataset.href) {
@@ -659,16 +712,49 @@ async function runPrimaryAction() {
   renderOperate();
   try {
     if (button.dataset.action === "prepare") {
-      await post("/api/v1/radio/session/select", { sat_id: pass.sat_id, sat_name: pass.name, pass_aos: pass.aos, pass_los: pass.los, max_el_deg: pass.max_el_deg });
+      await selectFocusedSession(pass);
+      showNotice("Pass session prepared. Check the channel pair, then connect the radio.");
     } else if (button.dataset.action === "connect") {
       await post("/api/v1/radio/connect");
+      showNotice("Radio connected. Test control before arming the pass.");
     } else if (button.dataset.action === "test") {
       await post("/api/v1/radio/session/test");
+      showNotice("Test frequencies applied. Confirm what the rig displays.");
     } else if (button.dataset.action === "confirm") {
       await post("/api/v1/radio/session/test/confirm");
+      showNotice("Radio test confirmed and the prior rig state restored.");
     } else if (button.dataset.action === "start") {
       await post("/api/v1/radio/session/start");
+      showNotice(passPhase(pass) === "upcoming" ? "Pass armed. Tracking will begin at AOS." : "Doppler tracking started.");
     }
+    await refreshData(false);
+  } catch (error) {
+    showNotice(error instanceof Error ? error.message : String(error), true);
+  } finally {
+    state.busy = false;
+    renderOperate();
+  }
+}
+
+async function applyChannelPair() {
+  const pass = passForFocus();
+  const choice = channelChoices(pass).find((item) => item.key === byId("channelPairSelect").value);
+  if (!pass || !choice) return;
+  state.busy = true;
+  renderOperate();
+  try {
+    const session = state.system?.radioControlSession || {};
+    const focused = session.active && session.selected_sat_id === pass.sat_id && (!session.selected_pass_aos || session.selected_pass_aos === pass.aos);
+    if (!focused) await selectFocusedSession(pass);
+    await post("/api/v1/radio/session/test-pair", {
+      uplink_hz: finite(choice.uplink_mhz) ? Math.round(Number(choice.uplink_mhz) * 1_000_000) : null,
+      downlink_hz: finite(choice.downlink_mhz) ? Math.round(Number(choice.downlink_mhz) * 1_000_000) : null,
+      uplink_mode: choice.uplink_mode || null,
+      downlink_mode: choice.downlink_mode || null,
+      label: choice.label,
+    });
+    state.channelSelection[pass.sat_id] = choice.key;
+    showNotice(`${choice.label} selected for the radio test.`);
     await refreshData(false);
   } catch (error) {
     showNotice(error instanceof Error ? error.message : String(error), true);
@@ -690,6 +776,101 @@ async function stopControl() {
   } finally {
     state.busy = false;
     renderOperate();
+  }
+}
+
+async function releaseSession() {
+  state.busy = true;
+  renderOperate();
+  try {
+    await post("/api/v1/radio/session/clear");
+    showNotice("Pass session released. Any captured rig state was restored.");
+    await refreshData(false);
+  } catch (error) {
+    showNotice(error instanceof Error ? error.message : String(error), true);
+  } finally {
+    state.busy = false;
+    renderOperate();
+  }
+}
+
+function radioTransportVisibility() {
+  const wifi = byId("radioTransport").value === "wifi";
+  document.querySelectorAll("[data-radio-wifi]").forEach((field) => field.classList.toggle("hidden", !wifi));
+  document.querySelectorAll("[data-radio-usb]").forEach((field) => field.classList.toggle("hidden", wifi));
+  if (wifi && byId("radioRig").value !== "ic705") byId("radioRig").value = "ic705";
+}
+
+function populateRadioForm() {
+  const settings = state.system?.radioSettings || {};
+  byId("radioRig").value = settings.rig_model || "id5100";
+  byId("radioTransport").value = settings.transport_mode || "usb";
+  const serial = settings.serial_device || "";
+  const portItems = [...state.radioPorts];
+  if (serial && !portItems.some((item) => item.device === serial)) portItems.unshift({ device: serial, description: "Configured device" });
+  byId("radioSerial").innerHTML = '<option value="">Choose a serial port…</option>' + portItems.map((item) => `<option value="${escapeHtml(item.device)}"${item.device === serial ? " selected" : ""}>${escapeHtml(item.device)}${item.description ? ` · ${escapeHtml(item.description)}` : ""}</option>`).join("");
+  byId("radioBaud").value = String(settings.baud_rate || 9600);
+  byId("radioWifiHost").value = settings.wifi_host || "";
+  byId("radioWifiPort").value = settings.wifi_control_port || 50001;
+  byId("radioWifiUser").value = settings.wifi_username || "";
+  byId("radioWifiPassword").value = "";
+  byId("radioCiv").value = settings.civ_address || (settings.rig_model === "ic705" ? "0xA4" : "0x8C");
+  byId("radioPoll").value = settings.poll_interval_ms || 1000;
+  byId("radioTrack").value = settings.auto_track_interval_ms || 1000;
+  byId("radioEnabled").checked = settings.enabled !== false;
+  byId("radioAutoConnect").checked = !!settings.auto_connect;
+  byId("radioApplyMode").checked = settings.default_apply_mode_and_tone !== false;
+  byId("radioSafeGuard").checked = settings.safe_tx_guard_enabled !== false;
+  byId("radioSetupStatus").textContent = state.system?.radioRuntime?.connected ? "Radio is currently connected. Saving updates the stored profile for the next connection." : "";
+  byId("radioSetupStatus").classList.remove("error");
+  radioTransportVisibility();
+}
+
+async function openRadioSetup() {
+  const dialog = byId("radioSetupDialog");
+  try {
+    const ports = await api("/api/v1/radio/ports");
+    state.radioPorts = Array.isArray(ports.items) ? ports.items : [];
+  } catch (error) {
+    state.radioPorts = [];
+  }
+  populateRadioForm();
+  dialog.showModal();
+}
+
+async function saveRadioProfile(event) {
+  event.preventDefault();
+  const status = byId("radioSetupStatus");
+  const connectAfterSave = event.submitter?.value === "connect";
+  const payload = {
+    enabled: byId("radioEnabled").checked,
+    rig_model: byId("radioRig").value,
+    transport_mode: byId("radioTransport").value,
+    serial_device: byId("radioSerial").value || null,
+    baud_rate: Number(byId("radioBaud").value),
+    civ_address: byId("radioCiv").value.trim(),
+    wifi_host: byId("radioWifiHost").value.trim() || null,
+    wifi_username: byId("radioWifiUser").value.trim() || null,
+    wifi_control_port: Number(byId("radioWifiPort").value),
+    poll_interval_ms: Number(byId("radioPoll").value),
+    auto_connect: byId("radioAutoConnect").checked,
+    auto_track_interval_ms: Number(byId("radioTrack").value),
+    default_apply_mode_and_tone: byId("radioApplyMode").checked,
+    safe_tx_guard_enabled: byId("radioSafeGuard").checked,
+  };
+  const password = byId("radioWifiPassword").value;
+  if (password) payload.wifi_password = password;
+  status.textContent = connectAfterSave ? "Saving and connecting…" : "Saving…";
+  status.classList.remove("error");
+  try {
+    await post("/api/v1/settings/radio", payload);
+    if (connectAfterSave) await post("/api/v1/radio/connect");
+    await refreshData(false);
+    byId("radioSetupDialog").close();
+    showNotice(connectAfterSave ? "Radio profile saved and connected." : "Radio profile saved on OrbitDeck.");
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : String(error);
+    status.classList.add("error");
   }
 }
 
@@ -753,6 +934,9 @@ document.addEventListener("click", async (event) => {
     document.querySelectorAll("[data-context]").forEach((button) => button.setAttribute("aria-selected", String(button === context)));
     renderContext();
   }
+
+  if (event.target.closest("[data-open-radio]")) await openRadioSetup();
+  if (event.target.closest("[data-close-radio]")) byId("radioSetupDialog").close();
 
   const passButton = event.target.closest("[data-pass-key], [data-focus-key]");
   if (passButton) {
@@ -862,6 +1046,18 @@ new ResizeObserver(() => { if (state.plannerView === "map") renderWorldMap(); })
 
 byId("primaryAction").addEventListener("click", runPrimaryAction);
 byId("stopControl").addEventListener("click", stopControl);
+byId("releaseSession").addEventListener("click", releaseSession);
+byId("applyChannelPair").addEventListener("click", applyChannelPair);
+byId("channelPairSelect").addEventListener("change", (event) => {
+  const pass = passForFocus();
+  if (pass) state.channelSelection[pass.sat_id] = event.target.value;
+});
+byId("radioSetupForm").addEventListener("submit", saveRadioProfile);
+byId("radioTransport").addEventListener("change", radioTransportVisibility);
+byId("radioRig").addEventListener("change", () => {
+  if (byId("radioRig").value === "id5100" && byId("radioTransport").value === "wifi") byId("radioTransport").value = "usb";
+  radioTransportVisibility();
+});
 byId("secondaryAction").addEventListener("click", async () => {
   if (state.system?.radioRuntime?.connected) {
     try {
@@ -869,7 +1065,7 @@ byId("secondaryAction").addEventListener("click", async () => {
       await refreshData(false);
     } catch (error) { showNotice(error instanceof Error ? error.message : String(error), true); }
   } else {
-    window.location.href = "/radio";
+    await openRadioSetup();
   }
 });
 

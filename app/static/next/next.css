@@ -105,6 +105,11 @@ a { color: inherit; }
 .vfo-card > div { display: flex; justify-content: space-between; color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
 .vfo-card strong { display: block; margin: 4px 0 2px; font: 650 clamp(1.15rem, 2vw, 1.45rem) ui-monospace, SFMono-Regular, Menlo, monospace; }
 .vfo-card small { color: var(--muted); }
+.channel-control { display: grid; gap: 5px; padding-top: 2px; }
+.channel-control > label { color: var(--muted); font-size: .69rem; text-transform: uppercase; letter-spacing: .05em; }
+.channel-control > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+.channel-control select { min-width: 0; min-height: 42px; padding: 7px 28px 7px 9px; border: 1px solid var(--line); border-radius: 9px; color: var(--text); background: var(--surface-raised); }
+.channel-control small { color: var(--muted); font-size: .7rem; line-height: 1.4; }
 .confirmation { color: var(--muted); font-size: .74rem; }
 .confirmation.ready { color: var(--ready); }
 .confirmation.error { color: var(--danger); }
@@ -126,12 +131,38 @@ a { color: inherit; }
 .context-content { padding: 14px; }
 .context-content h2 { margin: 0 0 4px; font-size: .9rem; }
 .context-content > p { margin: 0 0 12px; color: var(--muted); font-size: .75rem; line-height: 1.45; }
+.workflow-steps { display: grid; gap: 5px; margin: 2px 0 10px; }
+.workflow-steps span { display: grid; grid-template-columns: 15px 1fr; gap: 6px; align-items: center; color: var(--muted); font-size: .7rem; }
+.workflow-steps span::before { content: "○"; color: var(--line); }
+.workflow-steps span.done::before { content: "✓"; color: var(--ready); }
+.workflow-steps span.current { color: var(--text); font-weight: 650; }
+.workflow-steps span.current::before { content: "●"; color: var(--attention); }
 .context-row { padding: 8px 0; display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); font-size: .75rem; }
 .context-row span { color: var(--muted); }
 .context-row strong { text-align: right; font-weight: 650; overflow-wrap: anywhere; }
 .context-actions { display: grid; gap: 7px; margin-top: 12px; }
 .context-actions .button { width: 100%; }
 .context-note { margin-top: 12px; padding: 9px; border-radius: 8px; color: var(--attention); background: var(--attention-soft); font-size: .72rem; line-height: 1.4; }
+
+.setup-dialog { width: min(680px, calc(100vw - 24px)); max-height: calc(100vh - 24px); padding: 0; overflow: auto; border: 1px solid var(--line); border-radius: 14px; color: var(--text); background: var(--surface); box-shadow: 0 24px 80px rgba(0,0,0,.55); }
+.setup-dialog::backdrop { background: rgba(0,0,0,.68); backdrop-filter: blur(3px); }
+.setup-dialog form { padding: 18px; }
+.dialog-heading { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.dialog-heading h2 { margin: 4px 0; font-size: 1.35rem; }
+.dialog-heading p { margin: 0; color: var(--muted); font-size: .78rem; }
+.dialog-close { align-self: start; width: 38px; height: 38px; border: 0; border-radius: 8px; color: var(--muted); background: var(--surface-raised); cursor: pointer; font-size: 1.5rem; line-height: 1; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.form-grid label:not(.check-field) { display: grid; gap: 5px; color: var(--muted); font-size: .72rem; }
+.form-grid input, .form-grid select { width: 100%; min-height: 42px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--surface-raised); }
+.form-wide { grid-column: 1 / -1; }
+.check-field { display: flex; align-items: center; gap: 8px; min-height: 36px; color: var(--text); font-size: .76rem; }
+.check-field input { width: auto; min-height: auto; accent-color: var(--ready); }
+.advanced-settings { margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--line); }
+.advanced-settings summary { margin-bottom: 13px; cursor: pointer; color: var(--text); font-size: .8rem; }
+.dialog-status { min-height: 20px; margin-top: 12px; color: var(--muted); font-size: .76rem; }
+.dialog-status.error { color: var(--danger); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+.dialog-actions .primary-button { flex: 0 1 auto; }
 
 .page-view { margin: 12px; padding: 18px; border-radius: var(--radius); background: var(--surface); }
 .page-heading { display: flex; align-items: end; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
@@ -227,7 +258,7 @@ a { color: inherit; }
   .workspace { grid-template-columns: minmax(205px, .7fr) minmax(470px, 1.5fr); }
   .context-panel { grid-column: 1 / -1; }
   .context-content { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
-  .context-content > h2, .context-content > p, .context-actions, .context-note { grid-column: 1 / -1; }
+  .context-content > h2, .context-content > p, .workflow-steps, .context-actions, .context-note { grid-column: 1 / -1; }
 }
 
 @media (max-width: 760px) {
@@ -261,6 +292,12 @@ a { color: inherit; }
   .map-layer-switch button { padding-inline: 8px; font-size: .72rem; }
   .activity-grid { grid-template-columns: 1fr; }
   .activity-card.wide { grid-column: auto; }
+  .setup-dialog { width: calc(100vw - 16px); max-height: calc(100vh - 16px); }
+  .setup-dialog form { padding: 15px; }
+  .form-grid { grid-template-columns: 1fr; }
+  .form-wide { grid-column: auto; }
+  .dialog-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .dialog-actions .primary-button { grid-column: 1 / -1; grid-row: 1; }
   main { padding-bottom: 60px; }
   .mobile-nav { position: fixed; z-index: 10; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(3, 1fr); min-height: 54px; border-top: 1px solid var(--line); background: rgba(17, 21, 26, .96); backdrop-filter: blur(12px); }
   .mobile-nav [aria-current="page"] { color: var(--ready); }

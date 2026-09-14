@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0b0e11" />
     <title>OrbitDeck Operator Workspace</title>
-    <link rel="stylesheet" href="/static/next/next.css?v=20260914e" />
+    <link rel="stylesheet" href="/static/next/next.css?v=20260914f" />
     <script defer src="/static/common/hemisphere-land.js"></script>
-    <script defer src="/static/next/next.js?v=20260914e"></script>
+    <script defer src="/static/next/next.js?v=20260914f"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -97,6 +97,11 @@
                   <strong id="txFrequency">—</strong>
                   <small id="txDetail">No transmit target</small>
                 </div>
+                <div class="channel-control">
+                  <label for="channelPairSelect">Channel pair</label>
+                  <div><select id="channelPairSelect" aria-describedby="channelPairDetail"></select><button id="applyChannelPair" class="button" type="button">Use pair</button></div>
+                  <small id="channelPairDetail">Choose a pass to see compatible channels.</small>
+                </div>
                 <div class="confirmation" id="radioConfirmation">Waiting for radio state</div>
                 <details class="technical-detail">
                   <summary>Technical detail</summary>
@@ -107,6 +112,7 @@
 
             <div class="action-bar">
               <button id="stopControl" class="button danger-button" type="button">Stop control</button>
+              <button id="releaseSession" class="button" type="button">Release session</button>
               <button id="secondaryAction" class="button" type="button">Open radio</button>
               <button id="primaryAction" class="button primary-button" type="button">Prepare pass</button>
             </div>
@@ -180,6 +186,39 @@
         <button type="button" data-view="passes">Passes</button>
         <button type="button" data-view="activity">Activity</button>
       </nav>
+
+      <dialog id="radioSetupDialog" class="setup-dialog" aria-labelledby="radioSetupTitle">
+        <form id="radioSetupForm" method="dialog">
+          <div class="dialog-heading">
+            <div><span class="eyebrow">Station hardware</span><h2 id="radioSetupTitle">Radio connection</h2><p>Stored on OrbitDeck and used by the pass workflow.</p></div>
+            <button class="dialog-close" type="button" data-close-radio aria-label="Close radio setup">×</button>
+          </div>
+          <div class="form-grid">
+            <label><span>Rig</span><select id="radioRig"><option value="id5100">Icom ID-5100</option><option value="ic705">Icom IC-705</option></select></label>
+            <label><span>Connection</span><select id="radioTransport"><option value="usb">USB / serial</option><option value="wifi">IC-705 Wi-Fi</option></select></label>
+            <label class="form-wide" data-radio-usb><span>Serial device</span><select id="radioSerial"><option value="">Choose a serial port…</option></select></label>
+            <label data-radio-usb><span>Baud rate</span><select id="radioBaud"><option value="4800">4,800</option><option value="9600">9,600</option><option value="19200">19,200</option></select></label>
+            <label data-radio-wifi><span>Radio address</span><input id="radioWifiHost" inputmode="url" placeholder="192.168.1.1" /></label>
+            <label data-radio-wifi><span>Control port</span><input id="radioWifiPort" type="number" min="1" max="65535" /></label>
+            <label data-radio-wifi><span>Username</span><input id="radioWifiUser" autocomplete="username" /></label>
+            <label data-radio-wifi><span>Password</span><input id="radioWifiPassword" type="password" autocomplete="current-password" placeholder="Leave blank to keep stored password" /></label>
+          </div>
+          <details class="advanced-settings">
+            <summary>Advanced radio settings</summary>
+            <div class="form-grid">
+              <label><span>CI-V address</span><input id="radioCiv" placeholder="0xA4" /></label>
+              <label><span>Polling interval (ms)</span><input id="radioPoll" type="number" min="100" max="10000" step="100" /></label>
+              <label><span>Doppler interval (ms)</span><input id="radioTrack" type="number" min="200" max="10000" step="100" /></label>
+              <label class="check-field"><input id="radioEnabled" type="checkbox" /><span>Enable radio control</span></label>
+              <label class="check-field"><input id="radioAutoConnect" type="checkbox" /><span>Connect automatically</span></label>
+              <label class="check-field"><input id="radioApplyMode" type="checkbox" /><span>Apply mode and tone</span></label>
+              <label class="check-field"><input id="radioSafeGuard" type="checkbox" /><span>Keep safe TX guard enabled</span></label>
+            </div>
+          </details>
+          <div id="radioSetupStatus" class="dialog-status" aria-live="polite"></div>
+          <div class="dialog-actions"><button class="button" type="button" data-close-radio>Cancel</button><button class="button" type="submit" value="save">Save profile</button><button class="button primary-button" type="submit" value="connect">Save and connect</button></div>
+        </form>
+      </dialog>
     </div>
   </body>
 </html>
