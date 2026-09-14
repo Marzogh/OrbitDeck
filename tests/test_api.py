@@ -547,7 +547,8 @@ def test_track_path_endpoint_returns_samples(tmp_path):
     assert payload["step_seconds"] == 60
     assert payload["count"] >= 2
     assert len(payload["items"]) == payload["count"]
-    assert {"sat_id", "timestamp", "az_deg", "el_deg", "range_km", "sunlit"} <= set(payload["items"][0].keys())
+    assert {"sat_id", "timestamp", "az_deg", "el_deg", "range_km", "sunlit", "altitude_km"} <= set(payload["items"][0].keys())
+    assert payload["items"][0]["altitude_km"] > 100
 
 
 def test_set_and_get_gps_settings(tmp_path):

@@ -401,6 +401,7 @@ class TrackingService:
             except Exception:
                 pass
 
+        subpoint = sat_obj.at(t).subpoint()
         return LiveTrack(
             sat_id=sat.sat_id,
             name=sat.name,
@@ -410,8 +411,9 @@ class TrackingService:
             range_km=round(float(distance.km), 1),
             range_rate_km_s=round(range_rate, 3),
             sunlit=sunlit,
-            subpoint_lat=round(float(sat_obj.at(t).subpoint().latitude.degrees), 4),
-            subpoint_lon=round(float(sat_obj.at(t).subpoint().longitude.degrees), 4),
+            subpoint_lat=round(float(subpoint.latitude.degrees), 4),
+            subpoint_lon=round(float(subpoint.longitude.degrees), 4),
+            altitude_km=round(float(subpoint.elevation.km), 1),
         )
 
     def _phase(self, sat: Satellite, now: datetime) -> float:
@@ -449,6 +451,8 @@ class TrackingService:
         az = (phase * 360.0 + sat.norad_id % 180 + location.lon * 0.2) % 360.0
         range_km = 2200.0 - max(0.0, sin_term) * 1600.0
         range_rate = -7.5 * cos_term
+        period_seconds = max(1.0, float(sat.period_minutes) * 60.0)
+        semi_major_km = (398600.4418 * (period_seconds / (2 * math.pi)) ** 2) ** (1 / 3)
         return LiveTrack(
             sat_id=sat.sat_id,
             name=sat.name,
@@ -460,6 +464,7 @@ class TrackingService:
             sunlit=self._sunlit(sat, when, location),
             subpoint_lat=round(-50.0 + 100.0 * sin_term, 4),
             subpoint_lon=round(((phase * 360.0) % 360.0) - 180.0, 4),
+            altitude_km=round(max(120.0, semi_major_km - 6371.0), 1),
         )
 
     def track_path(

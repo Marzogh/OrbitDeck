@@ -350,6 +350,7 @@ class LiveTrack(BaseModel):
     sunlit: bool
     subpoint_lat: float | None = None
     subpoint_lon: float | None = None
+    altitude_km: float | None = None
 
 
 class PassEvent(BaseModel):

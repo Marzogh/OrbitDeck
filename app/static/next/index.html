@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0b0e11" />
     <title>OrbitDeck Operator Workspace</title>
-    <link rel="stylesheet" href="/static/next/next.css?v=20260914d" />
+    <link rel="stylesheet" href="/static/next/next.css?v=20260914e" />
     <script defer src="/static/common/hemisphere-land.js"></script>
-    <script defer src="/static/next/next.js?v=20260914d"></script>
+    <script defer src="/static/next/next.js?v=20260914e"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -147,20 +147,21 @@
                 <div id="worldMap" class="slippy-map" role="application" aria-label="Zoomable world map showing selected satellite ground tracks">
                   <div id="mapTiles" class="map-tiles" aria-hidden="true"></div>
                   <svg id="mapFallback" class="map-fallback" viewBox="0 0 1000 500" preserveAspectRatio="none" aria-hidden="true"><rect class="world-ocean" width="1000" height="500"></rect><g id="worldGrid"></g><g id="worldLand"></g></svg>
-                  <svg id="mapOverlay" class="map-overlay" aria-hidden="true"><g id="worldTracks"></g><g id="worldMarkers"></g></svg>
+                  <svg id="mapOverlay" class="map-overlay"><g id="worldLighting"></g><g id="worldFootprints"></g><g id="worldTracks"></g><g id="worldEvents"></g><g id="worldMarkers"></g></svg>
                   <div class="map-layer-switch" role="group" aria-label="Esri basemap">
                     <button type="button" data-basemap="terrain" aria-pressed="true">Terrain</button>
                     <button type="button" data-basemap="satellite" aria-pressed="false">Satellite</button>
                     <button type="button" data-basemap="outline" aria-pressed="false">Outline</button>
                   </div>
                   <div class="map-zoom" role="group" aria-label="Map zoom">
-                    <button id="mapZoomIn" type="button" aria-label="Zoom in">+</button><button id="mapZoomOut" type="button" aria-label="Zoom out">−</button><button id="mapReset" type="button" aria-label="Show whole world">⌂</button>
+                    <button id="mapZoomIn" type="button" aria-label="Zoom in">+</button><button id="mapZoomOut" type="button" aria-label="Zoom out">−</button><button id="mapLocate" type="button" aria-label="Locate focused satellite">◎</button><button id="mapReset" type="button" aria-label="Show whole world">⌂</button>
                   </div>
                   <div id="mapAttribution" class="map-attribution"></div>
                 </div>
                 <div id="mapLegend" class="map-legend"></div>
               </div>
               <aside class="map-controls">
+                <div id="mapFocusCard" class="map-focus-card"></div>
                 <div><span class="eyebrow">Startup focus</span><select id="startupSatellite" aria-label="Startup satellite"></select><p>OrbitDeck opens focused on this satellite. New installations begin with the ISS.</p></div>
                 <div><span class="eyebrow">Tracks on map</span><div id="mapSatelliteChoices" class="map-satellite-choices"></div><select id="addMapSatellite" aria-label="Add satellite track"><option value="">Add satellite track…</option></select><p>Select up to five. Choices are stored on OrbitDeck for every browser.</p></div>
               </aside>

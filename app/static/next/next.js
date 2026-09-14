@@ -9,6 +9,8 @@ const state = {
   plannerSettings: null,
   availableSatellites: [],
   mapPaths: {},
+  mapHiddenSatIds: new Set(),
+  mapSelectedSatId: null,
   passVisible: 12,
   busy: false,
 };
@@ -349,6 +351,7 @@ function renderPasses() {
 }
 
 function mapSize() { return 256 * (2 ** mapState.zoom); }
+function minimumMapZoom() { return Math.max(1, Math.log2(mapDimensions().width / 256)); }
 function longitudeToWorld(lon) { return (Number(lon) + 180) / 360 * mapSize(); }
 function latitudeToWorld(lat) {
   const limited = Math.max(-85.0511, Math.min(85.0511, Number(lat)));
@@ -404,18 +407,20 @@ function renderMapTiles() {
   const layer = esriBasemaps[mapState.basemap] || esriBasemaps.terrain;
   const { width, height } = mapDimensions();
   const origin = mapOrigin();
-  const tileSize = 256;
-  const count = 2 ** mapState.zoom;
+  const tileLevel = Math.ceil(mapState.zoom - 1e-6);
+  const tileScale = 2 ** (mapState.zoom - tileLevel);
+  const tileSize = 256 * tileScale;
+  const count = 2 ** tileLevel;
   const startX = Math.floor(origin.x / tileSize);
-  const endX = Math.floor((origin.x + width) / tileSize);
+  const endX = Math.floor((origin.x + width - .01) / tileSize);
   const startY = Math.max(0, Math.floor(origin.y / tileSize));
-  const endY = Math.min(count - 1, Math.floor((origin.y + height) / tileSize));
+  const endY = Math.min(count - 1, Math.floor((origin.y + height - .01) / tileSize));
   const tiles = [];
   for (let y = startY; y <= endY; y += 1) {
     for (let x = startX; x <= endX; x += 1) {
       const wrappedX = ((x % count) + count) % count;
-      const src = layer.url.replace("{z}", mapState.zoom).replace("{y}", y).replace("{x}", wrappedX);
-      tiles.push(`<img class="map-tile" alt="" src="${src}" style="left:${Math.round(x * tileSize - origin.x)}px;top:${Math.round(y * tileSize - origin.y)}px" />`);
+      const src = layer.url.replace("{z}", tileLevel).replace("{y}", y).replace("{x}", wrappedX);
+      tiles.push(`<img class="map-tile" alt="" src="${src}" style="width:${tileSize + .5}px;height:${tileSize + .5}px;left:${Math.round(x * tileSize - origin.x)}px;top:${Math.round(y * tileSize - origin.y)}px" />`);
     }
   }
   byId("mapTiles").innerHTML = tiles.join("");
@@ -438,17 +443,80 @@ function renderPlannerSettings() {
   byId("addMapSatellite").disabled = selected.length >= 5;
 }
 
+function nearestTrackPoint(items, timestamp, toleranceMs = 180000) {
+  const target = asDate(timestamp)?.getTime();
+  if (!finite(target) || !items?.length) return null;
+  let nearest = null;
+  for (const item of items) {
+    const delta = Math.abs(asDate(item.timestamp)?.getTime() - target);
+    if (!nearest || delta < nearest.delta) nearest = { item, delta };
+  }
+  return nearest && nearest.delta <= toleranceMs ? nearest.item : null;
+}
+
+function footprintPoints(track) {
+  if (!finite(track?.subpoint_lat) || !finite(track?.subpoint_lon)) return [];
+  const altitude = Math.max(120, Number(track.altitude_km || 500));
+  const angular = Math.acos(6371 / (6371 + altitude));
+  const lat1 = Number(track.subpoint_lat) * Math.PI / 180;
+  const lon1 = Number(track.subpoint_lon) * Math.PI / 180;
+  return [...Array(73)].map((_, index) => {
+    const bearing = index / 72 * Math.PI * 2;
+    const lat = Math.asin(Math.sin(lat1) * Math.cos(angular) + Math.cos(lat1) * Math.sin(angular) * Math.cos(bearing));
+    const lon = lon1 + Math.atan2(Math.sin(bearing) * Math.sin(angular) * Math.cos(lat1), Math.cos(angular) - Math.sin(lat1) * Math.sin(lat));
+    return { lat: lat * 180 / Math.PI, lon: ((lon * 180 / Math.PI + 540) % 360) - 180 };
+  });
+}
+
+function solarGeometry() {
+  const days = (Date.now() - Date.UTC(2000, 0, 1, 12)) / 86400000;
+  const meanAnomaly = (357.529 + .98560028 * days) * Math.PI / 180;
+  const meanLongitude = (280.459 + .98564736 * days) * Math.PI / 180;
+  const eclipticLongitude = meanLongitude + (1.915 * Math.sin(meanAnomaly) + .020 * Math.sin(2 * meanAnomaly)) * Math.PI / 180;
+  const obliquity = (23.439 - .00000036 * days) * Math.PI / 180;
+  const declination = Math.asin(Math.sin(obliquity) * Math.sin(eclipticLongitude));
+  const rightAscension = Math.atan2(Math.cos(obliquity) * Math.sin(eclipticLongitude), Math.cos(eclipticLongitude)) * 180 / Math.PI;
+  const sidereal = (280.46061837 + 360.98564736629 * days) % 360;
+  return { declination, subsolarLon: ((rightAscension - sidereal + 540) % 360) - 180 };
+}
+
+function renderLighting() {
+  const solar = solarGeometry();
+  const startLon = mapState.centerLon - 179.8;
+  const samples = [...Array(181)].map((_, index) => {
+    const lon = startLon + index * 2;
+    const physicalLon = ((lon + 540) % 360) - 180;
+    const delta = (physicalLon - solar.subsolarLon) * Math.PI / 180;
+    const lat = Math.atan(-Math.cos(delta) / Math.tan(solar.declination || .000001)) * 180 / Math.PI;
+    return { lat, lon };
+  });
+  const line = samples.map((point) => projectWorld(point.lat, point.lon));
+  const nightLat = solar.declination > 0 ? -85 : 85;
+  const pole = [projectWorld(nightLat, startLon + 360), projectWorld(nightLat, startLon)];
+  const lineD = `M ${line.map((point) => `${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" L ")}`;
+  const nightD = `${lineD} L ${pole[0].x.toFixed(1)} ${pole[0].y.toFixed(1)} L ${pole[1].x.toFixed(1)} ${pole[1].y.toFixed(1)} Z`;
+  byId("worldLighting").innerHTML = `<path class="world-night" d="${nightD}"></path><path class="world-terminator" d="${lineD}"></path>`;
+}
+
+function renderMapFocusCard() {
+  const satId = state.mapSelectedSatId || state.plannerSettings?.startup_sat_id;
+  const track = (state.system?.tracks || []).find((item) => item.sat_id === satId);
+  const nextPass = state.passes.find((item) => item.sat_id === satId && (asDate(item.los)?.getTime() || 0) > Date.now());
+  if (!satId) { byId("mapFocusCard").innerHTML = ""; return; }
+  byId("mapFocusCard").innerHTML = `<span class="eyebrow">Map focus</span><h3>${escapeHtml(satelliteName(satId))}</h3><p>${nextPass ? `Next opportunity at ${time(nextPass.aos)} · peak ${number(nextPass.max_el_deg, 1, "°")}` : "No qualifying pass in this planning window."}</p><div class="map-focus-metrics"><span>Position<strong>${number(track?.subpoint_lat, 1, "°")}, ${number(track?.subpoint_lon, 1, "°")}</strong></span><span>Altitude<strong>${number(track?.altitude_km, 0, " km")}</strong></span></div><button class="button" type="button" data-view="operate">Open in Operate</button>`;
+}
+
 function renderWorldMap() {
   const selected = state.plannerSettings?.map_sat_ids || ["iss-zarya"];
+  const visible = selected.filter((satId) => !state.mapHiddenSatIds.has(satId));
   const { width, height } = mapDimensions();
+  const minimumZoom = minimumMapZoom();
   if (!mapState.initialized) {
-    mapState.zoom = width >= 850 ? 2 : 1;
-    if (finite(state.system?.location?.lat) && finite(state.system?.location?.lon)) {
-      mapState.centerLat = Number(state.system.location.lat);
-      mapState.centerLon = Number(state.system.location.lon);
-    }
+    mapState.zoom = minimumZoom;
+    mapState.centerLat = 0;
+    mapState.centerLon = 0;
     mapState.initialized = true;
-  }
+  } else if (mapState.zoom < minimumZoom) mapState.zoom = minimumZoom;
   byId("mapFallback").setAttribute("viewBox", `0 0 ${width} ${height}`);
   byId("mapOverlay").setAttribute("viewBox", `0 0 ${width} ${height}`);
   byId("mapFallback").querySelector("rect").setAttribute("width", width);
@@ -457,15 +525,46 @@ function renderWorldMap() {
   const latitudeLines = [-60, -30, 0, 30, 60].map((lat) => worldPath([...Array(37)].map((_, index) => ({ lat, lon: -180 + index * 10 }))));
   byId("worldGrid").innerHTML = [...longitudeLines, ...latitudeLines].map((path) => `<path class="world-grid-line" d="${path}"></path>`).join("");
   byId("worldLand").innerHTML = (window.TRACKER_HEMISPHERE_LAND || []).map((ring) => `<path class="world-land" d="${worldPath(ring.map(([lon, lat]) => ({ lat, lon })))}"></path>`).join("");
-  byId("worldTracks").innerHTML = selected.map((satId, index) => `<path class="world-track" stroke="${mapColors[index % mapColors.length]}" d="${worldPath((state.mapPaths[satId] || []).map((item) => ({ lat: item.subpoint_lat, lon: item.subpoint_lon })))}"></path>`).join("");
   const tracks = state.system?.tracks || [];
-  const markers = selected.map((satId, index) => {
+  const now = Date.now();
+  byId("worldTracks").innerHTML = visible.map((satId) => {
+    const index = selected.indexOf(satId);
+    const items = state.mapPaths[satId] || [];
+    let split = items.findIndex((item) => (asDate(item.timestamp)?.getTime() || 0) >= now);
+    if (split < 0) split = items.length;
+    const past = items.slice(0, Math.min(items.length, split + 1));
+    const future = items.slice(Math.max(0, split));
+    const color = mapColors[index % mapColors.length];
+    return `<path class="world-track world-track-past" stroke="${color}" d="${worldPath(past.map((item) => ({ lat: item.subpoint_lat, lon: item.subpoint_lon })))}"></path><path class="world-track world-track-future" stroke="${color}" d="${worldPath(future.map((item) => ({ lat: item.subpoint_lat, lon: item.subpoint_lon })))}"></path>`;
+  }).join("");
+  byId("worldFootprints").innerHTML = visible.map((satId) => {
+    const index = selected.indexOf(satId);
+    const track = tracks.find((item) => item.sat_id === satId);
+    const points = footprintPoints(track);
+    return points.length ? `<path class="world-footprint" fill="${mapColors[index % mapColors.length]}" stroke="${mapColors[index % mapColors.length]}" d="${worldPath(points)} Z"></path>` : "";
+  }).join("");
+  const eventLabels = [["A", "aos"], ["T", "tca"], ["L", "los"]];
+  byId("worldEvents").innerHTML = visible.map((satId) => {
+    const index = selected.indexOf(satId);
+    const items = state.mapPaths[satId] || [];
+    const pass = state.passes.find((item) => item.sat_id === satId && (asDate(item.los)?.getTime() || 0) > now);
+    if (!pass) return "";
+    return eventLabels.map(([label, field]) => {
+      const item = nearestTrackPoint(items, pass[field]);
+      if (!item) return "";
+      const point = projectWorld(item.subpoint_lat, item.subpoint_lon);
+      const color = mapColors[index % mapColors.length];
+      return `<g class="world-event"><circle stroke="${color}" cx="${point.x}" cy="${point.y}" r="5"></circle><text x="${point.x + 8}" y="${point.y - 7}">${label}</text></g>`;
+    }).join("");
+  }).join("");
+  const markers = visible.map((satId) => {
+    const index = selected.indexOf(satId);
     const track = tracks.find((item) => item.sat_id === satId);
     if (!finite(track?.subpoint_lat) || !finite(track?.subpoint_lon)) return "";
     const point = projectWorld(track.subpoint_lat, track.subpoint_lon);
     const color = mapColors[index % mapColors.length];
     const labelOnLeft = point.x > width - 130;
-    return `<g><circle class="world-marker-halo" fill="${color}" cx="${point.x}" cy="${point.y}" r="16"></circle><circle class="world-marker" fill="${color}" cx="${point.x}" cy="${point.y}" r="6"></circle><text class="world-label" x="${point.x + (labelOnLeft ? -11 : 11)}" y="${point.y - 9}" text-anchor="${labelOnLeft ? "end" : "start"}">${escapeHtml(satelliteName(satId))}</text></g>`;
+    return `<g><circle class="world-marker-halo" fill="${color}" cx="${point.x}" cy="${point.y}" r="16"></circle><circle class="world-marker" fill="${color}" cx="${point.x}" cy="${point.y}" r="6"></circle><circle class="satellite-map-hit" role="button" tabindex="0" aria-label="Focus ${escapeHtml(satelliteName(satId))}" data-map-focus="${escapeHtml(satId)}" cx="${point.x}" cy="${point.y}" r="18"></circle><text class="world-label" x="${point.x + (labelOnLeft ? -11 : 11)}" y="${point.y - 9}" text-anchor="${labelOnLeft ? "end" : "start"}">${escapeHtml(satelliteName(satId))}</text></g>`;
   }).join("");
   const location = state.system?.location;
   let station = "";
@@ -474,7 +573,9 @@ function renderWorldMap() {
     station = `<path class="station-marker" transform="translate(${point.x} ${point.y})" d="M 0 -8 L 7 6 L 0 3 L -7 6 Z"></path>`;
   }
   byId("worldMarkers").innerHTML = markers + station;
-  byId("mapLegend").innerHTML = selected.map((satId, index) => `<span><i style="background:${mapColors[index % mapColors.length]}"></i>${escapeHtml(satelliteName(satId))}</span>`).join("") + '<span><i style="background:var(--attention)"></i>Your station</span>';
+  byId("mapLegend").innerHTML = selected.map((satId, index) => `<button type="button" data-map-legend="${escapeHtml(satId)}" aria-pressed="${String(!state.mapHiddenSatIds.has(satId))}"><i style="background:${mapColors[index % mapColors.length]}"></i>${escapeHtml(satelliteName(satId))}</button>`).join("") + '<span><i style="background:var(--attention)"></i>Your station</span>';
+  renderLighting();
+  renderMapFocusCard();
   renderMapTiles();
 }
 
@@ -482,8 +583,18 @@ async function loadMapTracks() {
   const selected = state.plannerSettings?.map_sat_ids || ["iss-zarya"];
   const missing = selected.filter((satId) => !state.mapPaths[satId]);
   if (missing.length) {
-    const results = await Promise.all(missing.map((satId) => api(`/api/v1/track/path?sat_id=${encodeURIComponent(satId)}&minutes=180&step_seconds=90`)));
-    results.forEach((result, index) => { state.mapPaths[missing[index]] = result.items || []; });
+    const now = new Date();
+    const pastStart = new Date(now.getTime() - 90 * 60000).toISOString();
+    const nowIso = now.toISOString();
+    const results = await Promise.all(missing.map(async (satId) => {
+      const encoded = encodeURIComponent(satId);
+      const [past, future] = await Promise.all([
+        api(`/api/v1/track/path?sat_id=${encoded}&minutes=90&step_seconds=90&start_time=${encodeURIComponent(pastStart)}`),
+        api(`/api/v1/track/path?sat_id=${encoded}&minutes=240&step_seconds=90&start_time=${encodeURIComponent(nowIso)}`),
+      ]);
+      return [...(past.items || []), ...(future.items || []).slice(1)];
+    }));
+    results.forEach((items, index) => { state.mapPaths[missing[index]] = items; });
   }
   renderWorldMap();
 }
@@ -491,6 +602,7 @@ async function loadMapTracks() {
 async function savePlannerSettings(startupSatId, mapSatIds) {
   const payload = await post("/api/v1/settings/planner", { startup_sat_id: startupSatId, map_sat_ids: mapSatIds });
   state.plannerSettings = payload.state;
+  if (!state.mapSelectedSatId || !payload.state.map_sat_ids.includes(state.mapSelectedSatId)) state.mapSelectedSatId = payload.state.startup_sat_id;
   state.mapPaths = {};
   renderPlannerSettings();
   await loadMapTracks();
@@ -595,6 +707,7 @@ async function refreshData(showErrors = true) {
     state.aprs = aprs;
     state.plannerSettings = planner.state;
     state.availableSatellites = planner.availableSatellites || [];
+    if (!state.mapSelectedSatId) state.mapSelectedSatId = state.plannerSettings?.startup_sat_id || "iss-zarya";
     if (!state.selectedPass) state.selectedPass = state.passes.find((item) => item.sat_id === state.plannerSettings?.startup_sat_id) || null;
     if (state.selectedPass) state.selectedPass = state.passes.find((item) => item.sat_id === state.selectedPass.sat_id && item.aos === state.selectedPass.aos) || state.selectedPass;
     render();
@@ -617,6 +730,23 @@ document.addEventListener("click", async (event) => {
     renderWorldMap();
   }
 
+  const legend = event.target.closest("[data-map-legend]");
+  if (legend) {
+    const satId = legend.dataset.mapLegend;
+    if (state.mapHiddenSatIds.has(satId)) state.mapHiddenSatIds.delete(satId);
+    else state.mapHiddenSatIds.add(satId);
+    renderWorldMap();
+  }
+
+  const mapFocus = event.target.closest("[data-map-focus]");
+  if (mapFocus) {
+    const satId = mapFocus.dataset.mapFocus;
+    state.mapSelectedSatId = satId;
+    state.selectedPass = state.passes.find((item) => item.sat_id === satId && (asDate(item.los)?.getTime() || 0) > Date.now()) || state.selectedPass;
+    renderWorldMap();
+    if (state.selectedPass?.sat_id === satId) await refreshData(false);
+  }
+
   const context = event.target.closest("[data-context]");
   if (context) {
     state.context = context.dataset.context;
@@ -635,7 +765,7 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if ((event.key === "Enter" || event.key === " ") && event.target.matches("[data-focus-key]")) event.target.click();
+  if ((event.key === "Enter" || event.key === " ") && event.target.matches("[data-focus-key], [data-map-focus]")) event.target.click();
 });
 
 ["passSatellite", "passElevation", "passRadioOnly"].forEach((id) => byId(id).addEventListener("change", () => {
@@ -671,14 +801,23 @@ byId("addMapSatellite").addEventListener("change", async (event) => {
 });
 
 function setMapZoom(zoom) {
-  mapState.zoom = Math.max(1, Math.min(7, zoom));
+  mapState.zoom = Math.max(minimumMapZoom(), Math.min(7, zoom));
   renderWorldMap();
 }
 
 byId("mapZoomIn").addEventListener("click", () => setMapZoom(mapState.zoom + 1));
 byId("mapZoomOut").addEventListener("click", () => setMapZoom(mapState.zoom - 1));
+byId("mapLocate").addEventListener("click", () => {
+  const satId = state.mapSelectedSatId || state.plannerSettings?.startup_sat_id;
+  const track = (state.system?.tracks || []).find((item) => item.sat_id === satId);
+  if (!finite(track?.subpoint_lat) || !finite(track?.subpoint_lon)) return;
+  mapState.centerLat = Number(track.subpoint_lat);
+  mapState.centerLon = Number(track.subpoint_lon);
+  mapState.zoom = Math.max(mapState.zoom, minimumMapZoom() + 1);
+  renderWorldMap();
+});
 byId("mapReset").addEventListener("click", () => {
-  mapState.zoom = mapDimensions().width >= 850 ? 2 : 1;
+  mapState.zoom = minimumMapZoom();
   mapState.centerLat = 0;
   mapState.centerLon = 0;
   renderWorldMap();
