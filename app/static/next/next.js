@@ -5,8 +5,15 @@ const state = {
   passes: [],
   selectedPass: null,
   aprs: null,
+  plannerView: "timeline",
+  plannerSettings: null,
+  availableSatellites: [],
+  mapPaths: {},
+  passVisible: 12,
   busy: false,
 };
+
+const mapColors = ["#4ad1c3", "#ffbd52", "#8aa8ff", "#d98cff", "#ff7b72"];
 
 const byId = (id) => document.getElementById(id);
 const finite = (value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
@@ -272,9 +279,128 @@ function renderContext() {
   }
 }
 
+function filteredPasses() {
+  const hours = Number(byId("passWindow")?.value || 24);
+  const satellite = byId("passSatellite")?.value || "";
+  const minimum = Number(byId("passElevation")?.value || 0);
+  const radioOnly = !!byId("passRadioOnly")?.checked;
+  const end = Date.now() + hours * 3600000;
+  return state.passes.filter((pass) => {
+    const aos = asDate(pass.aos)?.getTime() || 0;
+    return aos <= end && (!satellite || pass.sat_id === satellite) && Number(pass.max_el_deg || 0) >= minimum && (!radioOnly || !!pass.frequencyRecommendation);
+  });
+}
+
+function periodLabel(value) {
+  const date = asDate(value);
+  if (!date) return "Later";
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
+  const day = sameDay ? "Today" : date.toDateString() === tomorrow.toDateString() ? "Tomorrow" : date.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+  const part = date.getHours() < 12 ? "morning" : date.getHours() < 17 ? "afternoon" : "evening";
+  return `${day} ${part}`;
+}
+
+function renderPassFilters() {
+  const current = byId("passSatellite").value;
+  const satellites = [...new Map(state.passes.map((pass) => [pass.sat_id, pass.name || pass.sat_id])).entries()];
+  byId("passSatellite").innerHTML = '<option value="">All tracked</option>' + satellites.map(([id, name]) => `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`).join("");
+  byId("passSatellite").value = satellites.some(([id]) => id === current) ? current : "";
+}
+
 function renderPasses() {
-  byId("passCount").textContent = `${state.passes.length} qualifying passes`;
-  byId("passTable").innerHTML = `<div class="pass-table-row header"><span>Satellite</span><span>AOS</span><span>TCA</span><span>LOS</span><span>Max el</span><span></span></div>${state.passes.map((pass) => `<div class="pass-table-row"><strong>${escapeHtml(pass.name || pass.sat_id)}</strong><span>${time(pass.aos)}</span><span>${time(pass.tca)}</span><span>${time(pass.los)}</span><span>${number(pass.max_el_deg, 1, "°")}</span><button class="button" type="button" data-focus-key="${escapeHtml(pass.sat_id)}|${escapeHtml(pass.aos)}">Focus pass</button></div>`).join("") || '<div class="queue-empty">No qualifying passes.</div>'}`;
+  renderPassFilters();
+  const passes = filteredPasses();
+  byId("passCount").textContent = `${passes.length} qualifying ${passes.length === 1 ? "pass" : "passes"}`;
+  byId("passHighlights").innerHTML = passes.slice(0, 3).map((pass, index) => `<button class="pass-highlight" type="button" data-focus-key="${escapeHtml(pass.sat_id)}|${escapeHtml(pass.aos)}"><span>${index === 0 ? "Next opportunity" : `Opportunity ${index + 1}`}</span><strong>${escapeHtml(pass.name || pass.sat_id)}</strong><time>${time(pass.aos)}</time><small>Peak ${number(pass.max_el_deg, 1, "°")} · ${pass.frequencyRecommendation ? "radio guide" : "tracking only"}</small></button>`).join("");
+  let period = "";
+  const visible = passes.slice(0, state.passVisible);
+  const rows = visible.map((pass) => {
+    const nextPeriod = periodLabel(pass.aos);
+    const heading = nextPeriod !== period ? `<div class="pass-period">${escapeHtml(nextPeriod)}</div>` : "";
+    period = nextPeriod;
+    return `${heading}<div class="pass-table-row" role="button" tabindex="0" data-focus-key="${escapeHtml(pass.sat_id)}|${escapeHtml(pass.aos)}"><strong>${escapeHtml(pass.name || pass.sat_id)}</strong><span>${time(pass.aos)}</span><span>${time(pass.tca)}</span><span>${time(pass.los)}</span><span>${number(pass.max_el_deg, 1, "°")}<span class="elevation-meter"><i style="width:${Math.min(100, Number(pass.max_el_deg || 0))}%"></i></span></span><small>${pass.frequencyRecommendation ? "Radio guide" : "Tracking"}</small></div>`;
+  }).join("");
+  byId("passTable").innerHTML = rows || '<div class="queue-empty">No passes match these filters.</div>';
+  byId("showMorePasses").classList.toggle("hidden", passes.length <= state.passVisible);
+}
+
+function projectWorld(lat, lon) {
+  return { x: (Number(lon) + 180) / 360 * 1000, y: (90 - Number(lat)) / 180 * 500 };
+}
+
+function worldPath(points) {
+  const segments = [];
+  let current = [];
+  for (const point of points || []) {
+    const projected = projectWorld(point.lat, point.lon);
+    if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y)) continue;
+    if (current.length && Math.abs(projected.x - current[current.length - 1].x) > 400) {
+      if (current.length > 1) segments.push(current);
+      current = [];
+    }
+    current.push(projected);
+  }
+  if (current.length > 1) segments.push(current);
+  return segments.map((segment) => `M ${segment.map((point) => `${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" L ")}`).join(" ");
+}
+
+function satelliteName(satId) {
+  return state.availableSatellites.find((sat) => sat.sat_id === satId)?.name || state.passes.find((pass) => pass.sat_id === satId)?.name || satId;
+}
+
+function renderPlannerSettings() {
+  const settings = state.plannerSettings || { startup_sat_id: "iss-zarya", map_sat_ids: ["iss-zarya"] };
+  const options = state.availableSatellites.map((sat) => `<option value="${escapeHtml(sat.sat_id)}">${escapeHtml(sat.name)}</option>`).join("");
+  byId("startupSatellite").innerHTML = options;
+  byId("startupSatellite").value = settings.startup_sat_id;
+  const selected = settings.map_sat_ids || [];
+  byId("mapSatelliteChoices").innerHTML = selected.map((satId, index) => `<label class="map-choice"><input type="checkbox" checked data-map-sat="${escapeHtml(satId)}" ${satId === settings.startup_sat_id ? "disabled" : ""}/><i style="background:${mapColors[index % mapColors.length]}"></i><span>${escapeHtml(satelliteName(satId))}${satId === settings.startup_sat_id ? " · startup" : ""}</span></label>`).join("");
+  byId("addMapSatellite").innerHTML = '<option value="">Add satellite track…</option>' + state.availableSatellites.filter((sat) => !selected.includes(sat.sat_id)).map((sat) => `<option value="${escapeHtml(sat.sat_id)}">${escapeHtml(sat.name)}</option>`).join("");
+  byId("addMapSatellite").disabled = selected.length >= 5;
+}
+
+function renderWorldMap() {
+  const selected = state.plannerSettings?.map_sat_ids || ["iss-zarya"];
+  byId("worldGrid").innerHTML = [...Array(11)].map((_, index) => `<path class="world-grid-line" d="M ${index * 100} 0 V 500"></path>`).join("") + [...Array(5)].map((_, index) => `<path class="world-grid-line" d="M 0 ${(index + 1) * 100} H 1000"></path>`).join("");
+  byId("worldLand").innerHTML = (window.TRACKER_HEMISPHERE_LAND || []).map((ring) => `<path class="world-land" d="${worldPath(ring.map(([lon, lat]) => ({ lat, lon })))}"></path>`).join("");
+  byId("worldTracks").innerHTML = selected.map((satId, index) => `<path class="world-track" stroke="${mapColors[index % mapColors.length]}" d="${worldPath((state.mapPaths[satId] || []).map((item) => ({ lat: item.subpoint_lat, lon: item.subpoint_lon })))}"></path>`).join("");
+  const tracks = state.system?.tracks || [];
+  const markers = selected.map((satId, index) => {
+    const track = tracks.find((item) => item.sat_id === satId);
+    if (!finite(track?.subpoint_lat) || !finite(track?.subpoint_lon)) return "";
+    const point = projectWorld(track.subpoint_lat, track.subpoint_lon);
+    const color = mapColors[index % mapColors.length];
+    return `<g><circle class="world-marker-halo" fill="${color}" cx="${point.x}" cy="${point.y}" r="16"></circle><circle class="world-marker" fill="${color}" cx="${point.x}" cy="${point.y}" r="6"></circle><text class="world-label" x="${point.x + 11}" y="${point.y - 9}">${escapeHtml(satelliteName(satId))}</text></g>`;
+  }).join("");
+  const location = state.system?.location;
+  let station = "";
+  if (finite(location?.lat) && finite(location?.lon)) {
+    const point = projectWorld(location.lat, location.lon);
+    station = `<path class="station-marker" transform="translate(${point.x} ${point.y})" d="M 0 -8 L 7 6 L 0 3 L -7 6 Z"></path>`;
+  }
+  byId("worldMarkers").innerHTML = markers + station;
+  byId("mapLegend").innerHTML = selected.map((satId, index) => `<span><i style="background:${mapColors[index % mapColors.length]}"></i>${escapeHtml(satelliteName(satId))}</span>`).join("") + '<span><i style="background:var(--attention)"></i>Your station</span>';
+  renderPlannerSettings();
+}
+
+async function loadMapTracks() {
+  const selected = state.plannerSettings?.map_sat_ids || ["iss-zarya"];
+  const missing = selected.filter((satId) => !state.mapPaths[satId]);
+  if (missing.length) {
+    const results = await Promise.all(missing.map((satId) => api(`/api/v1/track/path?sat_id=${encodeURIComponent(satId)}&minutes=180&step_seconds=90`)));
+    results.forEach((result, index) => { state.mapPaths[missing[index]] = result.items || []; });
+  }
+  renderWorldMap();
+}
+
+async function savePlannerSettings(startupSatId, mapSatIds) {
+  const payload = await post("/api/v1/settings/planner", { startup_sat_id: startupSatId, map_sat_ids: mapSatIds });
+  state.plannerSettings = payload.state;
+  state.mapPaths = {};
+  renderPlannerSettings();
+  await loadMapTracks();
 }
 
 function renderActivity() {
@@ -293,6 +419,8 @@ function render() {
   renderOperate();
   renderPasses();
   renderActivity();
+  renderPlannerSettings();
+  if (state.plannerView === "map") renderWorldMap();
 }
 
 function switchView(view) {
@@ -302,6 +430,16 @@ function switchView(view) {
     if (control.dataset.view === view) control.setAttribute("aria-current", "page");
     else control.removeAttribute("aria-current");
   });
+}
+
+async function switchPlannerView(view) {
+  state.plannerView = view;
+  byId("timelinePlanner").classList.toggle("hidden", view !== "timeline");
+  byId("mapPlanner").classList.toggle("hidden", view !== "map");
+  document.querySelectorAll("[data-planner-view]").forEach((control) => control.setAttribute("aria-selected", String(control.dataset.plannerView === view)));
+  if (view === "map") {
+    try { await loadMapTracks(); } catch (error) { showNotice(`Unable to load ground tracks: ${error instanceof Error ? error.message : String(error)}`, true); }
+  }
 }
 
 async function runPrimaryAction() {
@@ -352,14 +490,19 @@ async function stopControl() {
 
 async function refreshData(showErrors = true) {
   try {
-    const [system, passes, aprs] = await Promise.all([
+    const hours = Number(byId("passWindow")?.value || 24);
+    const [system, passes, aprs, planner] = await Promise.all([
       api(`/api/v1/system/state${state.selectedPass ? `?sat_id=${encodeURIComponent(state.selectedPass.sat_id)}` : ""}`),
-      api("/api/v1/passes?hours=24&include_ongoing=true"),
+      api(`/api/v1/passes?hours=${hours}&include_ongoing=true`),
       api("/api/v1/aprs/state"),
+      api("/api/v1/settings/planner"),
     ]);
     state.system = system;
     state.passes = Array.isArray(passes.items) ? passes.items : [];
     state.aprs = aprs;
+    state.plannerSettings = planner.state;
+    state.availableSatellites = planner.availableSatellites || [];
+    if (!state.selectedPass) state.selectedPass = state.passes.find((item) => item.sat_id === state.plannerSettings?.startup_sat_id) || null;
     if (state.selectedPass) state.selectedPass = state.passes.find((item) => item.sat_id === state.selectedPass.sat_id && item.aos === state.selectedPass.aos) || state.selectedPass;
     render();
   } catch (error) {
@@ -370,6 +513,9 @@ async function refreshData(showErrors = true) {
 document.addEventListener("click", async (event) => {
   const view = event.target.closest("[data-view]");
   if (view) switchView(view.dataset.view);
+
+  const plannerView = event.target.closest("[data-planner-view]");
+  if (plannerView) await switchPlannerView(plannerView.dataset.plannerView);
 
   const context = event.target.closest("[data-context]");
   if (context) {
@@ -386,6 +532,42 @@ document.addEventListener("click", async (event) => {
     switchView("operate");
     await refreshData();
   }
+});
+
+document.addEventListener("keydown", (event) => {
+  if ((event.key === "Enter" || event.key === " ") && event.target.matches("[data-focus-key]")) event.target.click();
+});
+
+["passSatellite", "passElevation", "passRadioOnly"].forEach((id) => byId(id).addEventListener("change", () => {
+  state.passVisible = 12;
+  renderPasses();
+}));
+byId("passWindow").addEventListener("change", async () => {
+  state.passVisible = 12;
+  await refreshData();
+});
+byId("showMorePasses").addEventListener("click", () => {
+  state.passVisible += 12;
+  renderPasses();
+});
+byId("startupSatellite").addEventListener("change", async (event) => {
+  const startup = event.target.value;
+  const selected = [...(state.plannerSettings?.map_sat_ids || [])].filter((id) => id !== startup);
+  selected.unshift(startup);
+  if (selected.length > 5) selected.pop();
+  try { await savePlannerSettings(startup, selected); } catch (error) { showNotice(error instanceof Error ? error.message : String(error), true); }
+});
+byId("mapSatelliteChoices").addEventListener("change", async (event) => {
+  const satId = event.target.dataset.mapSat;
+  if (!satId || event.target.checked) return;
+  const selected = (state.plannerSettings?.map_sat_ids || []).filter((id) => id !== satId);
+  try { await savePlannerSettings(state.plannerSettings.startup_sat_id, selected); } catch (error) { showNotice(error instanceof Error ? error.message : String(error), true); }
+});
+byId("addMapSatellite").addEventListener("change", async (event) => {
+  const satId = event.target.value;
+  if (!satId) return;
+  const selected = [...(state.plannerSettings?.map_sat_ids || []), satId];
+  try { await savePlannerSettings(state.plannerSettings.startup_sat_id, selected); } catch (error) { showNotice(error instanceof Error ? error.message : String(error), true); }
 });
 
 byId("primaryAction").addEventListener("click", runPrimaryAction);

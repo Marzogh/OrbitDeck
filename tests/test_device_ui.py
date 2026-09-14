@@ -63,3 +63,5 @@ def test_next_route_serves_operator_workspace(tmp_path):
     assert resp.status_code == 200
     assert "OrbitDeck Operator Workspace" in resp.text
     assert "/static/next/next.js" in resp.text
+    assert 'id="worldMap"' in resp.text
+    assert "World map" in resp.text

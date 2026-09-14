@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0b0e11" />
     <title>OrbitDeck Operator Workspace</title>
-    <link rel="stylesheet" href="/static/next/next.css?v=20260914a" />
-    <script defer src="/static/next/next.js?v=20260914a"></script>
+    <link rel="stylesheet" href="/static/next/next.css?v=20260914b" />
+    <script defer src="/static/common/hemisphere-land.js"></script>
+    <script defer src="/static/next/next.js?v=20260914b"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -121,8 +122,42 @@
         </section>
 
         <section id="passesView" class="page-view hidden" data-panel="passes">
-          <div class="page-heading"><div><span class="eyebrow">Planning</span><h1>Upcoming passes</h1></div><span id="passCount">—</span></div>
-          <div id="passTable" class="pass-table"></div>
+          <div class="page-heading planner-heading">
+            <div><span class="eyebrow">Planning</span><h1>Satellite opportunities</h1></div>
+            <div class="view-switch" role="tablist" aria-label="Pass presentation">
+              <button type="button" data-planner-view="timeline" aria-selected="true">Timeline</button>
+              <button type="button" data-planner-view="map" aria-selected="false">World map</button>
+            </div>
+          </div>
+          <div class="planner-filters" aria-label="Pass filters">
+            <label><span>Window</span><select id="passWindow"><option value="6">Next 6 hours</option><option value="24" selected>Next 24 hours</option><option value="72">Next 3 days</option></select></label>
+            <label><span>Satellite</span><select id="passSatellite"><option value="">All tracked</option></select></label>
+            <label><span>Minimum elevation</span><select id="passElevation"><option value="0">Any elevation</option><option value="10">10° or higher</option><option value="20">20° or higher</option><option value="30">30° or higher</option></select></label>
+            <label class="filter-check"><input id="passRadioOnly" type="checkbox" /><span>Radio guide only</span></label>
+            <span id="passCount" class="filter-result">—</span>
+          </div>
+          <div id="timelinePlanner" class="planner-panel">
+            <div id="passHighlights" class="pass-highlights"></div>
+            <div id="passTable" class="pass-table"></div>
+            <button id="showMorePasses" class="button show-more hidden" type="button">Show later passes</button>
+          </div>
+          <div id="mapPlanner" class="planner-panel hidden">
+            <div class="map-layout">
+              <div class="world-map-card">
+                <svg id="worldMap" viewBox="0 0 1000 500" role="img" aria-labelledby="worldMapTitle worldMapDesc">
+                  <title id="worldMapTitle">Selected satellite ground tracks</title>
+                  <desc id="worldMapDesc">World map showing current positions and future tracks for selected satellites.</desc>
+                  <rect class="world-ocean" width="1000" height="500" rx="18"></rect>
+                  <g id="worldGrid"></g><g id="worldLand"></g><g id="worldTracks"></g><g id="worldMarkers"></g>
+                </svg>
+                <div id="mapLegend" class="map-legend"></div>
+              </div>
+              <aside class="map-controls">
+                <div><span class="eyebrow">Startup focus</span><select id="startupSatellite" aria-label="Startup satellite"></select><p>OrbitDeck opens focused on this satellite. New installations begin with the ISS.</p></div>
+                <div><span class="eyebrow">Tracks on map</span><div id="mapSatelliteChoices" class="map-satellite-choices"></div><select id="addMapSatellite" aria-label="Add satellite track"><option value="">Add satellite track…</option></select><p>Select up to five. Choices are stored on OrbitDeck for every browser.</p></div>
+              </aside>
+            </div>
+          </div>
         </section>
 
         <section id="activityView" class="page-view hidden" data-panel="activity">

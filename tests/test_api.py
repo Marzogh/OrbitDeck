@@ -1389,6 +1389,37 @@ def test_set_and_get_lite_settings_preserves_explicit_non_iss_selection(tmp_path
     assert get_resp.json()["state"]["tracked_sat_ids"] == chosen
 
 
+def test_planner_settings_default_to_iss_and_persist_map_selection(tmp_path):
+    client = make_client(tmp_path)
+
+    initial = client.get("/api/v1/settings/planner")
+    assert initial.status_code == 200
+    assert initial.json()["state"] == {"startup_sat_id": "iss-zarya", "map_sat_ids": ["iss-zarya"]}
+
+    satellites = initial.json()["availableSatellites"]
+    alternate = next(item["sat_id"] for item in satellites if item["sat_id"] != "iss-zarya")
+    saved = client.post(
+        "/api/v1/settings/planner",
+        json={"startup_sat_id": alternate, "map_sat_ids": ["iss-zarya", alternate]},
+    )
+
+    assert saved.status_code == 200
+    assert saved.json()["state"]["startup_sat_id"] == alternate
+    assert saved.json()["state"]["map_sat_ids"] == ["iss-zarya", alternate]
+    assert client.get("/api/v1/settings/planner").json()["state"] == saved.json()["state"]
+
+
+def test_planner_settings_reject_invalid_startup_satellite(tmp_path):
+    client = make_client(tmp_path)
+
+    resp = client.post(
+        "/api/v1/settings/planner",
+        json={"startup_sat_id": "not-a-satellite", "map_sat_ids": ["iss-zarya"]},
+    )
+
+    assert resp.status_code == 400
+
+
 def test_get_timezones_returns_full_server_timezone_catalog(tmp_path):
     client = make_client(tmp_path)
 

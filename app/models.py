@@ -257,6 +257,11 @@ class LiteSettings(BaseModel):
     setup_complete: bool = False
 
 
+class PlannerSettings(BaseModel):
+    startup_sat_id: str = "iss-zarya"
+    map_sat_ids: list[str] = Field(default_factory=lambda: ["iss-zarya"])
+
+
 class DeveloperOverridesSettings(BaseModel):
     enabled: bool = False
     force_scene: DeveloperSceneMode = DeveloperSceneMode.auto
@@ -420,6 +425,11 @@ class CachePolicyUpdate(BaseModel):
 class LiteSettingsUpdate(BaseModel):
     tracked_sat_ids: list[str] = Field(default_factory=list)
     setup_complete: bool = True
+
+
+class PlannerSettingsUpdate(BaseModel):
+    startup_sat_id: str
+    map_sat_ids: list[str] = Field(default_factory=list)
 
 
 class DatasetSnapshot(BaseModel):
@@ -680,6 +690,7 @@ class PersistedState(BaseModel):
     aprs_settings: AprsSettings = Field(default_factory=AprsSettings)
     cache_policy: CachePolicy = Field(default_factory=CachePolicy)
     lite_settings: LiteSettings = Field(default_factory=LiteSettings)
+    planner_settings: PlannerSettings = Field(default_factory=PlannerSettings)
     snapshots: list[DatasetSnapshot] = Field(default_factory=list)
 
 

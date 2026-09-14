@@ -50,6 +50,7 @@ from app.models import (
     PassEvent,
     PassFilterUpdate,
     PassProfileMode,
+    PlannerSettingsUpdate,
     RadioApplyRequest,
     RadioAutoTrackStartRequest,
     RadioControlSessionSelectRequest,
@@ -1939,6 +1940,31 @@ def post_lite_settings(payload: LiteSettingsUpdate) -> dict:
     _invalidate_lite_snapshot_cache()
     _invalidate_pass_cache()
     return {"state": state.lite_settings}
+
+
+@app.get("/api/v1/settings/planner")
+def get_planner_settings() -> dict:
+    state = store.get()
+    return {"state": state.planner_settings, "availableSatellites": tracking_service.satellites()}
+
+
+@app.post("/api/v1/settings/planner")
+def post_planner_settings(payload: PlannerSettingsUpdate) -> dict:
+    state = store.get()
+    valid_ids = {sat.sat_id for sat in tracking_service.satellites()}
+    startup_sat_id = str(payload.startup_sat_id or "").strip()
+    if startup_sat_id not in valid_ids:
+        raise HTTPException(status_code=400, detail="startup_sat_id must identify a valid satellite")
+    map_sat_ids = list(dict.fromkeys(str(item or "").strip() for item in payload.map_sat_ids))
+    map_sat_ids = [item for item in map_sat_ids if item in valid_ids]
+    if startup_sat_id not in map_sat_ids:
+        map_sat_ids.insert(0, startup_sat_id)
+    if len(map_sat_ids) > 5:
+        raise HTTPException(status_code=400, detail="map_sat_ids may contain at most 5 satellites")
+    state.planner_settings.startup_sat_id = startup_sat_id
+    state.planner_settings.map_sat_ids = map_sat_ids
+    store.save(state)
+    return {"state": state.planner_settings}
 
 
 @app.get("/api/v1/iss/state")
