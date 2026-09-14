@@ -65,3 +65,6 @@ def test_next_route_serves_operator_workspace(tmp_path):
     assert "/static/next/next.js" in resp.text
     assert 'id="worldMap"' in resp.text
     assert "World map" in resp.text
+    assert 'data-basemap="terrain"' in resp.text
+    assert 'data-basemap="satellite"' in resp.text
+    assert 'data-basemap="outline"' in resp.text

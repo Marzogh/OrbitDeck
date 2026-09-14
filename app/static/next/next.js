@@ -14,6 +14,28 @@ const state = {
 };
 
 const mapColors = ["#4ad1c3", "#ffbd52", "#8aa8ff", "#d98cff", "#ff7b72"];
+const mapState = {
+  zoom: 2,
+  centerLat: 0,
+  centerLon: 0,
+  basemap: localStorage.getItem("orbitdeck.basemap") || "terrain",
+  drag: null,
+  initialized: false,
+};
+const esriBasemaps = {
+  terrain: {
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+    attribution: "Tiles © Esri — Sources: Esri, HERE, Garmin, USGS, FAO, NOAA, and the GIS User Community",
+  },
+  satellite: {
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution: "Imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+  },
+  outline: {
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+    attribution: "Boundaries and places © Esri, HERE, Garmin, FAO, NOAA, USGS, and contributors",
+  },
+};
 
 const byId = (id) => document.getElementById(id);
 const finite = (value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
@@ -326,17 +348,36 @@ function renderPasses() {
   byId("showMorePasses").classList.toggle("hidden", passes.length <= state.passVisible);
 }
 
+function mapSize() { return 256 * (2 ** mapState.zoom); }
+function longitudeToWorld(lon) { return (Number(lon) + 180) / 360 * mapSize(); }
+function latitudeToWorld(lat) {
+  const limited = Math.max(-85.0511, Math.min(85.0511, Number(lat)));
+  const rad = limited * Math.PI / 180;
+  return (1 - Math.log(Math.tan(rad) + (1 / Math.cos(rad))) / Math.PI) / 2 * mapSize();
+}
+function worldToLongitude(x) { return x / mapSize() * 360 - 180; }
+function worldToLatitude(y) { return Math.atan(Math.sinh(Math.PI * (1 - 2 * y / mapSize()))) * 180 / Math.PI; }
+function mapDimensions() {
+  const rect = byId("worldMap").getBoundingClientRect();
+  return { width: Math.max(1, rect.width), height: Math.max(1, rect.height) };
+}
+function mapOrigin() {
+  const { width, height } = mapDimensions();
+  return { x: longitudeToWorld(mapState.centerLon) - width / 2, y: latitudeToWorld(mapState.centerLat) - height / 2 };
+}
 function projectWorld(lat, lon) {
-  return { x: (Number(lon) + 180) / 360 * 1000, y: (90 - Number(lat)) / 180 * 500 };
+  const origin = mapOrigin();
+  return { x: longitudeToWorld(lon) - origin.x, y: latitudeToWorld(lat) - origin.y };
 }
 
 function worldPath(points) {
   const segments = [];
   let current = [];
+  const threshold = mapSize() * .45;
   for (const point of points || []) {
     const projected = projectWorld(point.lat, point.lon);
     if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y)) continue;
-    if (current.length && Math.abs(projected.x - current[current.length - 1].x) > 400) {
+    if (current.length && Math.abs(projected.x - current[current.length - 1].x) > threshold) {
       if (current.length > 1) segments.push(current);
       current = [];
     }
@@ -344,6 +385,40 @@ function worldPath(points) {
   }
   if (current.length > 1) segments.push(current);
   return segments.map((segment) => `M ${segment.map((point) => `${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" L ")}`).join(" ");
+}
+
+function constrainMapCenter() {
+  const { width, height } = mapDimensions();
+  const size = mapSize();
+  let x = longitudeToWorld(mapState.centerLon);
+  let y = latitudeToWorld(mapState.centerLat);
+  x = size <= width ? size / 2 : Math.max(width / 2, Math.min(size - width / 2, x));
+  y = size <= height ? size / 2 : Math.max(height / 2, Math.min(size - height / 2, y));
+  mapState.centerLon = worldToLongitude(x);
+  mapState.centerLat = worldToLatitude(y);
+}
+
+function renderMapTiles() {
+  constrainMapCenter();
+  const layer = esriBasemaps[mapState.basemap] || esriBasemaps.terrain;
+  const { width, height } = mapDimensions();
+  const origin = mapOrigin();
+  const tileSize = 256;
+  const count = 2 ** mapState.zoom;
+  const startX = Math.floor(origin.x / tileSize);
+  const endX = Math.floor((origin.x + width) / tileSize);
+  const startY = Math.max(0, Math.floor(origin.y / tileSize));
+  const endY = Math.min(count - 1, Math.floor((origin.y + height) / tileSize));
+  const tiles = [];
+  for (let y = startY; y <= endY; y += 1) {
+    for (let x = Math.max(0, startX); x <= Math.min(count - 1, endX); x += 1) {
+      const src = layer.url.replace("{z}", mapState.zoom).replace("{y}", y).replace("{x}", x);
+      tiles.push(`<img class="map-tile" alt="" src="${src}" style="left:${Math.round(x * tileSize - origin.x)}px;top:${Math.round(y * tileSize - origin.y)}px" />`);
+    }
+  }
+  byId("mapTiles").innerHTML = tiles.join("");
+  byId("mapAttribution").innerHTML = `${escapeHtml(layer.attribution)} · <a href="https://www.esri.com/" target="_blank" rel="noopener">Esri</a>`;
+  document.querySelectorAll("[data-basemap]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.basemap === mapState.basemap)));
 }
 
 function satelliteName(satId) {
@@ -363,7 +438,18 @@ function renderPlannerSettings() {
 
 function renderWorldMap() {
   const selected = state.plannerSettings?.map_sat_ids || ["iss-zarya"];
-  byId("worldGrid").innerHTML = [...Array(11)].map((_, index) => `<path class="world-grid-line" d="M ${index * 100} 0 V 500"></path>`).join("") + [...Array(5)].map((_, index) => `<path class="world-grid-line" d="M 0 ${(index + 1) * 100} H 1000"></path>`).join("");
+  const { width, height } = mapDimensions();
+  if (!mapState.initialized) {
+    mapState.zoom = width >= 850 ? 2 : 1;
+    mapState.initialized = true;
+  }
+  byId("mapFallback").setAttribute("viewBox", `0 0 ${width} ${height}`);
+  byId("mapOverlay").setAttribute("viewBox", `0 0 ${width} ${height}`);
+  byId("mapFallback").querySelector("rect").setAttribute("width", width);
+  byId("mapFallback").querySelector("rect").setAttribute("height", height);
+  const longitudeLines = [-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150].map((lon) => worldPath([{ lat: -85, lon }, { lat: 85, lon }]));
+  const latitudeLines = [-60, -30, 0, 30, 60].map((lat) => worldPath([...Array(37)].map((_, index) => ({ lat, lon: -180 + index * 10 }))));
+  byId("worldGrid").innerHTML = [...longitudeLines, ...latitudeLines].map((path) => `<path class="world-grid-line" d="${path}"></path>`).join("");
   byId("worldLand").innerHTML = (window.TRACKER_HEMISPHERE_LAND || []).map((ring) => `<path class="world-land" d="${worldPath(ring.map(([lon, lat]) => ({ lat, lon })))}"></path>`).join("");
   byId("worldTracks").innerHTML = selected.map((satId, index) => `<path class="world-track" stroke="${mapColors[index % mapColors.length]}" d="${worldPath((state.mapPaths[satId] || []).map((item) => ({ lat: item.subpoint_lat, lon: item.subpoint_lon })))}"></path>`).join("");
   const tracks = state.system?.tracks || [];
@@ -372,7 +458,8 @@ function renderWorldMap() {
     if (!finite(track?.subpoint_lat) || !finite(track?.subpoint_lon)) return "";
     const point = projectWorld(track.subpoint_lat, track.subpoint_lon);
     const color = mapColors[index % mapColors.length];
-    return `<g><circle class="world-marker-halo" fill="${color}" cx="${point.x}" cy="${point.y}" r="16"></circle><circle class="world-marker" fill="${color}" cx="${point.x}" cy="${point.y}" r="6"></circle><text class="world-label" x="${point.x + 11}" y="${point.y - 9}">${escapeHtml(satelliteName(satId))}</text></g>`;
+    const labelOnLeft = point.x > width - 130;
+    return `<g><circle class="world-marker-halo" fill="${color}" cx="${point.x}" cy="${point.y}" r="16"></circle><circle class="world-marker" fill="${color}" cx="${point.x}" cy="${point.y}" r="6"></circle><text class="world-label" x="${point.x + (labelOnLeft ? -11 : 11)}" y="${point.y - 9}" text-anchor="${labelOnLeft ? "end" : "start"}">${escapeHtml(satelliteName(satId))}</text></g>`;
   }).join("");
   const location = state.system?.location;
   let station = "";
@@ -382,7 +469,7 @@ function renderWorldMap() {
   }
   byId("worldMarkers").innerHTML = markers + station;
   byId("mapLegend").innerHTML = selected.map((satId, index) => `<span><i style="background:${mapColors[index % mapColors.length]}"></i>${escapeHtml(satelliteName(satId))}</span>`).join("") + '<span><i style="background:var(--attention)"></i>Your station</span>';
-  renderPlannerSettings();
+  renderMapTiles();
 }
 
 async function loadMapTracks() {
@@ -517,6 +604,13 @@ document.addEventListener("click", async (event) => {
   const plannerView = event.target.closest("[data-planner-view]");
   if (plannerView) await switchPlannerView(plannerView.dataset.plannerView);
 
+  const basemap = event.target.closest("[data-basemap]");
+  if (basemap) {
+    mapState.basemap = basemap.dataset.basemap;
+    localStorage.setItem("orbitdeck.basemap", mapState.basemap);
+    renderWorldMap();
+  }
+
   const context = event.target.closest("[data-context]");
   if (context) {
     state.context = context.dataset.context;
@@ -569,6 +663,57 @@ byId("addMapSatellite").addEventListener("change", async (event) => {
   const selected = [...(state.plannerSettings?.map_sat_ids || []), satId];
   try { await savePlannerSettings(state.plannerSettings.startup_sat_id, selected); } catch (error) { showNotice(error instanceof Error ? error.message : String(error), true); }
 });
+
+function setMapZoom(zoom) {
+  mapState.zoom = Math.max(1, Math.min(7, zoom));
+  renderWorldMap();
+}
+
+byId("mapZoomIn").addEventListener("click", () => setMapZoom(mapState.zoom + 1));
+byId("mapZoomOut").addEventListener("click", () => setMapZoom(mapState.zoom - 1));
+byId("mapReset").addEventListener("click", () => {
+  mapState.zoom = mapDimensions().width >= 850 ? 2 : 1;
+  mapState.centerLat = 0;
+  mapState.centerLon = 0;
+  renderWorldMap();
+});
+
+const mapElement = byId("worldMap");
+mapElement.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  setMapZoom(mapState.zoom + (event.deltaY < 0 ? 1 : -1));
+}, { passive: false });
+mapElement.addEventListener("dblclick", (event) => {
+  if (!event.target.closest("button, a, select, input")) setMapZoom(mapState.zoom + 1);
+});
+mapElement.addEventListener("pointerdown", (event) => {
+  if (event.target.closest("button, a, select, input")) return;
+  mapElement.setPointerCapture(event.pointerId);
+  mapElement.classList.add("dragging");
+  mapState.drag = {
+    pointerId: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    centerX: longitudeToWorld(mapState.centerLon),
+    centerY: latitudeToWorld(mapState.centerLat),
+  };
+});
+mapElement.addEventListener("pointermove", (event) => {
+  if (!mapState.drag || mapState.drag.pointerId !== event.pointerId) return;
+  const x = mapState.drag.centerX - (event.clientX - mapState.drag.x);
+  const y = mapState.drag.centerY - (event.clientY - mapState.drag.y);
+  mapState.centerLon = worldToLongitude(x);
+  mapState.centerLat = worldToLatitude(y);
+  renderWorldMap();
+});
+function endMapDrag(event) {
+  if (!mapState.drag || mapState.drag.pointerId !== event.pointerId) return;
+  mapState.drag = null;
+  mapElement.classList.remove("dragging");
+}
+mapElement.addEventListener("pointerup", endMapDrag);
+mapElement.addEventListener("pointercancel", endMapDrag);
+new ResizeObserver(() => { if (state.plannerView === "map") renderWorldMap(); }).observe(mapElement);
 
 byId("primaryAction").addEventListener("click", runPrimaryAction);
 byId("stopControl").addEventListener("click", stopControl);
