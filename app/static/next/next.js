@@ -5,6 +5,9 @@ const state = {
   passes: [],
   selectedPass: null,
   aprs: null,
+  aprsTargets: null,
+  aprsLog: [],
+  aprsDrafts: { to: "", message: "", status: "", position: "" },
   plannerView: "timeline",
   plannerSettings: null,
   availableSatellites: [],
@@ -48,6 +51,12 @@ const asDate = (value) => value ? new Date(value) : null;
 const time = (value) => {
   const date = asDate(value);
   return date && !Number.isNaN(date.getTime()) ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
+};
+const activityTime = (value) => {
+  const date = asDate(value);
+  if (!date || Number.isNaN(date.getTime())) return "—";
+  const prefix = date.toDateString() === new Date().toDateString() ? "" : `${date.toLocaleDateString([], { month: "short", day: "numeric" })} · `;
+  return `${prefix}${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
 };
 const duration = (milliseconds) => {
   const total = Math.max(0, Math.round(milliseconds / 1000));
@@ -324,16 +333,41 @@ function renderOperate() {
 function renderContext() {
   const content = byId("contextContent");
   const system = state.system || {};
+  const editingAprs = state.context === "aprs" && content.contains(document.activeElement) && document.activeElement.matches("input, textarea");
+  if (editingAprs) return;
+  content.classList.toggle("aprs-mode", state.context === "aprs");
   if (state.context === "aprs") {
     const runtime = state.aprs?.runtime || system.aprsRuntime || {};
     const preview = state.aprs?.previewTarget || system.aprsPreviewTarget || {};
-    content.innerHTML = `<h2>Satellite APRS</h2><p>${runtime.connected ? "Connected and ready for pass activity." : "Available without crowding the primary radio workflow."}</p>
-      <div class="context-row"><span>Connection</span><strong>${runtime.connected ? "Connected" : "Disconnected"}</strong></div>
-      <div class="context-row"><span>Target</span><strong>${escapeHtml(runtime.target?.label || preview.label || "—")}</strong></div>
-      <div class="context-row"><span>Frequency</span><strong>${finite(preview.frequency_hz) ? `${(preview.frequency_hz / 1_000_000).toFixed(3)} MHz` : "—"}</strong></div>
-      <div class="context-row"><span>Packets</span><strong>${Number(runtime.packets_rx || 0)} RX / ${Number(runtime.packets_tx || 0)} TX</strong></div>
-      <div class="context-actions"><a class="button" href="/aprs">Open APRS controls</a></div>
-      <div class="context-note">Transmit actions pass through one authorization boundary. Hardware-validated TX authentication can be connected later without restructuring this screen.</div>`;
+    const settings = state.aprs?.settings || system.aprsSettings || {};
+    const pass = passForFocus();
+    const satellites = state.aprsTargets?.targets?.satellites || [];
+    const options = satellites.flatMap((satellite) => (satellite.channels || []).map((channel) => ({ ...channel, sat_id: satellite.sat_id, sat_name: satellite.name })));
+    options.sort((left, right) => Number(right.sat_id === pass?.sat_id) - Number(left.sat_id === pass?.sat_id) || left.sat_name.localeCompare(right.sat_name));
+    const selectedKey = `${settings.selected_satellite_id || preview.sat_id || ""}|${settings.selected_channel_id || preview.channel_id || ""}`;
+    const targetReady = runtime.connected && preview.can_transmit && !settings.listen_only;
+    const radioInUse = !runtime.connected && !!system.radioRuntime?.connected;
+    const txReason = settings.listen_only ? "Listen-only mode is enabled in APRS settings." : preview.tx_block_reason || (runtime.connected ? "Transmit is unavailable for this target." : "Connect APRS before transmitting.");
+    const packets = state.aprsLog.slice(0, 5);
+    content.innerHTML = `<h2>Satellite APRS</h2><p>${runtime.connected ? `Listening as ${escapeHtml(runtime.effective_source_call || "configured station")}.` : "Select a satellite channel, then connect when you are ready to monitor the pass."}</p>
+      <label class="context-select"><span>Satellite channel</span><select id="aprsTargetSelect"><option value="">Choose an APRS channel…</option>${options.map((item) => { const key = `${item.sat_id}|${item.channel_id}`; return `<option value="${escapeHtml(key)}"${key === selectedKey ? " selected" : ""}>${escapeHtml(item.sat_name)} · ${escapeHtml(item.label)} · ${(Number(item.frequency_hz) / 1_000_000).toFixed(3)} MHz</option>`; }).join("")}</select></label>
+      <div class="aprs-target-summary">
+        <div><span>Target</span><strong>${escapeHtml(preview.label || "Not selected")}</strong></div>
+        <div><span>Frequency</span><strong>${finite(preview.corrected_frequency_hz || preview.frequency_hz) ? `${(Number(preview.corrected_frequency_hz || preview.frequency_hz) / 1_000_000).toFixed(3)} MHz` : "—"}</strong></div>
+        <div><span>Path</span><strong>${escapeHtml(preview.path_default || "—")}</strong></div>
+        <div><span>Traffic</span><strong>${Number(runtime.packets_rx || 0)} RX / ${Number(runtime.packets_tx || 0)} TX</strong></div>
+      </div>
+      <div class="context-actions aprs-session-actions"><button class="button" type="button" data-aprs-action="${runtime.connected ? "disconnect" : "connect"}"${preview.sat_id ? "" : " disabled"}>${runtime.connected ? "Disconnect APRS" : radioInUse ? "Connect APRS · take radio" : "Connect APRS"}</button><button class="button danger-button" type="button" data-aprs-action="emergency"${runtime.connected ? "" : " disabled"}>Stop APRS now</button></div>
+      ${radioInUse ? '<p class="ownership-note">APRS needs exclusive radio control. Connecting will safely end the current radio-control connection.</p>' : ""}
+      <div class="aprs-permission ${targetReady ? "ready" : ""}">${targetReady ? "Pass active · APRS transmit available" : escapeHtml(txReason)}</div>
+      <details class="aprs-compose"><summary>Send through ${escapeHtml(runtime.effective_source_call || system.stationIdentity?.callsign || "station callsign")}</summary>
+        <div class="compose-block"><strong>Message</strong><div class="compose-row"><input id="aprsMessageTo" maxlength="9" placeholder="Callsign" value="${escapeHtml(state.aprsDrafts.to)}"><textarea id="aprsMessageText" maxlength="67" rows="2" placeholder="Message">${escapeHtml(state.aprsDrafts.message)}</textarea><button class="button" type="button" data-aprs-send="message"${targetReady ? "" : " disabled"}>Send message</button></div></div>
+        <div class="compose-block"><strong>Status</strong><div class="compose-row"><textarea id="aprsStatusText" maxlength="67" rows="2" placeholder="Station status">${escapeHtml(state.aprsDrafts.status)}</textarea><button class="button" type="button" data-aprs-send="status"${targetReady ? "" : " disabled"}>Send status</button></div></div>
+        <div class="compose-block"><strong>Position</strong><div class="compose-row"><input id="aprsPositionComment" maxlength="40" placeholder="Position comment" value="${escapeHtml(state.aprsDrafts.position)}"><button class="button" type="button" data-aprs-send="position"${targetReady ? "" : " disabled"}>Send position</button></div></div>
+      </details>
+      <section class="packet-preview"><div class="section-heading"><h3>Recent packets</h3><span>${packets.length ? "Stored log" : "Waiting"}</span></div>${packets.length ? packets.map((packet) => `<div class="packet-row"><div><strong>${escapeHtml(packet.source || "Unknown")}</strong><span>${escapeHtml(labelize(packet.packet_type))} · ${activityTime(packet.received_at)}</span></div><p>${escapeHtml(packet.text || packet.raw_tnc2 || "Packet received")}</p></div>`).join("") : '<p class="empty-copy">No packets recorded yet.</p>'}</section>
+      <div class="context-actions"><a class="button" href="/aprs">Open full APRS console</a></div>
+      <div class="context-note">All APRS send actions use the same authorization boundary reserved for the tested PIN lease. Terrestrial and gateway controls remain in the full console.</div>`;
   } else {
     const settings = system.radioSettings || {};
     const runtime = system.radioRuntime || {};
@@ -661,11 +695,13 @@ function renderActivity() {
   const runtime = state.aprs?.runtime || state.system?.aprsRuntime || {};
   const radio = state.system?.radioRuntime || {};
   const error = runtime.last_error || radio.last_error;
+  const packets = state.aprsLog.slice(0, 8);
   byId("activityContent").innerHTML = `
     <div class="activity-card"><span>APRS state</span><strong>${runtime.connected ? "Connected" : "Disconnected"}</strong></div>
     <div class="activity-card"><span>Packets</span><strong>${Number(runtime.packets_rx || 0)} RX / ${Number(runtime.packets_tx || 0)} TX</strong></div>
     <div class="activity-card"><span>Radio</span><strong>${labelize(radio.control_mode)}</strong></div>
-    <div class="activity-card wide"><span>Latest operator-visible issue</span><strong>${escapeHtml(error || "No current error")}</strong><p>Detailed packet history and terrestrial gateway controls remain in the full APRS console during this first UI checkpoint.</p></div>`;
+    <div class="activity-card wide"><span>Latest operator-visible issue</span><strong>${escapeHtml(error || "No current error")}</strong></div>
+    <div class="activity-card wide activity-packets"><div class="section-heading"><h2>Recent APRS traffic</h2><a href="/aprs">Full console</a></div>${packets.length ? packets.map((packet) => `<div class="activity-packet"><strong>${escapeHtml(packet.source || "Unknown")}</strong><span>${escapeHtml(labelize(packet.packet_type))} · ${activityTime(packet.received_at)}</span><p>${escapeHtml(packet.text || packet.raw_tnc2 || "Packet received")}</p></div>`).join("") : '<p>No stored packet activity.</p>'}</div>`;
 }
 
 function render() {
@@ -794,6 +830,63 @@ async function releaseSession() {
   }
 }
 
+async function selectAprsTarget(value) {
+  const [satId, channelId] = String(value || "").split("|");
+  if (!satId || !channelId) return;
+  try {
+    await post("/api/v1/aprs/select-target", { operating_mode: "satellite", sat_id: satId, channel_id: channelId });
+    showNotice("Satellite APRS target selected.");
+    await refreshData(false);
+  } catch (error) {
+    showNotice(error instanceof Error ? error.message : String(error), true);
+  }
+}
+
+async function runAprsAction(action) {
+  state.busy = true;
+  renderOperate();
+  try {
+    const endpoint = { connect: "/api/v1/aprs/connect", disconnect: "/api/v1/aprs/disconnect", emergency: "/api/v1/aprs/emergency-stop" }[action];
+    if (!endpoint) return;
+    await post(endpoint);
+    showNotice(action === "connect" ? "Satellite APRS connected and listening." : action === "emergency" ? "APRS stopped immediately." : "APRS disconnected.");
+    await refreshData(false);
+  } catch (error) {
+    showNotice(error instanceof Error ? error.message : String(error), true);
+  } finally {
+    state.busy = false;
+    renderOperate();
+  }
+}
+
+async function sendAprsPacket(kind) {
+  const payload = kind === "message"
+    ? { to: state.aprsDrafts.to.trim(), text: state.aprsDrafts.message.trim() }
+    : kind === "status"
+      ? { text: state.aprsDrafts.status.trim() }
+      : { comment: state.aprsDrafts.position.trim() };
+  if ((kind === "message" && (!payload.to || !payload.text)) || (kind === "status" && !payload.text)) {
+    showNotice("Complete the APRS fields before sending.", true);
+    return;
+  }
+  const authorized = await txAuthorization.authorize({ capability: `aprs-${kind}` });
+  if (!authorized) return;
+  state.busy = true;
+  try {
+    await post(`/api/v1/aprs/send/${kind}`, payload);
+    if (kind === "message") { state.aprsDrafts.to = ""; state.aprsDrafts.message = ""; }
+    else if (kind === "status") state.aprsDrafts.status = "";
+    else state.aprsDrafts.position = "";
+    showNotice(`APRS ${kind} sent.`);
+    await refreshData(false);
+  } catch (error) {
+    showNotice(error instanceof Error ? error.message : String(error), true);
+  } finally {
+    state.busy = false;
+    renderOperate();
+  }
+}
+
 function radioTransportVisibility() {
   const wifi = byId("radioTransport").value === "wifi";
   document.querySelectorAll("[data-radio-wifi]").forEach((field) => field.classList.toggle("hidden", !wifi));
@@ -877,15 +970,19 @@ async function saveRadioProfile(event) {
 async function refreshData(showErrors = true) {
   try {
     const hours = Number(byId("passWindow")?.value || 24);
-    const [system, passes, aprs, planner] = await Promise.all([
+    const [system, passes, aprs, planner, aprsTargets, aprsLog] = await Promise.all([
       api(`/api/v1/system/state${state.selectedPass ? `?sat_id=${encodeURIComponent(state.selectedPass.sat_id)}` : ""}`),
       api(`/api/v1/passes?hours=${hours}&include_ongoing=true`),
       api("/api/v1/aprs/state"),
       api("/api/v1/settings/planner"),
+      state.aprsTargets ? Promise.resolve(state.aprsTargets) : api("/api/v1/aprs/targets"),
+      api("/api/v1/aprs/log?limit=12"),
     ]);
     state.system = system;
     state.passes = Array.isArray(passes.items) ? passes.items : [];
     state.aprs = aprs;
+    state.aprsTargets = aprsTargets;
+    state.aprsLog = Array.isArray(aprsLog.items) ? aprsLog.items : [];
     state.plannerSettings = planner.state;
     state.availableSatellites = planner.availableSatellites || [];
     if (!state.mapSelectedSatId) state.mapSelectedSatId = state.plannerSettings?.startup_sat_id || "iss-zarya";
@@ -931,9 +1028,16 @@ document.addEventListener("click", async (event) => {
   const context = event.target.closest("[data-context]");
   if (context) {
     state.context = context.dataset.context;
-    document.querySelectorAll("[data-context]").forEach((button) => button.setAttribute("aria-selected", String(button === context)));
+    document.querySelectorAll("[data-context][role='tab']").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.context === state.context)));
     renderContext();
+    if (context.hasAttribute("data-scroll-context")) byId("contextContent").scrollIntoView({ behavior: "smooth", block: "start" });
   }
+
+  const aprsAction = event.target.closest("[data-aprs-action]");
+  if (aprsAction && !aprsAction.disabled) await runAprsAction(aprsAction.dataset.aprsAction);
+
+  const aprsSend = event.target.closest("[data-aprs-send]");
+  if (aprsSend && !aprsSend.disabled) await sendAprsPacket(aprsSend.dataset.aprsSend);
 
   if (event.target.closest("[data-open-radio]")) await openRadioSetup();
   if (event.target.closest("[data-close-radio]")) byId("radioSetupDialog").close();
@@ -946,6 +1050,15 @@ document.addEventListener("click", async (event) => {
     switchView("operate");
     await refreshData();
   }
+});
+
+document.addEventListener("change", async (event) => {
+  if (event.target.id === "aprsTargetSelect") await selectAprsTarget(event.target.value);
+});
+
+document.addEventListener("input", (event) => {
+  const draftKey = { aprsMessageTo: "to", aprsMessageText: "message", aprsStatusText: "status", aprsPositionComment: "position" }[event.target.id];
+  if (draftKey) state.aprsDrafts[draftKey] = event.target.value;
 });
 
 document.addEventListener("keydown", (event) => {

@@ -72,3 +72,10 @@ def test_next_route_serves_operator_workspace(tmp_path):
     assert 'id="releaseSession"' in resp.text
     assert 'id="radioSetupDialog"' in resp.text
     assert "Save and connect" in resp.text
+    assert "Open satellite APRS" in resp.text
+
+    script = client.get("/static/next/next.js")
+    assert script.status_code == 200
+    assert 'api("/api/v1/aprs/targets")' in script.text
+    assert 'txAuthorization.authorize({ capability: `aprs-${kind}` })' in script.text
+    assert 'data-aprs-send="message"' in script.text
