@@ -61,7 +61,7 @@ from app.models import (
     RadioSettingsUpdate,
     SettingsUpdate,
     TimezoneUpdate,
-    TxAuthPasswordRequest,
+    TxAuthPinRequest,
 )
 from app.radio.civ import normalize_civ_address
 from app.radio.service import RigControlService
@@ -137,7 +137,7 @@ def _require_tx_authorization(request: Request) -> None:
     message = (
         "Unlock TX before using transmit controls. Authorization remains valid until the system restarts."
         if tx_auth.configured()
-        else "Create a TX password before using transmit controls."
+        else "Create a TX PIN before using transmit controls."
     )
     raise HTTPException(status_code=401, detail={"code": code, "message": message})
 
@@ -1684,11 +1684,11 @@ def get_tx_auth_status(request: Request) -> dict:
 
 
 @app.post("/api/v1/tx-auth/setup")
-def setup_tx_auth(payload: TxAuthPasswordRequest, request: Request, response: Response) -> dict:
+def setup_tx_auth(payload: TxAuthPinRequest, request: Request, response: Response) -> dict:
     if tx_auth.configured():
         raise HTTPException(status_code=409, detail="TX authorization is already configured")
     try:
-        tx_auth.configure(payload.password)
+        tx_auth.configure(payload.pin)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     _set_tx_auth_cookie(response, request)
@@ -1696,12 +1696,18 @@ def setup_tx_auth(payload: TxAuthPasswordRequest, request: Request, response: Re
 
 
 @app.post("/api/v1/tx-auth/unlock")
-def unlock_tx_auth(payload: TxAuthPasswordRequest, request: Request, response: Response) -> dict:
+def unlock_tx_auth(payload: TxAuthPinRequest, request: Request, response: Response) -> dict:
     if not tx_auth.configured():
         raise HTTPException(status_code=409, detail="TX authorization has not been configured")
-    if not tx_auth.verify_password(payload.password):
-        raise HTTPException(status_code=401, detail="Incorrect TX password")
-    _set_tx_auth_cookie(response, request)
+    if not tx_auth.verify_pin(payload.pin):
+        raise HTTPException(status_code=401, detail="Incorrect TX PIN")
+    try:
+        _set_tx_auth_cookie(response, request)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="TX authorization is already active in another session. Use Lock TX there before unlocking here.",
+        ) from exc
     return {**tx_auth.status(None), "authorized": True}
 
 

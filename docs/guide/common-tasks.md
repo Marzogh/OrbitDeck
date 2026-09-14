@@ -69,13 +69,14 @@ Notes:
 ## Send an APRS message, status, or position packet
 
 1. Connect APRS.
-2. Select `TX Locked` and create or enter the TX password when prompted.
+2. Select `TX Locked` and create or enter the TX PIN when prompted.
 3. Use the send tabs on `/aprs`.
 4. Enter the destination callsign and text for a message, or enter status/position content.
 5. Send the packet.
 6. Check the runtime counters and the recent packet list.
 
 The unlocked state has no inactivity timeout. It remains valid for the current system boot, including page reloads, browser restarts, temporary network loss, and OrbitDeck service restarts.
+Only one browser session can be unlocked at a time. Select `TX Unlocked`, confirm `Lock TX`, and then enter the same PIN in the other browser to hand over transmit control.
 
 Relevant APIs:
 

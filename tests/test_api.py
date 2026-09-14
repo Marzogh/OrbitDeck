@@ -60,10 +60,10 @@ def make_client(tmp_path):
     main.tx_auth = TxAuthManager(
         tmp_path / "tx_auth.json",
         tmp_path / "tx_auth_secret",
-        password_iterations=1_000,
+        pin_iterations=1_000,
     )
     client = TestClient(main.app)
-    response = client.post("/api/v1/tx-auth/setup", json={"password": "orbitdeck-test"})
+    response = client.post("/api/v1/tx-auth/setup", json={"pin": "1234"})
     assert response.status_code == 200
     return client
 

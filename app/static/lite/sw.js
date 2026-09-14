@@ -1,11 +1,11 @@
-const SHELL_CACHE = "orbitdeck-lite-shell-v22";
+const SHELL_CACHE = "orbitdeck-lite-shell-v23";
 const API_CACHE = "orbitdeck-lite-api-v2";
 
 const SHELL_ASSETS = [
   "/lite",
   "/lite/settings",
   "/static/common/styles.css?v=20260914a",
-  "/static/common/app.js?v=20260914a",
+  "/static/common/app.js?v=20260914b",
   "/static/lite/lite.js?v=20260311c",
   "/static/lite/settings.js?v=20260311e",
 ];

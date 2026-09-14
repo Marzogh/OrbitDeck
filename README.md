@@ -110,7 +110,7 @@ Lite is the mobile-first and Pi Zero-safe operating surface. On first run it ask
 
 ## TX Authorization
 
-OrbitDeck leaves tracking, receive, tuning, Doppler, and general UI access open on the local network, but protects actions that can cause RF transmission. The first transmit attempt asks the operator to create a TX password. Once unlocked, that browser remains authorized through reloads, browser restarts, network interruptions, and OrbitDeck service restarts until the host Mac or Raspberry Pi reboots. There is no inactivity timeout during a QSO.
+OrbitDeck leaves tracking, receive, tuning, Doppler, and general UI access open on the local network, but protects actions that can cause RF transmission. The first transmit attempt asks the operator to create a TX PIN of at least four characters. One browser session at a time may hold TX authorization. It remains authorized through reloads, browser restarts, network interruptions, and OrbitDeck service restarts until the operator explicitly locks TX or the host Mac or Raspberry Pi reboots. There is no inactivity timeout during a QSO.
 
 Direct APRS sends and terrestrial digipeater activation require TX authorization. Disconnect, APRS emergency stop, and other actions that stop transmission remain available while TX is locked. Use the persistent `TX Locked` / `TX Unlocked` control in the lower-right corner to unlock or explicitly lock all authorized browsers.
 

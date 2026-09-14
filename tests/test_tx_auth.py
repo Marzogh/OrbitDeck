@@ -25,7 +25,7 @@ def make_locked_client(tmp_path) -> TestClient:
     main.tx_auth = TxAuthManager(
         tmp_path / "tx_auth.json",
         tmp_path / "tx_auth_secret",
-        password_iterations=1_000,
+        pin_iterations=1_000,
     )
     return TestClient(main.app)
 
@@ -35,11 +35,12 @@ def test_token_survives_service_restart_but_not_system_reboot(tmp_path, monkeypa
     manager = TxAuthManager(
         tmp_path / "auth.json",
         tmp_path / "secret",
-        password_iterations=1_000,
+        pin_iterations=1_000,
     )
-    manager.configure("radio-password")
+    manager.configure("1234")
     saved = json.loads((tmp_path / "auth.json").read_text(encoding="utf-8"))
-    assert saved["password_hash"] != "radio-password"
+    assert saved["pin_hash"] != "1234"
+    assert "1234" not in (tmp_path / "auth.json").read_text(encoding="utf-8")
     assert (tmp_path / "auth.json").stat().st_mode & 0o077 == 0
     assert (tmp_path / "secret").stat().st_mode & 0o077 == 0
     token = manager.issue_token()
@@ -49,7 +50,7 @@ def test_token_survives_service_restart_but_not_system_reboot(tmp_path, monkeypa
     restarted_service = TxAuthManager(
         tmp_path / "auth.json",
         tmp_path / "secret",
-        password_iterations=1_000,
+        pin_iterations=1_000,
     )
     assert restarted_service.authorized(token) is True
 
@@ -57,9 +58,34 @@ def test_token_survives_service_restart_but_not_system_reboot(tmp_path, monkeypa
     rebooted_system = TxAuthManager(
         tmp_path / "auth.json",
         tmp_path / "secret",
-        password_iterations=1_000,
+        pin_iterations=1_000,
     )
     assert rebooted_system.authorized(token) is False
+    replacement_token = rebooted_system.issue_token()
+    assert rebooted_system.authorized(replacement_token) is True
+
+
+def test_pin_accepts_four_characters_without_composition_rules(tmp_path):
+    manager = TxAuthManager(
+        tmp_path / "auth.json",
+        tmp_path / "secret",
+        pin_iterations=1_000,
+    )
+    manager.configure("a ☃!")
+    assert manager.verify_pin("a ☃!") is True
+    assert manager.verify_pin("a ☃?") is False
+
+    too_short = TxAuthManager(
+        tmp_path / "short-auth.json",
+        tmp_path / "short-secret",
+        pin_iterations=1_000,
+    )
+    try:
+        too_short.configure("123")
+    except ValueError as exc:
+        assert "at least 4" in str(exc)
+    else:
+        raise AssertionError("three-character PIN should be rejected")
 
 
 def test_tx_routes_require_setup_and_unlock_while_receive_controls_remain_open(tmp_path):
@@ -75,11 +101,11 @@ def test_tx_routes_require_setup_and_unlock_while_receive_controls_remain_open(t
     )
     assert receive_control.status_code != 401
 
-    setup = client.post("/api/v1/tx-auth/setup", json={"password": "radio-password"})
+    setup = client.post("/api/v1/tx-auth/setup", json={"pin": "1234"})
     assert setup.status_code == 200
     assert setup.json()["authorized"] is True
     assert client.get("/api/v1/tx-auth/status").json()["authorized"] is True
-    assert client.post("/api/v1/tx-auth/setup", json={"password": "another-password"}).status_code == 409
+    assert client.post("/api/v1/tx-auth/setup", json={"pin": "5678"}).status_code == 409
 
     passed_guard = client.post("/api/v1/aprs/send/status", json={"text": "test"})
     assert passed_guard.status_code != 401
@@ -87,7 +113,7 @@ def test_tx_routes_require_setup_and_unlock_while_receive_controls_remain_open(t
 
 def test_lock_revokes_all_tokens_for_current_boot(tmp_path):
     client = make_locked_client(tmp_path)
-    assert client.post("/api/v1/tx-auth/setup", json={"password": "radio-password"}).status_code == 200
+    assert client.post("/api/v1/tx-auth/setup", json={"pin": "1234"}).status_code == 200
     token = client.cookies.get("orbitdeck_tx_auth")
     assert token
     main.aprs_service._runtime.digipeater_active = True
@@ -113,7 +139,7 @@ def test_digipeater_enable_requires_tx_authorization(tmp_path):
     blocked = client.post("/api/v1/aprs/log/settings", json=payload)
     assert blocked.status_code == 401
 
-    assert client.post("/api/v1/tx-auth/setup", json={"password": "radio-password"}).status_code == 200
+    assert client.post("/api/v1/tx-auth/setup", json={"pin": "1234"}).status_code == 200
     allowed = client.post("/api/v1/aprs/log/settings", json=payload)
     assert allowed.status_code == 200
     assert allowed.json()["digipeater"]["enabled"] is True
@@ -124,5 +150,24 @@ def test_digipeater_enable_requires_tx_authorization(tmp_path):
     assert blocked_connect.status_code == 401
     assert blocked_connect.json()["detail"]["code"] == "tx_auth_required"
 
-    wrong_password = client.post("/api/v1/tx-auth/unlock", json={"password": "wrong-password"})
-    assert wrong_password.status_code == 401
+    wrong_pin = client.post("/api/v1/tx-auth/unlock", json={"pin": "9999"})
+    assert wrong_pin.status_code == 401
+
+
+def test_pin_is_reusable_but_only_one_session_can_hold_tx(tmp_path):
+    first = make_locked_client(tmp_path)
+    second = TestClient(main.app)
+
+    assert first.post("/api/v1/tx-auth/setup", json={"pin": "1234"}).status_code == 200
+    second_status = second.get("/api/v1/tx-auth/status").json()
+    assert second_status["authorized"] is False
+    assert second_status["inUse"] is True
+
+    blocked = second.post("/api/v1/tx-auth/unlock", json={"pin": "1234"})
+    assert blocked.status_code == 409
+    assert "another session" in blocked.json()["detail"]
+
+    assert first.post("/api/v1/tx-auth/lock").status_code == 200
+    unlocked = second.post("/api/v1/tx-auth/unlock", json={"pin": "1234"})
+    assert unlocked.status_code == 200
+    assert second.get("/api/v1/tx-auth/status").json()["authorized"] is True

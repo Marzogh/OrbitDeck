@@ -838,5 +838,5 @@ class AprsLogClearRequest(BaseModel):
     age_bucket: Literal["7d", "30d", "90d", "all"] = "all"
 
 
-class TxAuthPasswordRequest(BaseModel):
-    password: str = Field(min_length=6, max_length=256)
+class TxAuthPinRequest(BaseModel):
+    pin: str = Field(min_length=4, max_length=256)

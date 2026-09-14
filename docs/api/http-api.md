@@ -58,7 +58,7 @@ Endpoints:
 - `POST /api/v1/tx-auth/unlock`
 - `POST /api/v1/tx-auth/lock`
 
-`setup` is available only until the first TX password has been created. `unlock` and `setup` accept `{"password": "..."}` and set an HTTP-only, same-site cookie. The cookie has no inactivity timeout, survives an OrbitDeck service or browser restart, and becomes invalid after the host operating system reboots. `lock` revokes all cookies issued for the current boot.
+`setup` is available only until the first TX PIN has been created. `unlock` and `setup` accept `{"pin": "..."}` and set an HTTP-only, same-site cookie. PINs may contain any 4–256 characters. Only one browser session can hold TX authorization; another correct-PIN unlock receives HTTP `409` until the active session calls `lock` or the host reboots. The cookie has no inactivity timeout and survives an OrbitDeck service or browser restart. `status.inUse` indicates that a session owns the current boot's TX lease.
 
 Protected transmit paths currently include:
 

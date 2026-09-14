@@ -30,10 +30,12 @@ These checks are enforced by the server. Hiding or disabling a browser button is
 
 1. Start OrbitDeck normally.
 2. Select the `TX Locked` indicator in the lower-right corner, or use an APRS send control.
-3. Create and confirm a TX password of at least six characters.
+3. Create and confirm a TX PIN of at least four characters.
 4. OrbitDeck changes the indicator to `TX Unlocked` and continues the requested transmit action.
 
-The password is stored as a salted PBKDF2 hash. OrbitDeck does not store the original password.
+The PIN may contain any characters; there are no digit-only or complexity rules. OrbitDeck stores it as a salted PBKDF2 hash and does not store the original PIN.
+
+The PIN is reusable, but TX authorization is exclusive: only one browser session can hold it at a time. The active session must select `Lock TX` before another browser can unlock. There is deliberately no inactivity or disconnected-session timeout, so closing a tab, losing Wi-Fi, or putting a phone to sleep cannot release or steal authorization during a QSO. If the original browser is unavailable, restarting the OrbitDeck host releases the lease.
 
 ## Authorization lifetime
 
@@ -53,7 +55,7 @@ It becomes invalid after:
 - an authorized operator selects `TX Unlocked` and confirms `Lock TX`
 - the TX credential is replaced
 
-Locking TX revokes all browser cookies issued for the current boot. If terrestrial digipeating is active, OrbitDeck disconnects that APRS session as part of locking.
+Locking TX releases the exclusive session and revokes its browser cookie. The same PIN can then unlock TX in another browser. If terrestrial digipeating is active, OrbitDeck disconnects that APRS session as part of locking.
 
 ## Safety behaviour
 

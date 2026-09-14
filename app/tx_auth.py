@@ -15,7 +15,7 @@ from threading import Lock
 
 
 COOKIE_NAME = "orbitdeck_tx_auth"
-PASSWORD_ITERATIONS = 600_000
+PIN_ITERATIONS = 600_000
 
 
 def _b64encode(value: bytes) -> str:
@@ -58,20 +58,20 @@ def current_boot_id() -> str:
 
 
 class TxAuthManager:
-    """Password-backed, per-host-boot authorization for RF transmission."""
+    """PIN-backed, per-host-boot authorization for RF transmission."""
 
     def __init__(
         self,
         config_path: str | Path,
         secret_path: str | Path,
         *,
-        password_iterations: int = PASSWORD_ITERATIONS,
+        pin_iterations: int = PIN_ITERATIONS,
     ) -> None:
         self.config_path = Path(config_path)
         self.secret_path = Path(secret_path)
         self._lock = Lock()
         self._boot_id = current_boot_id()
-        self._password_iterations = max(1, int(password_iterations))
+        self._pin_iterations = max(1, int(pin_iterations))
         self._secret = self._load_or_create_secret()
 
     def _load_or_create_secret(self) -> bytes:
@@ -117,19 +117,19 @@ class TxAuthManager:
 
     def configured(self) -> bool:
         config = self._load_config()
-        return bool(config.get("password_hash") and config.get("password_salt"))
+        return bool(config.get("pin_hash") and config.get("pin_salt"))
 
-    def configure(self, password: str) -> None:
-        if len(password) < 6:
-            raise ValueError("TX password must contain at least 6 characters")
-        if len(password) > 256:
-            raise ValueError("TX password must contain no more than 256 characters")
+    def configure(self, pin: str) -> None:
+        if len(pin) < 4:
+            raise ValueError("TX PIN must contain at least 4 characters")
+        if len(pin) > 256:
+            raise ValueError("TX PIN must contain no more than 256 characters")
         salt = secrets.token_bytes(16)
         digest = hashlib.pbkdf2_hmac(
             "sha256",
-            password.encode("utf-8"),
+            pin.encode("utf-8"),
             salt,
-            self._password_iterations,
+            self._pin_iterations,
         )
         with self._lock:
             current = self._load_config()
@@ -137,38 +137,45 @@ class TxAuthManager:
             self._save_config(
                 {
                     "version": 1,
-                    "password_salt": _b64encode(salt),
-                    "password_hash": _b64encode(digest),
+                    "pin_salt": _b64encode(salt),
+                    "pin_hash": _b64encode(digest),
                     "generation": generation,
-                    "password_iterations": self._password_iterations,
+                    "pin_iterations": self._pin_iterations,
                 }
             )
 
-    def verify_password(self, password: str) -> bool:
+    def verify_pin(self, pin: str) -> bool:
         config = self._load_config()
         try:
-            salt = _b64decode(str(config["password_salt"]))
-            expected = _b64decode(str(config["password_hash"]))
+            salt = _b64decode(str(config["pin_salt"]))
+            expected = _b64decode(str(config["pin_hash"]))
         except (KeyError, TypeError, ValueError):
             return False
         actual = hashlib.pbkdf2_hmac(
             "sha256",
-            password.encode("utf-8"),
+            pin.encode("utf-8"),
             salt,
-            int(config.get("password_iterations") or PASSWORD_ITERATIONS),
+            int(config.get("pin_iterations") or PIN_ITERATIONS),
         )
         return hmac.compare_digest(actual, expected)
 
     def issue_token(self) -> str:
-        config = self._load_config()
-        if not self.configured():
-            raise RuntimeError("TX authorization has not been configured")
-        payload = {
-            "v": 1,
-            "boot": self._boot_id,
-            "generation": int(config.get("generation") or 0),
-            "nonce": secrets.token_urlsafe(18),
-        }
+        with self._lock:
+            config = self._load_config()
+            if not (config.get("pin_hash") and config.get("pin_salt")):
+                raise RuntimeError("TX authorization has not been configured")
+            if config.get("active_boot") == self._boot_id and config.get("active_session"):
+                raise RuntimeError("TX authorization is already active in another session")
+            session_id = secrets.token_urlsafe(18)
+            config["active_boot"] = self._boot_id
+            config["active_session"] = session_id
+            self._save_config(config)
+            payload = {
+                "v": 1,
+                "boot": self._boot_id,
+                "generation": int(config.get("generation") or 0),
+                "session": session_id,
+            }
         encoded = _b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
         signature = _b64encode(hmac.new(self._secret, encoded.encode("ascii"), hashlib.sha256).digest())
         return f"{encoded}.{signature}"
@@ -192,6 +199,8 @@ class TxAuthManager:
             and payload.get("v") == 1
             and payload.get("boot") == self._boot_id
             and int(payload.get("generation", -1)) == int(config.get("generation") or 0)
+            and config.get("active_boot") == self._boot_id
+            and payload.get("session") == config.get("active_session")
         )
 
     def revoke_all(self) -> None:
@@ -200,13 +209,21 @@ class TxAuthManager:
             if not config:
                 return
             config["generation"] = int(config.get("generation") or 0) + 1
+            config["active_boot"] = None
+            config["active_session"] = None
             self._save_config(config)
 
     def status(self, token: str | None) -> dict[str, object]:
         configured = self.configured()
+        config = self._load_config()
         return {
             "configured": configured,
             "authorized": configured and self.authorized(token),
+            "inUse": bool(
+                configured
+                and config.get("active_boot") == self._boot_id
+                and config.get("active_session")
+            ),
             "scope": "system-boot",
-            "expiresOn": "system-restart",
+            "expiresOn": "explicit-lock-or-system-restart",
         }

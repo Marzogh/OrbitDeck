@@ -17,10 +17,12 @@ const txAuth = (() => {
     const button = document.getElementById("txAuthIndicator");
     if (!button) return;
     button.classList.toggle("is-unlocked", !!status.authorized);
-    button.textContent = status.authorized ? "TX Unlocked" : "TX Locked";
+    button.textContent = status.authorized ? "TX Unlocked" : status.inUse ? "TX In Use" : "TX Locked";
     button.title = status.authorized
-      ? "Transmit controls are unlocked until this system restarts. Select to lock now."
-      : "Receive and tuning remain available. Select to unlock transmit controls.";
+      ? "This browser holds transmit authorization. Select to lock and release it."
+      : status.inUse
+        ? "Another browser holds transmit authorization. Receive and tuning remain available."
+        : "Receive and tuning remain available. Select to unlock transmit controls.";
   };
 
   const requestJson = async (path, options = {}) => {
@@ -74,10 +76,10 @@ const txAuth = (() => {
         <div class="tx-auth-kicker">TRANSMIT AUTHORIZATION</div>
         <h2 id="txAuthTitle">Unlock TX</h2>
         <p id="txAuthDescription">Receive, tracking, and tuning remain available while TX is locked.</p>
-        <label for="txAuthPassword">Password</label>
-        <input id="txAuthPassword" type="password" minlength="6" maxlength="256" autocomplete="current-password" required />
-        <label id="txAuthConfirmLabel" for="txAuthConfirm" class="hidden">Confirm password</label>
-        <input id="txAuthConfirm" class="hidden" type="password" minlength="6" maxlength="256" autocomplete="new-password" />
+        <label for="txAuthPin">PIN</label>
+        <input id="txAuthPin" type="password" minlength="4" maxlength="256" autocomplete="current-password" required />
+        <label id="txAuthConfirmLabel" for="txAuthConfirm" class="hidden">Confirm PIN</label>
+        <input id="txAuthConfirm" class="hidden" type="password" minlength="4" maxlength="256" autocomplete="new-password" />
         <div id="txAuthError" class="tx-auth-error" role="alert"></div>
         <div class="tx-auth-actions">
           <button id="txAuthCancel" type="button">Cancel</button>
@@ -96,24 +98,26 @@ const txAuth = (() => {
       const setupMode = !status.configured;
       const overlay = document.getElementById("txAuthOverlay");
       const form = document.getElementById("txAuthForm");
-      const password = document.getElementById("txAuthPassword");
+      const pin = document.getElementById("txAuthPin");
       const confirm = document.getElementById("txAuthConfirm");
       const confirmLabel = document.getElementById("txAuthConfirmLabel");
       const errorBox = document.getElementById("txAuthError");
-      document.getElementById("txAuthTitle").textContent = setupMode ? "Create TX Password" : "Unlock TX";
+      document.getElementById("txAuthTitle").textContent = setupMode ? "Create TX PIN" : "Unlock TX";
       document.getElementById("txAuthDescription").textContent = setupMode
-        ? "Create the password used to unlock RF transmission. Authorization lasts until the system restarts."
-        : "Unlock RF transmission for the rest of this system boot. There is no inactivity timeout.";
+        ? "Create the PIN used to unlock RF transmission. Authorization lasts until the system restarts."
+        : status.inUse
+          ? "TX is unlocked in another browser. Use Lock TX there before unlocking this session."
+          : "Unlock RF transmission until you explicitly lock it or restart the system. There is no inactivity timeout.";
       document.getElementById("txAuthSubmit").textContent = setupMode ? "Create And Unlock" : "Unlock TX";
-      password.autocomplete = setupMode ? "new-password" : "current-password";
+      pin.autocomplete = setupMode ? "new-password" : "current-password";
       confirm.classList.toggle("hidden", !setupMode);
       confirmLabel.classList.toggle("hidden", !setupMode);
       confirm.required = setupMode;
-      password.value = "";
+      pin.value = "";
       confirm.value = "";
       errorBox.textContent = "";
       overlay.classList.remove("hidden");
-      password.focus();
+      pin.focus();
 
       return new Promise((resolve) => {
         const finish = (result) => {
@@ -126,8 +130,8 @@ const txAuth = (() => {
         const submit = async (event) => {
           event.preventDefault();
           errorBox.textContent = "";
-          if (setupMode && password.value !== confirm.value) {
-            errorBox.textContent = "Passwords do not match.";
+          if (setupMode && pin.value !== confirm.value) {
+            errorBox.textContent = "PINs do not match.";
             return;
           }
           try {
@@ -135,7 +139,7 @@ const txAuth = (() => {
             status = await requestJson(path, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ password: password.value }),
+              body: JSON.stringify({ pin: pin.value }),
             });
             updateIndicator();
             finish(true);
