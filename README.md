@@ -108,6 +108,12 @@ Lite is the mobile-first and Pi Zero-safe operating surface. On first run it ask
 
 `/aprs` is the dedicated APRS console, while `/settings` includes the same APRS configuration inside the combined settings surface. OrbitDeck supports terrestrial and satellite APRS operation, local packet logging, export, digipeater and RX-only iGate policy, and pass-aware target selection for satellite work.
 
+## TX Authorization
+
+OrbitDeck leaves tracking, receive, tuning, Doppler, and general UI access open on the local network, but protects actions that can cause RF transmission. The first transmit attempt asks the operator to create a TX password. Once unlocked, that browser remains authorized through reloads, browser restarts, network interruptions, and OrbitDeck service restarts until the host Mac or Raspberry Pi reboots. There is no inactivity timeout during a QSO.
+
+Direct APRS sends and terrestrial digipeater activation require TX authorization. Disconnect, APRS emergency stop, and other actions that stop transmission remain available while TX is locked. Use the persistent `TX Locked` / `TX Unlocked` control in the lower-right corner to unlock or explicitly lock all authorized browsers.
+
 ## Settings and Runtime Model
 
 The main settings model covers ISS display behavior, pass preferences, timezone, location, GPS configuration, radio configuration, APRS configuration, cache policy, and developer overrides. On standard hardware, `/settings` serves the consolidated settings console rather than a separate legacy settings page.

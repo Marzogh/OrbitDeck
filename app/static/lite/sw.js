@@ -1,11 +1,11 @@
-const SHELL_CACHE = "orbitdeck-lite-shell-v21";
+const SHELL_CACHE = "orbitdeck-lite-shell-v22";
 const API_CACHE = "orbitdeck-lite-api-v2";
 
 const SHELL_ASSETS = [
   "/lite",
   "/lite/settings",
-  "/static/common/styles.css?v=20260311c",
-  "/static/common/app.js?v=20260308n",
+  "/static/common/styles.css?v=20260914a",
+  "/static/common/app.js?v=20260914a",
   "/static/lite/lite.js?v=20260311c",
   "/static/lite/settings.js?v=20260311e",
 ];
@@ -22,7 +22,9 @@ self.addEventListener("activate", (event) => {
 
 function isApiGet(request) {
   const url = new URL(request.url);
-  return request.method === "GET" && url.pathname.startsWith("/api/v1/");
+  return request.method === "GET"
+    && url.pathname.startsWith("/api/v1/")
+    && !url.pathname.startsWith("/api/v1/tx-auth/");
 }
 
 self.addEventListener("fetch", (event) => {

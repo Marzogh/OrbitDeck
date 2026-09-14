@@ -12,6 +12,8 @@ references/icom-lan/*
 !references/icom-lan/src/
 !references/icom-lan/src/**
 data/state.json
+data/tx_auth.json
+data/tx_auth_secret
 data/snapshots/*.json
 docs/*proposal*.md
 docs/*review-log.md
