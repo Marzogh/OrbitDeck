@@ -2,18 +2,14 @@ import { escapeHtml } from "./shared.js";
 
 export function renderLocationSection({ stateCache, locationSummary }) {
   const locationState = stateCache.location.state || {};
-  const resolved = locationState.resolved_location
-    || locationState.browser_location
-    || locationState.gps_location
-    || locationState.manual_location
-    || null;
+  const resolved = stateCache.location.resolved;
   return `
     <section class="settings-v2-screen">
       <header class="settings-v2-screen-head">
         <div>
           <div class="label mono">Location</div>
           <h2>Source for pass predictions</h2>
-          <p>Choose the location source used to derive terrestrial APRS defaults and pass predictions.</p>
+          <p>Fresh radio GPS takes priority, followed by this device. Manual coordinates provide an explicit fallback. Browsing observers do not change the station.</p>
         </div>
         <span class="settings-v2-summary-pill">${escapeHtml(locationState.source_mode || "--")}</span>
       </header>
@@ -37,7 +33,7 @@ export function renderLocationSection({ stateCache, locationSummary }) {
         <article class="card settings-v2-card">
           <h3>Resolved Location</h3>
           <div class="settings-v2-readonly-grid">
-            <div><span>Source</span><strong>${escapeHtml(locationState.source_mode || "--")}</strong></div>
+            <div><span>Source</span><strong>${escapeHtml(resolved?.source || "unavailable")}</strong></div>
             <div><span>Summary</span><strong>${escapeHtml(locationSummary(stateCache.location))}</strong></div>
             <div><span>Latitude</span><strong>${escapeHtml(resolved?.lat != null ? String(resolved.lat) : "--")}</strong></div>
             <div><span>Longitude</span><strong>${escapeHtml(resolved?.lon != null ? String(resolved.lon) : "--")}</strong></div>
@@ -59,17 +55,8 @@ export function renderLocationSection({ stateCache, locationSummary }) {
         </article>
 
         <article class="card settings-v2-card hidden" id="v2GpsLocationCard">
-          <h3>GPS Coordinates</h3>
-          <div class="settings-v2-form-grid">
-            <label>
-              <span>Latitude</span>
-              <input id="v2GpsLat" type="number" step="0.000001" placeholder="-27.470125" />
-            </label>
-            <label>
-              <span>Longitude</span>
-              <input id="v2GpsLon" type="number" step="0.000001" placeholder="153.021072" />
-            </label>
-          </div>
+          <h3>Radio GPS</h3><p>Read automatically from a connected supported radio. Entered coordinates belong under Manual Coordinates.</p>
+
         </article>
       </div>
 
@@ -95,14 +82,12 @@ export function bindLocationSection(ctx) {
   const manualCard = document.getElementById("v2ManualLocationCard");
   const gpsCard = document.getElementById("v2GpsLocationCard");
   mode.value = locationState.source_mode || "browser";
-  if (locationState.manual_location) {
-    document.getElementById("v2ManualLat").value = locationState.manual_location.lat ?? "";
-    document.getElementById("v2ManualLon").value = locationState.manual_location.lon ?? "";
+  const manual = (locationState.profiles || []).find((profile) => profile.id === locationState.selected_profile_id)?.point;
+  if (manual) {
+    document.getElementById("v2ManualLat").value = manual.lat ?? "";
+    document.getElementById("v2ManualLon").value = manual.lon ?? "";
   }
-  if (locationState.gps_location) {
-    document.getElementById("v2GpsLat").value = locationState.gps_location.lat ?? "";
-    document.getElementById("v2GpsLon").value = locationState.gps_location.lon ?? "";
-  }
+
 
   const sync = () => {
     manualCard.classList.toggle("hidden", mode.value !== "manual");

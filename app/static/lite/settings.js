@@ -55,10 +55,10 @@ function syncLocationControls() {
   trackerById("locationModeHelp").textContent = mode === "browser"
     ? "Requests this phone's location and sends it to the Pi immediately."
     : mode === "gps"
-      ? "Uses a GPS receiver connected to the Raspberry Pi."
+      ? "Uses fresh GPS from a connected supported radio, with this device as fallback."
       : mode === "manual"
         ? "Shows latitude/longitude entry fields below and saves automatically."
-        : "Uses the Raspberry Pi's current saved location source.";
+        : "Uses fresh radio GPS, then this device, then explicit manual coordinates.";
 }
 
 function syncGpsControls() {
@@ -143,8 +143,8 @@ async function saveTimezone() {
 }
 
 async function saveManual() {
-  const lat = Number(trackerById("lat").value);
-  const lon = Number(trackerById("lon").value);
+  const lat = trackerById("lat").value.trim() ? Number(trackerById("lat").value) : NaN;
+  const lon = trackerById("lon").value.trim() ? Number(trackerById("lon").value) : NaN;
   if (Number.isNaN(lat) || Number.isNaN(lon)) return;
   await trackerApi.post("/api/v1/location", {
     add_profile: {
@@ -275,7 +275,7 @@ async function hydrate() {
 
   trackerById("locationMode").value =
     snapshot.location?.source === "browser" ? "browser"
-      : snapshot.location?.source === "gps" ? "gps"
+      : snapshot.location?.source === "radio_gps" ? "gps"
         : snapshot.location?.source === "manual" ? "manual"
           : "current";
   syncLocationControls();

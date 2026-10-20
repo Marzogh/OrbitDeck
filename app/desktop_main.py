@@ -41,6 +41,7 @@ class DesktopServer:
 
     def start(self) -> None:
         os.environ["ORBITDECK_PACKAGED_APP"] = "1"
+        os.environ["ORBITDECK_DESKTOP_LOCATION"] = "1"
         from app.main import app as orbitdeck_app
 
         config = uvicorn.Config(
@@ -211,6 +212,11 @@ class DesktopApi:
                 result["lat"] = round(float(coordinate.latitude), 6)
                 result["lon"] = round(float(coordinate.longitude), 6)
                 result["alt_m"] = round(float(location.altitude()), 1)
+                accuracy = float(location.horizontalAccuracy())
+                if accuracy < 0:
+                    return
+                result["accuracy_m"] = accuracy
+                result["timestamp"] = float(location.timestamp().timeIntervalSince1970())
                 self._finish()
 
             def locationManager_didFailWithError_(self, manager, error):

@@ -15,6 +15,11 @@ def packaged_app_runtime() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
+def desktop_location_capable() -> bool:
+    # Set by DesktopServer, independently of packaged storage selection.
+    return os.getenv("ORBITDECK_DESKTOP_LOCATION", "") == "1" and sys.platform == "darwin"
+
+
 def resource_root() -> Path:
     frozen_root = getattr(sys, "_MEIPASS", None)
     if frozen_root:

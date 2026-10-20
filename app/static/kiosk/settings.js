@@ -20,7 +20,6 @@ import {
   formatRelativeTone,
   transportSummary,
   radioContextSummary,
-  effectiveLocation,
   locationSummary,
   toggleHidden,
   getTrackedSatelliteId,
@@ -198,11 +197,10 @@ function mountDirtyTracking(sectionId) {
 function buildWarnings() {
   const warnings = [];
   const radioRuntime = stateCache.radio.runtime || {};
-  const locationState = stateCache.location.state || {};
   const aprsRuntime = stateCache.aprs.runtime || {};
   const aprsTarget = stateCache.aprs.previewTarget || aprsRuntime.target || null;
   if (!radioRuntime.connected) warnings.push({ title: "Radio disconnected", detail: radioRuntime.last_error || "Shared radio transport is not connected." });
-  if (!effectiveLocation(locationState)) warnings.push({ title: "Location unresolved", detail: "Pass predictions and terrestrial APRS defaults are degraded until a location is resolved." });
+  if (!stateCache.location.resolved?.available) warnings.push({ title: "Location unresolved", detail: "Pass predictions and terrestrial APRS defaults are degraded until a location is resolved." });
   if (aprsTarget?.requires_pass && !aprsTarget?.pass_active) warnings.push({ title: "Satellite APRS transmit blocked", detail: aprsTarget.tx_block_reason || "Transmit is only allowed during an active pass." });
   if (!aprsRuntime.connected) warnings.push({ title: "APRS offline", detail: "APRS runtime is disconnected." });
   if (aprsRuntime.igate_status === "error") warnings.push({ title: "iGate error", detail: aprsRuntime.igate_last_error || "APRS-IS connection did not complete successfully." });
@@ -415,16 +413,12 @@ async function saveLocationSection() {
   if (sourceMode === "browser" || sourceMode === "auto") {
     await trackerSetBrowserLocation();
   } else if (sourceMode === "manual") {
-    const lat = Number(trackerById("v2ManualLat").value);
-    const lon = Number(trackerById("v2ManualLon").value);
+    const lat = trackerById("v2ManualLat").value.trim() ? Number(trackerById("v2ManualLat").value) : NaN;
+    const lon = trackerById("v2ManualLon").value.trim() ? Number(trackerById("v2ManualLon").value) : NaN;
     if (Number.isNaN(lat) || Number.isNaN(lon)) throw new Error("Manual latitude and longitude are required");
     payload.add_profile = { id: "manual-kiosk", name: "Manual Kiosk", point: { lat, lon, alt_m: 0 } };
     payload.selected_profile_id = "manual-kiosk";
-  } else if (sourceMode === "gps") {
-    const lat = Number(trackerById("v2GpsLat").value);
-    const lon = Number(trackerById("v2GpsLon").value);
-    if (Number.isNaN(lat) || Number.isNaN(lon)) throw new Error("GPS latitude and longitude are required");
-    payload.gps_location = { lat, lon, alt_m: 0 };
+
   }
   await runAction("POST /api/v1/location", () => trackerApi.post("/api/v1/location", payload));
   recordEvent("Location settings saved", sourceMode);

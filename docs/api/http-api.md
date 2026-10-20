@@ -516,8 +516,9 @@ Example request:
 
 Interpretation:
 
-- `state` is the stored location state
-- `resolved` is the effective location currently used by the tracking layer
+- `state` is the requesting browser's location state
+- `resolved` is this device's observer location; `stationResolved` is the position used for radio and APRS
+- See [location resolution](location.md) for required session headers, expiry, ownership, and unavailable results
 
 ## Lite settings
 
@@ -1377,7 +1378,7 @@ Representative response:
 Interpretation:
 
 - these fields define GPS connection parameters only
-- live GPS location still has to be written into location state by a separate process
+- live IC-705 GPS is acquired through the connected radio adapter; see [location resolution](location.md)
 
 ## Refresh and snapshots
 

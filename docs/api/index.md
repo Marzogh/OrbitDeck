@@ -13,3 +13,5 @@ For installation and operating workflow, start with [Quick Start](../guide/quick
 - location, timezone, pass-filter, lite, GPS, radio, and APRS settings
 - frequency guidance, radio control, APRS operation, and dataset refresh
 - technical reference pages for radio control, APRS transport/runtime behavior, frequency guidance, lite snapshot behavior, AMSAT enrichment, and Pi Zero/device gating
+
+See [location resolution and browser ownership](location.md) for observer/station separation, source priority, freshness, and native-provider capability.

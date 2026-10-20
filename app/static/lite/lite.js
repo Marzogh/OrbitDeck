@@ -232,7 +232,7 @@ function heroBadges(snapshot) {
 
 function renderControlSummary(snapshot) {
   trackerById("liteLocationSummary").textContent =
-    `${snapshot.location.source}: ${snapshot.location.lat.toFixed(4)}, ${snapshot.location.lon.toFixed(4)}`;
+    window.issTracker.describeLocation(snapshot.location);
   trackerById("liteFocusSummary").textContent =
     snapshot.focusSatellite?.name || (savedFocusSatId || "Auto");
   trackerById("liteTrackedCountSummary").textContent =

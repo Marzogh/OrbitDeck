@@ -15,11 +15,12 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 from zoneinfo import available_timezones
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from app.location import browser_session
 from app.aprs.log_store import AprsLogStore
 from app.aprs.service import AprsService
 from app.device import lite_only_ui
@@ -65,7 +66,7 @@ from app.models import (
 )
 from app.radio.civ import normalize_civ_address
 from app.radio.service import RigControlService
-from app.runtime_paths import packaged_app_runtime, static_path, static_root
+from app.runtime_paths import desktop_location_capable, packaged_app_runtime, static_path, static_root
 from app.services import (
     CacheService,
     DataIngestionService,
@@ -398,8 +399,8 @@ def _pass_cache_key(
             f"bucket={window_bucket}",
             f"h={hours}",
             f"src={resolved_location.source}",
-            f"lat={resolved_location.lat:.4f}",
-            f"lon={resolved_location.lon:.4f}",
+            f"lat={resolved_location.lat}",
+            f"lon={resolved_location.lon}",
             f"alt={resolved_location.alt_m:.1f}",
             f"min={min_max_el:.1f}",
             f"all={int(include_all_sats)}",
@@ -409,12 +410,28 @@ def _pass_cache_key(
     )
 
 
-def _resolve_location(source_override: LocationSourceMode | None = None):
+def _location_state(*, station=False):
     state = store.get()
-    location_state = state.location.model_copy(deep=True)
+    sessions = radio_control_service.locations
+    session = sessions.owner if station else browser_session.get()
+    location_state = sessions.observer(session, state.location)
+    if station or session == sessions.owner:
+        location_state.gps_location = radio_control_service.location_fix() or (
+            aprs_service.location_fix() if hasattr(aprs_service, "location_fix") else None
+        )
+    return state, location_state
+
+
+def _resolve_location(source_override: LocationSourceMode | None = None, *, station=False, required=False):
+    state, location_state = _location_state(station=station)
     if source_override is not None:
         location_state.source_mode = source_override
     resolved = location_service.resolve(location_state)
+    if required and not resolved.available:
+        raise HTTPException(status_code=409, detail={
+            "message": "Location unavailable. Allow device location or enter manual coordinates in Settings.",
+            "location": resolved.__dict__,
+        })
     return state, resolved
 
 
@@ -690,8 +707,8 @@ def _validate_aprs_gateway_settings(settings: AprsSettings) -> None:
 
 
 def _resolved_location_for_aprs():
-    state, location = _resolve_location()
-    return state, location
+    state, location = _resolve_location(station=True, required=False)
+    return state, location if location.available else None
 
 
 def _effective_aprs_settings_for_connect(state) -> AprsSettings:
@@ -717,7 +734,7 @@ def _effective_aprs_settings_for_connect(state) -> AprsSettings:
 
 
 def _aprs_pass_for_satellite(location, sat_id: str | None):
-    if not sat_id:
+    if not sat_id or location is None:
         return None
     now = datetime.now(UTC)
     passes = tracking_service.pass_predictions(
@@ -757,7 +774,7 @@ def _aprs_targets_payload(state, location) -> dict:
 
 
 def _aprs_current_track(location, sat_id: str | None):
-    if not sat_id:
+    if not sat_id or location is None:
         return None
     now = datetime.now(UTC)
     tracks = tracking_service.live_tracks(now, location)
@@ -1008,7 +1025,7 @@ def _resolve_recommendation_for_radio(
     location_source: LocationSourceMode | None = None,
     selected_column_index: int | None = None,
 ):
-    _, location = _resolve_location(location_source)
+    _, location = _resolve_location(location_source, station=True, required=True)
     now = datetime.now(UTC)
     tracks = tracking_service.live_tracks(now, location, sat_ids={sat_id})
     current_track = tracks[0] if tracks else None
@@ -1033,7 +1050,7 @@ def _resolve_recommendation_for_radio(
 
 
 def _resolve_default_test_pair_for_radio(payload: RadioControlSessionSelectRequest):
-    _, location = _resolve_location(None)
+    _, location = _resolve_location(None, station=True, required=True)
     now = datetime.now(UTC)
     sat_id = payload.sat_id
     tracks = tracking_service.live_tracks(now, location, sat_ids={sat_id})
@@ -1083,7 +1100,7 @@ def _correct_radio_session_test_pair_payload(payload: RadioControlSessionTestPai
     sat_id = session.selected_sat_id
     if not sat_id:
         return payload
-    _, location = _resolve_location(None)
+    _, location = _resolve_location(None, station=True, required=True)
     now = datetime.now(UTC)
     tracks = tracking_service.live_tracks(now, location, sat_ids={sat_id})
     current_track = tracks[0] if tracks else None
@@ -1488,12 +1505,16 @@ def _lite_snapshot(
     location_source: LocationSourceMode | None,
 ) -> dict:
     tracked_ids = _tracked_sat_ids(state)
+    station_location = _resolve_location(station=True)[1]
     cache_key = (
+        browser_session.get(), radio_control_service.locations.owner,
+        station_location.source, station_location.lat, station_location.lon,
         tuple(sorted(tracked_ids)),
         sat_id or "",
         location_source.value if location_source is not None else "",
-        round(location.lat, 4),
-        round(location.lon, 4),
+        location.source,
+        round(location.lat, 6) if location.lat is not None else None,
+        round(location.lon, 6) if location.lon is not None else None,
         round(location.alt_m, 1),
     )
     cached = _lite_snapshot_cache.get(cache_key)
@@ -1501,7 +1522,7 @@ def _lite_snapshot(
     if cached is not None:
         cached_at, payload = cached
         if now - cached_at < timedelta(seconds=15):
-            return payload
+            return {**payload, "location": location.__dict__}
 
     tracks = tracking_service.live_tracks(now, location, sat_ids=tracked_ids)
     track_by_sat = {track.sat_id: track for track in tracks}
@@ -1511,7 +1532,7 @@ def _lite_snapshot(
     if iss_track is None:
         iss_tracks = tracking_service.live_tracks(now, location, sat_ids={"iss-zarya"})
         iss_track = _pick_iss_track(iss_tracks)
-    if iss_track is None:
+    if iss_track is None and location.available:
         raise HTTPException(status_code=500, detail="ISS track unavailable after recovery")
 
     iss_state = iss_service.state(state.settings, iss_track)
@@ -1589,7 +1610,7 @@ def _lite_snapshot(
                 "satellite_beacon_comment": state.aprs_settings.satellite_beacon_comment,
                 "listen_only": state.aprs_settings.listen_only,
             },
-            "focused": _build_lite_aprs_focus(state, location, focus_sat),
+            "focused": _build_lite_aprs_focus(state, _resolved_location_for_aprs()[1], focus_sat),
         },
     }
     _lite_snapshot_cache[cache_key] = (now, payload)
@@ -1649,6 +1670,36 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_ROOT)), name="static")
 
 def _static_file_response(*parts: str) -> FileResponse:
     return FileResponse(str(static_path(*parts)))
+
+
+@app.middleware("http")
+async def location_browser_context(request: Request, call_next):
+    session = request.headers.get("X-OrbitDeck-Session", "").strip()[:128] or None
+    token = browser_session.set(session)
+    sessions = radio_control_service.locations
+    try:
+        sessions.touch(session)
+        path = request.scope.get("path", "")
+        root_path = request.scope.get("root_path", "").rstrip("/")
+        if root_path and path.startswith(root_path + "/"):
+            path = path[len(root_path):]
+        # Match upstream API paths only, independently of ASGI mount roots.
+        controlled = request.method == "POST" and (
+            path.startswith("/api/v1/radio/") or
+            path.startswith("/api/v1/aprs/") and path not in {
+                "/api/v1/aprs/log/clear", "/api/v1/aprs/session/identity",
+                "/api/v1/aprs/log/settings", "/api/v1/aprs/direwolf/install",
+                "/api/v1/aprs/direwolf/install-terminal", "/api/v1/aprs/emergency-stop"
+            }
+        )
+        if controlled:
+            try:
+                _claim_location_control(session)
+            except ValueError as exc:
+                return JSONResponse(status_code=409, content={"detail": str(exc)})
+        return await call_next(request)
+    finally:
+        browser_session.reset(token)
 
 
 @app.get("/")
@@ -1819,6 +1870,7 @@ def get_passes(
         if cached is not None:
             return {
                 **cached,
+                "location": location.__dict__,
                 "cache": {"source": "cache", "force_refresh": False},
             }
     passes = tracking_service.pass_predictions(
@@ -1973,11 +2025,11 @@ def get_iss_state(location_source: LocationSourceMode | None = Query(default=Non
     now = datetime.now(UTC)
     tracks = tracking_service.live_tracks(now, location)
     iss_track = _pick_iss_track(tracks)
-    if iss_track is None:
+    if iss_track is None and location.available:
         tracking_service.replace_catalog(tracking_service.satellites())
         tracks = tracking_service.live_tracks(now, location)
         iss_track = _pick_iss_track(tracks)
-    if iss_track is None:
+    if iss_track is None and location.available:
         raise HTTPException(status_code=500, detail="ISS track unavailable after recovery")
     iss_state = iss_service.state(state.settings, iss_track)
     return {
@@ -1988,45 +2040,94 @@ def get_iss_state(location_source: LocationSourceMode | None = Query(default=Non
     }
 
 
+def _location_payload():
+    _, location_state = _location_state()
+    _, station = _resolve_location(station=True, required=False)
+    return {
+        "state": location_state,
+        "resolved": location_service.resolve(location_state).__dict__,
+        "stationResolved": station.__dict__,
+        "controlOwner": bool(browser_session.get() and browser_session.get() == radio_control_service.locations.owner),
+        "controlOccupied": radio_control_service.locations.owner is not None,
+        "freshness": {"radioSeconds": location_service.RADIO_MAX_AGE_S, "deviceSeconds": location_service.DEVICE_MAX_AGE_S},
+    }
+
+
 @app.get("/api/v1/location")
 def get_location() -> dict:
-    state = store.get()
-    resolved = location_service.resolve(state.location)
-    return {"state": state.location, "resolved": resolved.__dict__}
+    return _location_payload()
 
 
 @app.post("/api/v1/location")
 def post_location(payload: LocationUpdate) -> dict:
+    if payload.gps_location is not None:
+        raise HTTPException(status_code=422, detail="Radio GPS is read from the connected adapter. Use manual coordinates for an entered position.")
+    session = browser_session.get()
+    if not session:
+        raise HTTPException(status_code=400, detail="X-OrbitDeck-Session is required for a device observer")
     state = store.get()
-    state.location = location_service.apply_update(state.location, payload)
-    store.save(state)
+    sessions = radio_control_service.locations
+    updated = sessions.update(session, state.location, payload, location_service)
+    # Only station-owner configuration is persisted. Device fixes
+    # and browsing observers are transient, never shared with other devices.
+    if session == sessions.owner and (payload.source_mode is not None or payload.add_profile is not None or payload.selected_profile_id is not None):
+        saved = updated.model_copy(deep=True)
+        saved.browser_location = saved.gps_location = saved.last_known_location = None
+        state.location = saved
+        store.save(state)
     _invalidate_lite_snapshot_cache()
     _invalidate_pass_cache()
-    resolved = location_service.resolve(state.location)
-    return {"state": state.location, "resolved": resolved.__dict__}
+    return _location_payload()
+
+
+@app.post("/api/v1/location/device-unavailable")
+def device_location_unavailable() -> dict:
+    radio_control_service.locations.clear_device(browser_session.get())
+    _invalidate_lite_snapshot_cache()
+    return _location_payload()
+
+
+def _claim_location_control(session):
+    sessions = radio_control_service.locations
+    previous = sessions.owner
+    sessions.claim(session)
+    if previous != session:
+        radio_control_service.stop_auto_track()
+
+
+@app.post("/api/v1/location/control/claim")
+def claim_location_control() -> dict:
+    try:
+        _claim_location_control(browser_session.get())
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _location_payload()
+
+
+@app.post("/api/v1/location/control/release")
+def release_location_control() -> dict:
+    if browser_session.get() == radio_control_service.locations.owner:
+        radio_control_service.stop_auto_track()
+        radio_control_service.locations.release(browser_session.get())
+    return _location_payload()
 
 
 @app.post("/api/v1/desktop/native-location")
 def post_desktop_native_location() -> dict:
-    if not packaged_app_runtime():
-        raise HTTPException(status_code=404, detail="Desktop native location is only available in the packaged app runtime.")
+    if not desktop_location_capable():
+        raise HTTPException(status_code=404, detail="Desktop location provider is unavailable in this runtime.")
     from app.desktop_main import DesktopApi
-
-    native = DesktopApi().native_location()
-    payload = LocationUpdate(
-        browser_location=GeoPoint(
-            lat=float(native["lat"]),
-            lon=float(native["lon"]),
-            alt_m=float(native.get("alt_m") or 0.0),
+    try:
+        native = DesktopApi().native_location()
+        timestamp = native.get("timestamp")
+        point = GeoPoint(
+            lat=native["lat"], lon=native["lon"], alt_m=native.get("alt_m") or 0,
+            provider="desktop", accuracy_m=native.get("accuracy_m"),
+            timestamp=datetime.fromtimestamp(timestamp, UTC) if timestamp is not None else None,
         )
-    )
-    state = store.get()
-    state.location = location_service.apply_update(state.location, payload)
-    store.save(state)
-    _invalidate_lite_snapshot_cache()
-    _invalidate_pass_cache()
-    resolved = location_service.resolve(state.location)
-    return {"state": state.location, "resolved": resolved.__dict__}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return post_location(LocationUpdate(browser_location=point))
 
 
 @app.get("/api/v1/network")
@@ -2370,7 +2471,7 @@ def get_aprs_targets() -> dict:
     return {
         "settings": state.aprs_settings,
         "targets": _aprs_targets_payload(state, location),
-        "resolvedLocation": location.__dict__,
+        "resolvedLocation": location.__dict__ if location is not None else None,
     }
 
 
@@ -2450,7 +2551,7 @@ def connect_aprs() -> dict:
             effective_settings,
             target,
             radio_settings=state.radio_settings,
-            retune_resolver=(lambda: _resolve_aprs_target(_effective_aprs_settings_for_connect(store.get()), _resolve_location()[1])),
+            retune_resolver=(lambda: _resolve_aprs_target(_effective_aprs_settings_for_connect(store.get()), _resolve_location(station=True, required=False)[1])),
         )
     except (RuntimeError, ValueError, TimeoutError, OSError, subprocess.SubprocessError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -2524,9 +2625,12 @@ def send_aprs_status(payload: AprsSendStatusRequest) -> dict:
 def send_aprs_position(payload: AprsSendPositionRequest) -> dict:
     _ensure_station_identity_ready()
     state, location = _resolved_location_for_aprs()
+    if location is None:
+        raise HTTPException(status_code=409, detail="Station location unavailable. Allow location on the radio-control device or select manual coordinates.")
     try:
         override_callsign, override_ssid = _current_aprs_session_identity_override()
         send_payload = payload.model_copy(update={
+            "latitude": location.lat, "longitude": location.lon,
             "callsign": payload.callsign if payload.callsign is not None else override_callsign,
             "ssid": payload.ssid if payload.ssid is not None else override_ssid,
         })
@@ -2785,11 +2889,11 @@ def get_system_state(
     now = datetime.now(UTC)
     tracks = tracking_service.live_tracks(now, location)
     iss_track = _pick_iss_track(tracks)
-    if iss_track is None:
+    if iss_track is None and location.available:
         tracking_service.replace_catalog(tracking_service.satellites())
         tracks = tracking_service.live_tracks(now, location)
         iss_track = _pick_iss_track(tracks)
-    if iss_track is None:
+    if iss_track is None and location.available:
         raise HTTPException(status_code=500, detail="ISS track unavailable after recovery")
     iss_state = iss_service.state(state.settings, iss_track)
     active_track = _pick_active_track(tracks, sat_id)
@@ -2811,15 +2915,16 @@ def get_system_state(
         now=now,
     )
     bodies = []
-    if hasattr(ingestion_service, "body_positions"):
+    if location.available and hasattr(ingestion_service, "body_positions"):
         with suppress(Exception):
             bodies = ingestion_service.body_positions(now, location.lat, location.lon, location.alt_m)
     aprs_preview_target = None
     with suppress(Exception):
-        aprs_preview_target = _resolve_aprs_target(state.aprs_settings, location)
+        aprs_preview_target = _resolve_aprs_target(state.aprs_settings, _resolved_location_for_aprs()[1])
     return {
         "timestamp": now,
         "location": location.__dict__,
+        "stationLocation": _resolve_location(station=True)[1].__dict__,
         "settings": state.settings,
         "radioSettings": state.radio_settings,
         "radioRuntime": radio_control_service.runtime(),

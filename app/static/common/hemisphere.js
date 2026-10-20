@@ -187,10 +187,10 @@
       showObserverMarker = true,
       emptyText = "Pass path unavailable",
     } = options || {};
-    const observer = {
-      lat: Number(observerLocation?.lat ?? 0),
-      lon: Number(observerLocation?.lon ?? 0),
-    };
+    if (observerLocation?.lat == null || observerLocation?.lon == null) {
+      return '<div class="hemisphere-map-empty">Location unavailable</div>';
+    }
+    const observer = { lat: Number(observerLocation.lat), lon: Number(observerLocation.lon) };
     const splitIdx = nearestPathIndex(pathItems, track);
     const pastItems = splitIdx >= 0 ? pathItems.slice(0, splitIdx + 1) : [];
     const futureItems = splitIdx >= 0 ? pathItems.slice(splitIdx) : pathItems;

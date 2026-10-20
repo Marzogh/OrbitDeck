@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from time import sleep
+from datetime import UTC, datetime
+
+from app.models import GeoPoint
 
 from app.models import FrequencyRecommendation, RadioRigModel
 from app.radio.civ import ACK, NAK, bcd_to_freq, freq_to_bcd, parse_frame
@@ -9,6 +12,45 @@ from app.radio.controllers.base import BaseIcomController
 
 class Ic705Controller(BaseIcomController):
     model = RadioRigModel.ic705
+
+    supports_gps = True
+
+    @staticmethod
+    def decode_gps(payload: bytes) -> GeoPoint:
+        # Icom IC-705 CI-V Reference Guide pp. 21, 25: big-endian BCD,
+        # hemisphere/sign in the last nibble, and the actual UTC fix time.
+        if len(payload) != 28 or payload[0] != 0:
+            raise ValueError("Invalid IC-705 GPS position response")
+        data = payload[1:]
+        if any((b >> 4) > 9 or (b & 15) > 9 for b in data):
+            raise ValueError("Invalid GPS BCD or no fix")
+        digits = data.hex()
+        lat, lon, alt = digits[:10], digits[10:22], digits[22:30]
+        if lat[7:9] != "00" or lon[9:11] != "00" or alt[6] != "0":
+            raise ValueError("Invalid GPS reserved digits")
+        if lat[-1] not in "01" or lon[-1] not in "01" or alt[-1] not in "01":
+            raise ValueError("Invalid GPS hemisphere/sign")
+        lat_min = int(lat[2:7]) / 1000
+        lon_min = int(lon[4:9]) / 1000
+        if lon[0] != "0" or lat_min >= 60 or lon_min >= 60:
+            raise ValueError("Invalid GPS degrees/minutes")
+        latitude = (int(lat[:2]) + lat_min / 60) * (1 if lat[-1] == "1" else -1)
+        longitude = (int(lon[1:4]) + lon_min / 60) * (1 if lon[-1] == "1" else -1)
+        timestamp = datetime.strptime(data[20:27].hex(), "%Y%m%d%H%M%S").replace(tzinfo=UTC)
+        return GeoPoint(lat=latitude, lon=longitude,
+                        alt_m=int(alt[:6]) / 10 * (-1 if alt[-1] == "1" else 1), timestamp=timestamp)
+
+    def read_gps(self):
+        # Read-only queries. Never enable GPS, set a manual position, or key PTT.
+        selected = parse_frame(self.transport.transact(
+            self.civ_address, 0x23, b"\x01", expect_commands={0x23, NAK}, timeout=0.8))
+        if selected.command != 0x23 or selected.payload != b"\x01\x01":
+            return None
+        frame = parse_frame(self.transport.transact(
+            self.civ_address, 0x23, b"\x00", expect_commands={0x23, NAK}, timeout=0.8))
+        if frame.command != 0x23:
+            return None
+        return self.decode_gps(frame.payload)
 
     C_RD_SPLIT = 0x0F
     C_RD_MODE = 0x04

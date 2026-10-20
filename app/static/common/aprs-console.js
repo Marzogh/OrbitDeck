@@ -58,10 +58,8 @@
   }
 
   function buildPositionPreview(state, comment) {
-    const runtimeText = String(state?.aprs?.runtime?.last_tx_text || "").trim();
-    if (runtimeText) return runtimeText;
     const settings = state?.aprs?.settings || {};
-    const location = state?.location?.state?.resolved_location || state?.location?.state?.browser_location || state?.location?.state?.gps_location || null;
+    const location = state?.location?.stationResolved || null;
     if (!location || location.lat == null || location.lon == null) {
       return "Position preview unavailable until location is resolved";
     }

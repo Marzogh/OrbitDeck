@@ -45,6 +45,7 @@ class SerialTransport:
         self._port_factory = port_factory
         self._port: SerialLike | None = None
         self._lock = Lock()
+        self._transaction_lock = Lock()
         self._buffer = b""
 
     @property
@@ -99,19 +100,20 @@ class SerialTransport:
         expect_commands: set[int] | None = None,
         timeout: float | None = None,
     ) -> bytes:
-        if not self._port:
-            raise RuntimeError("transport is not connected")
-        self.write_frame(to_addr, command, payload)
-        deadline = monotonic() + (self.timeout if timeout is None else timeout)
-        expected = expect_commands or {command}
-        while monotonic() < deadline:
-            for frame in self.read_frames():
-                try:
-                    parsed = parse_frame(frame)
-                except Exception:
-                    continue
-                if parsed.to_addr != CONTROLLER_ADDRESS:
-                    continue
-                if parsed.command in expected:
-                    return frame
-        raise TimeoutError(f"timeout waiting for CI-V response to 0x{command:02X}")
+        with self._transaction_lock:
+            if not self._port:
+                raise RuntimeError("transport is not connected")
+            self.write_frame(to_addr, command, payload)
+            deadline = monotonic() + (self.timeout if timeout is None else timeout)
+            expected = expect_commands or {command}
+            while monotonic() < deadline:
+                for frame in self.read_frames():
+                    try:
+                        parsed = parse_frame(frame)
+                    except Exception:
+                        continue
+                    if parsed.to_addr != CONTROLLER_ADDRESS:
+                        continue
+                    if parsed.command in expected:
+                        return frame
+            raise TimeoutError(f"timeout waiting for CI-V response to 0x{command:02X}")

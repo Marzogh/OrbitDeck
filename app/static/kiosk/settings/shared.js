@@ -271,16 +271,8 @@ export function radioContextSummary(radioSettings) {
   return `Rig ${String(radioSettings?.rig_model || "--").toUpperCase()} | ${transportSummary(radioSettings)}`;
 }
 
-export function effectiveLocation(state) {
-  const current = state || {};
-  return current.resolved_location || current.browser_location || current.gps_location || current.manual_location || null;
-}
-
 export function locationSummary(location) {
-  const state = location?.state || {};
-  const resolved = effectiveLocation(state);
-  if (!resolved) return "No resolved coordinates";
-  return `${formatCoord(resolved.lat)}, ${formatCoord(resolved.lon)}`;
+  return window.issTracker.describeLocation(location?.resolved);
 }
 
 export function toggleHidden(el, hidden) {

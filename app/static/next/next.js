@@ -72,7 +72,7 @@ const labelize = (value) => String(value || "idle").replaceAll("_", " ").replace
 const rigLabel = (value) => ({ ic705: "IC-705", id5100: "ID-5100" }[String(value || "").toLowerCase()] || String(value || "Radio").toUpperCase());
 
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
+  const response = await fetch(path, { ...options, headers: { ...options.headers, "X-OrbitDeck-Session": window.issTracker.sessionId } });
   let payload = {};
   try { payload = await response.json(); } catch {}
   if (!response.ok) {
@@ -742,7 +742,7 @@ function renderSettings() {
   byId("stationLocationMode").value = locationState.source_mode || "auto";
   const selectedProfile = locationState.selected_profile_id || profiles[0]?.id || "__new";
   byId("stationLocationProfile").innerHTML = profiles.map((profile) => `<option value="${escapeHtml(profile.id)}"${profile.id === selectedProfile ? " selected" : ""}>${escapeHtml(profile.name)}</option>`).join("") + `<option value="__new"${selectedProfile === "__new" ? " selected" : ""}>Add new location…</option>`;
-  byId("locationHealth").textContent = `${labelize(location.resolved?.source)} · ${number(location.resolved?.lat, 3)}, ${number(location.resolved?.lon, 3)}`;
+  byId("locationHealth").textContent = window.issTracker.describeLocation(location.resolved);
   syncLocationFields();
   fillLocationProfile();
   const timezone = state.stationSettings.timezone?.timezone || "BrowserLocal";
@@ -1000,8 +1000,8 @@ async function saveStationLocation(event) {
   const mode = byId("stationLocationMode").value;
   const payload = { source_mode: mode };
   if (mode === "manual") {
-    const lat = Number(byId("stationLatitude").value);
-    const lon = Number(byId("stationLongitude").value);
+    const lat = byId("stationLatitude").value.trim() ? Number(byId("stationLatitude").value) : NaN;
+    const lon = byId("stationLongitude").value.trim() ? Number(byId("stationLongitude").value) : NaN;
     const alt = Number(byId("stationAltitude").value || 0);
     if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
       showNotice("Enter valid latitude and longitude values.", true);
@@ -1024,26 +1024,17 @@ async function saveStationLocation(event) {
 }
 
 async function useDeviceLocation() {
-  if (!navigator.geolocation) {
-    showNotice("This browser does not provide device location.", true);
-    return;
-  }
   byId("useDeviceLocation").disabled = true;
-  navigator.geolocation.getCurrentPosition(async (position) => {
-    try {
-      await post("/api/v1/location", { source_mode: "browser", browser_location: { lat: position.coords.latitude, lon: position.coords.longitude, alt_m: position.coords.altitude || 0 } });
-      showNotice("Station location updated from this device.");
-      await loadStationSettings(true);
-      await refreshData(false);
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : String(error), true);
-    } finally {
-      byId("useDeviceLocation").disabled = false;
-    }
-  }, (error) => {
-    byId("useDeviceLocation").disabled = false;
+  try {
+    await window.issTracker.setBrowserLocation();
+    showNotice("Observer location updated. The radio-control device supplies the station fallback.");
+    await loadStationSettings(true);
+    await refreshData(false);
+  } catch (error) {
     showNotice(error.message || "Device location was unavailable.", true);
-  }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+  } finally {
+    byId("useDeviceLocation").disabled = false;
+  }
 }
 
 async function saveStationTimezone(event) {
@@ -1149,6 +1140,11 @@ async function refreshData(showErrors = true) {
       state.aprsTargets ? Promise.resolve(state.aprsTargets) : api("/api/v1/aprs/targets"),
       api("/api/v1/aprs/log?limit=12"),
     ]);
+    const positionKey = (location) => JSON.stringify([location?.source, location?.lat, location?.lon, location?.alt_m]);
+    if (positionKey(state.system?.location) !== positionKey(system.location)) {
+      state.mapPaths = {};
+      state.selectedPass = null;
+    }
     state.system = system;
     state.passes = Array.isArray(passes.items) ? passes.items : [];
     state.aprs = aprs;

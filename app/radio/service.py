@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from threading import Event, Thread
+from threading import Event, Thread, Lock
 from typing import Callable
 
 from app.models import (
@@ -26,6 +26,7 @@ from app.models import (
     RadioTransportMode,
     DopplerDirection,
 )
+from app.location import LocationSessions
 from app.radio.civ import parse_civ_address
 from app.radio.controllers.base import BaseIcomController
 from app.radio.controllers.ic705 import Ic705Controller
@@ -56,6 +57,7 @@ class RigControlService:
     }
 
     def __init__(self, controller_factory: ControllerFactory | None = None) -> None:
+        self.locations = LocationSessions()
         self._controller_factory = controller_factory or self._default_controller_factory
         self._controller: BaseIcomController | None = None
         self._runtime = RadioRuntimeState()
@@ -64,8 +66,45 @@ class RigControlService:
         self._current_settings: RadioSettings | None = None
         self._auto_track_payload: RadioApplyRequest | None = None
         self._resolver: RecommendationResolver | None = None
+        self._gps_fix = None
+        self._gps_stop = Event()
+        self._gps_worker = None
+        self._gps_lock = Lock()
         self._session = RadioControlSessionState()
         self._restore_snapshot: dict[str, object] | None = None
+
+    def location_fix(self):
+        with self._gps_lock:
+            return self._gps_fix if self._runtime.connected else None
+
+    def _stop_gps(self):
+        self._gps_stop.set()
+        if self._gps_worker:
+            self._gps_worker.join(timeout=3)
+        self._gps_worker = None
+        with self._gps_lock:
+            self._gps_fix = None
+
+    def _start_gps(self):
+        controller = self._controller
+        if not getattr(controller, "supports_gps", False):
+            return
+        self._gps_stop = Event()
+        stop = self._gps_stop
+
+        def worker():
+            while not stop.is_set():
+                try:
+                    fix = controller.read_gps()
+                except Exception:
+                    fix = None
+                with self._gps_lock:
+                    if not stop.is_set():
+                        self._gps_fix = fix
+                stop.wait(5)
+
+        self._gps_worker = Thread(target=worker, name="radio-gps", daemon=True)
+        self._gps_worker.start()
 
     def _default_controller_factory(self, settings: RadioSettings) -> BaseIcomController:
         timeout = max(0.2, settings.poll_interval_ms / 1000)
@@ -337,6 +376,7 @@ class RigControlService:
         self._restore_snapshot = None
 
     def reset_runtime(self) -> None:
+        self._stop_gps()
         self.stop_auto_track()
         self._controller = None
         self._runtime = RadioRuntimeState()
@@ -347,6 +387,7 @@ class RigControlService:
         self._reset_session()
 
     def connect(self, settings: RadioSettings) -> RadioRuntimeState:
+        self._stop_gps()
         self.stop_auto_track()
         self._current_settings = settings.model_copy(deep=True)
         self._controller = self._controller_factory(settings)
@@ -375,11 +416,13 @@ class RigControlService:
             targets=dict(state.targets),
             raw_state=dict(state.raw_state),
         )
+        self._start_gps()
         if self._session.active:
             self._session.control_state = RadioSessionControlState.connected_idle
         return self.runtime()
 
     def disconnect(self) -> RadioRuntimeState:
+        self._stop_gps()
         self.stop_auto_track()
         self._restore_previous_radio_state()
         if self._controller is not None:

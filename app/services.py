@@ -86,88 +86,54 @@ SEED_SATELLITES: list[Satellite] = [
 @dataclass
 class ResolvedLocation:
     source: str
-    lat: float
-    lon: float
-    alt_m: float
+    lat: float | None
+    lon: float | None
+    alt_m: float = 0.0
+    timestamp: datetime | None = None
+    age_seconds: float | None = None
+    accuracy_m: float | None = None
+    available: bool = True
 
 
 class LocationService:
-    def resolve(self, state: LocationState) -> ResolvedLocation:
-        def from_profile() -> ResolvedLocation | None:
-            if not state.selected_profile_id:
-                return None
-            for profile in state.profiles:
-                if profile.id == state.selected_profile_id:
-                    return ResolvedLocation(
-                        source="manual",
-                        lat=profile.point.lat,
-                        lon=profile.point.lon,
-                        alt_m=profile.point.alt_m,
-                    )
-            return None
+    RADIO_MAX_AGE_S = 30
+    DEVICE_MAX_AGE_S = 120
 
-        if state.source_mode == LocationSourceMode.gps and state.gps_location:
-            return ResolvedLocation("gps", state.gps_location.lat, state.gps_location.lon, state.gps_location.alt_m)
-        if state.source_mode == LocationSourceMode.browser and state.browser_location:
+    def resolve(self, state: LocationState, now: datetime | None = None) -> ResolvedLocation:
+        now = now or datetime.now(UTC)
+        for source, point, limit in (
+            ("radio_gps", state.gps_location, self.RADIO_MAX_AGE_S),
+            ("device", state.browser_location, self.DEVICE_MAX_AGE_S),
+        ):
+            if point is None or point.timestamp is None or point.timestamp.tzinfo is None:
+                continue
+            age = (now - point.timestamp).total_seconds()
+            if not -5 <= age <= limit:
+                continue
             return ResolvedLocation(
-                "browser",
-                state.browser_location.lat,
-                state.browser_location.lon,
-                state.browser_location.alt_m,
+                source if source == "radio_gps" else point.provider,
+                point.lat, point.lon, point.alt_m, point.timestamp,
+                max(0.0, age), point.accuracy_m,
             )
         if state.source_mode == LocationSourceMode.manual:
-            profile = from_profile()
+            profile = next((p for p in state.profiles if p.id == state.selected_profile_id), None)
             if profile:
-                return profile
-
-        if state.source_mode == LocationSourceMode.auto:
-            if state.gps_location:
-                return ResolvedLocation("gps", state.gps_location.lat, state.gps_location.lon, state.gps_location.alt_m)
-            if state.browser_location:
-                return ResolvedLocation(
-                    "browser",
-                    state.browser_location.lat,
-                    state.browser_location.lon,
-                    state.browser_location.alt_m,
-                )
-            profile = from_profile()
-            if profile:
-                return profile
-
-        if state.last_known_location:
-            return ResolvedLocation(
-                "last_known",
-                state.last_known_location.lat,
-                state.last_known_location.lon,
-                state.last_known_location.alt_m,
-            )
-
-        return ResolvedLocation(source="default", lat=0.0, lon=0.0, alt_m=0.0)
+                return ResolvedLocation("manual", profile.point.lat, profile.point.lon, profile.point.alt_m)
+        return ResolvedLocation("unavailable", None, None, available=False)
 
     def apply_update(self, current: LocationState, update: LocationUpdate) -> LocationState:
         next_state = current.model_copy(deep=True)
-
         if update.source_mode is not None:
             next_state.source_mode = update.source_mode
         if update.selected_profile_id is not None:
             next_state.selected_profile_id = update.selected_profile_id
         if update.add_profile is not None:
-            filtered = [p for p in next_state.profiles if p.id != update.add_profile.id]
-            filtered.append(update.add_profile)
-            next_state.profiles = filtered
+            next_state.profiles = [p for p in next_state.profiles if p.id != update.add_profile.id] + [update.add_profile]
             if not next_state.selected_profile_id:
                 next_state.selected_profile_id = update.add_profile.id
         if update.browser_location is not None:
             next_state.browser_location = update.browser_location
-        if update.gps_location is not None:
-            next_state.gps_location = update.gps_location
-
-        resolved = self.resolve(next_state)
-        next_state.last_known_location = LocationProfile(
-            id="last-known",
-            name="Last Known",
-            point={"lat": resolved.lat, "lon": resolved.lon, "alt_m": resolved.alt_m},
-        ).point
+        # GPS is populated exclusively by the connected radio adapter.
         return next_state
 
 
@@ -432,6 +398,8 @@ class TrackingService:
         location: ResolvedLocation,
         sat_ids: set[str] | None = None,
     ) -> list[LiveTrack]:
+        if location is None or not location.available:
+            return []
         tracks: list[LiveTrack] = []
         satellites = self._satellites if sat_ids is None else [s for s in self._satellites if s.sat_id in sat_ids]
         for sat in satellites:
@@ -476,6 +444,8 @@ class TrackingService:
         step_seconds: int = 45,
         start_time: datetime | None = None,
     ) -> list[LiveTrack]:
+        if location is None or not location.available:
+            return []
         sat = next((item for item in self._satellites if item.sat_id == sat_id), None)
         if sat is None:
             return []
@@ -503,7 +473,9 @@ class TrackingService:
         # Highly elliptical satellites can remain above the horizon for many hours,
         # so include a wide enough lookback window to capture the rise event.
         search_start = now - timedelta(hours=12) if include_ongoing else now
-        observer_location = location or ResolvedLocation(source="default", lat=0.0, lon=0.0, alt_m=0.0)
+        if location is None or not location.available:
+            return []
+        observer_location = location
         satellites = self._satellites if sat_ids is None else [s for s in self._satellites if s.sat_id in sat_ids]
 
         for sat in satellites:
@@ -566,8 +538,11 @@ class IssService:
     def state(
         self,
         settings: AppSettings,
-        iss_track: LiveTrack,
+        iss_track: LiveTrack | None,
     ) -> IssState:
+        if iss_track is None:
+            return IssState(sunlit=False, aboveHorizon=False, mode=IssDisplayMode.telemetry_only,
+                            videoEligible=False, streamHealthy=False, activeStreamUrl=None)
         above_horizon = iss_track.el_deg > 0
         sunlit = iss_track.sunlit
         stream_healthy = not settings.force_stream_unhealthy and bool(settings.iss_stream_urls)

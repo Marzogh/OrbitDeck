@@ -1,13 +1,13 @@
-const SHELL_CACHE = "orbitdeck-lite-shell-v21";
-const API_CACHE = "orbitdeck-lite-api-v2";
+const SHELL_CACHE = "orbitdeck-lite-shell-v22";
+const API_CACHE = "orbitdeck-lite-api-v3";
 
 const SHELL_ASSETS = [
   "/lite",
   "/lite/settings",
   "/static/common/styles.css?v=20260311c",
-  "/static/common/app.js?v=20260308n",
-  "/static/lite/lite.js?v=20260311c",
-  "/static/lite/settings.js?v=20260311e",
+  "/static/common/app.js?v=20261020-location",
+  "/static/lite/lite.js?v=20261020-location",
+  "/static/lite/settings.js?v=20261020-location",
 ];
 
 self.addEventListener("install", (event) => {
@@ -29,12 +29,18 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
 
+  // Location availability and ownership must always come from the live runtime.
+  const requestUrl = new URL(request.url);
+  if (/\/api\/v1\/location(?:\/|$)/.test(requestUrl.pathname)) {
+    event.respondWith(fetch(request));
+    return;
+  }
   if (isApiGet(request)) {
     event.respondWith(
       fetch(request)
         .then((response) => {
           const copy = response.clone();
-          caches.open(API_CACHE).then((cache) => cache.put(request, copy));
+          if (response.ok) caches.open(API_CACHE).then((cache) => cache.put(request, copy));
           return response;
         })
         .catch(() => caches.match(request))

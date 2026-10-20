@@ -34,7 +34,7 @@ GPS settings define how Pi GPS hardware should be configured. Supported connecti
 - USB serial
 - Bluetooth
 
-These settings define the connection parameters only. Live GPS coordinates still have to be written into location state by a separate process.
+These legacy external-receiver settings define connection parameters only. Connected IC-705 GPS is acquired through its supported radio adapter. See [location resolution](location.md) for freshness, device fallback, and browser ownership.
 
 ### Radio settings
 

@@ -96,7 +96,9 @@ class RadioSessionControlState(str, Enum):
 class GeoPoint(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
-    alt_m: float = 0.0
+    alt_m: float = Field(default=0.0, allow_inf_nan=False)
+    accuracy_m: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    provider: Literal["browser", "desktop"] = "browser"
     timestamp: datetime | None = None
 
 

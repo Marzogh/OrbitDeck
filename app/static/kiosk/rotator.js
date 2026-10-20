@@ -788,7 +788,7 @@ function renderSkyplot(track, bodies, pass = null, pathItems = [], prefix = "tel
 
 async function populatePathCache(system, passes, progress = null) {
   const locationSource = system?.location?.source;
-  const queryLocation = locationSource && locationSource !== "default" && locationSource !== "last_known"
+  const queryLocation = ["auto", "browser", "gps", "manual"].includes(locationSource)
     ? `&location_source=${encodeURIComponent(locationSource)}`
     : "";
   const candidates = [];
@@ -833,7 +833,7 @@ async function ensurePathForDisplayedPass(system, pass) {
   const key = passKey(pass);
   if (pathCache.has(key)) return pathCache.get(key) || [];
   const locationSource = system?.location?.source;
-  const queryLocation = locationSource && locationSource !== "default" && locationSource !== "last_known"
+  const queryLocation = ["auto", "browser", "gps", "manual"].includes(locationSource)
     ? `&location_source=${encodeURIComponent(locationSource)}`
     : "";
   try {
@@ -3014,7 +3014,7 @@ async function fetchState(progress = null) {
   const system = await getWithRetry("/api/v1/system/state", report);
   report(
     "Resolving observer location",
-    `${system.location?.source || "default"} ${Number(system.location?.lat || 0).toFixed(4)},${Number(system.location?.lon || 0).toFixed(4)}`
+    window.issTracker.describeLocation(system.location)
   );
   report("Fetching pass predictions", "Loading the next 24 hours of passes");
   const passesResp = await getWithRetry("/api/v1/passes?hours=24&include_all_sats=true&include_ongoing=true", report);
@@ -3025,6 +3025,8 @@ async function fetchState(progress = null) {
   if (requestId !== fetchStateRequestId) {
     return;
   }
+  const positionKey = (location) => JSON.stringify([location?.source, location?.lat, location?.lon, location?.alt_m]);
+  if (positionKey(state.system?.location) !== positionKey(system.location)) pathCache.clear();
   state = { system, passes: passesResp.items || [], sats: sats.items || [], timezone: tz.timezone || "BrowserLocal" };
   await populatePathCache(system, state.passes, report);
 }
@@ -3049,12 +3051,12 @@ function updateTopMeta(system) {
   const session = system?.radioControlSession;
   if (session?.active) {
     trackerById("rotatorTracked").textContent = `Tracked: ${session.selected_sat_name || session.selected_sat_id || "--"} (Radio)`;
-    trackerById("rotatorLocation").textContent = `Loc: ${system.location?.source || "--"} ${Number(system.location?.lat || 0).toFixed(4)},${Number(system.location?.lon || 0).toFixed(4)}`;
+    trackerById("rotatorLocation").textContent = window.issTracker.describeLocation(system.location);
     return;
   }
   const active = system.activeTrack || system.issTrack;
   trackerById("rotatorTracked").textContent = `Tracked: ${active?.name || "--"}`;
-  trackerById("rotatorLocation").textContent = `Loc: ${system.location?.source || "--"} ${Number(system.location?.lat || 0).toFixed(4)},${Number(system.location?.lon || 0).toFixed(4)}`;
+  trackerById("rotatorLocation").textContent = window.issTracker.describeLocation(system.location);
 }
 
 function chooseScene() {

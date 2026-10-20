@@ -49,6 +49,12 @@ class BaseIcomController(ABC):
         self.stamp_poll()
         return self.state
 
+    supports_gps = False
+
+    def read_gps(self):
+        # A GPS-equipped rig need not expose GPS on its control transport.
+        return None
+
     def supports_auto_track(self) -> bool:
         return True
 

@@ -594,8 +594,9 @@ function renderMiniSkyplot(track) {
 function approxBodiesFromLocation(location) {
   const now = new Date();
   const t = now.getUTCHours() + now.getUTCMinutes() / 60;
-  const lon = location?.lon || 0;
-  const lat = location?.lat || 0;
+  if (location?.lat == null || location?.lon == null) return [];
+  const lon = location.lon;
+  const lat = location.lat;
   const sunAz = (t * 15 + lon + 180) % 360;
   const sunEl = 45 * Math.sin((2 * Math.PI * (t + lon / 30)) / 24) * Math.cos((lat * Math.PI) / 180);
   const moonAz = (sunAz + 105) % 360;
@@ -924,6 +925,21 @@ function buildPassesQuery() {
 function applySystemSnapshot(sys, mode) {
   const issMode = trackerById("issMode");
   if (mode?.mode && issMode) issMode.value = mode.mode;
+  if (!sys.location?.available) {
+    trackerById("locationSummary").textContent = "Location unavailable. Allow device location or enter manual coordinates.";
+    trackerById("issTrack").textContent = "Tracking paused: location unavailable";
+    trackerById("diagLoc").textContent = "Observer location unavailable";
+    trackerById("compassReadout").textContent = "Location unavailable";
+    previousTrack = null;
+    trailPoints.length = 0;
+    for (const id of ["miniIssDot", "miniIssVector", "issDot", "issDotHalo", "issTrail"]) {
+      trackerById(id)?.setAttribute("visibility", "hidden");
+    }
+    return;
+  }
+  for (const id of ["miniIssDot", "miniIssVector", "issDot", "issDotHalo", "issTrail"]) {
+    trackerById(id)?.removeAttribute("visibility");
+  }
   const iss = sys.iss;
   const track = sys.activeTrack || sys.issTrack;
   if (track && track.sat_id && !selectedSatId) {
@@ -934,7 +950,7 @@ function applySystemSnapshot(sys, mode) {
     `${track.name} | Az ${track.az_deg.toFixed(1)}\u00B0 | Alt ${track.el_deg.toFixed(1)}\u00B0 | Range ${track.range_km.toFixed(1)} km`;
 
   trackerById("locationSummary").textContent =
-    `${sys.location.source}: ${sys.location.lat.toFixed(4)}, ${sys.location.lon.toFixed(4)}`;
+    window.issTracker.describeLocation(sys.location);
   trackerById("networkSummary").textContent = `Network mode: ${sys.network.mode}`;
   trackerById("diagSat").textContent =
     `Satellite: ${track.name} (${track.sat_id}) | Range ${track.range_km.toFixed(1)} km`;
@@ -1114,8 +1130,8 @@ async function applyLocationMode() {
 }
 
 async function applyManualLocation() {
-  const lat = Number(trackerById("manualLat").value);
-  const lon = Number(trackerById("manualLon").value);
+  const lat = trackerById("manualLat").value.trim() ? Number(trackerById("manualLat").value) : NaN;
+  const lon = trackerById("manualLon").value.trim() ? Number(trackerById("manualLon").value) : NaN;
   if (Number.isNaN(lat) || Number.isNaN(lon)) return;
   await trackerApi.post("/api/v1/location", {
     source_mode: "manual",
@@ -1128,13 +1144,7 @@ async function applyManualLocation() {
 }
 
 async function applyGpsLocation() {
-  const lat = Number(trackerById("gpsLat").value);
-  const lon = Number(trackerById("gpsLon").value);
-  if (Number.isNaN(lat) || Number.isNaN(lon)) return;
-  await trackerApi.post("/api/v1/location", {
-    source_mode: "gps",
-    gps_location: { lat, lon, alt_m: 0 },
-  });
+  await trackerApi.post("/api/v1/location", { source_mode: "gps" });
   selectedLocationSource = "gps";
   resetDialState();
   await loadState();

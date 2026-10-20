@@ -1,3 +1,4 @@
+(() => {
 function errorDetailText(payload) {
   const detail = payload?.detail;
   if (!detail) return "";
@@ -9,9 +10,26 @@ function errorDetailText(payload) {
   }
 }
 
+function locationSessionId() {
+  const key = "orbitdeck.browser-session";
+  try {
+    let id = localStorage.getItem(key);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(key, id);
+    }
+    return id;
+  } catch (_) {
+    // A private window may deny persistent storage. Keep its identity in memory.
+    return crypto.randomUUID();
+  }
+}
+const sessionId = locationSessionId();
+const sessionHeaders = { "X-OrbitDeck-Session": sessionId };
+
 const api = {
   get: async (path) => {
-    const res = await fetch(path);
+    const res = await fetch(path, { headers: sessionHeaders });
     if (!res.ok) {
       let detail = "";
       try {
@@ -26,7 +44,7 @@ const api = {
   post: async (path, body) => {
     const res = await fetch(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...sessionHeaders },
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -346,64 +364,133 @@ function createRigConnectController(config) {
   return { open, close, submit, bind, setStatus };
 }
 
-async function setBrowserLocation() {
-  try {
-    const nativeResponse = await api.post("/api/v1/desktop/native-location", {});
-    const nativeLocation = nativeResponse?.state?.browser_location || nativeResponse?.resolved || null;
-    if (nativeLocation && nativeLocation.lat != null && nativeLocation.lon != null) {
-      return {
-        lat: Number(Number(nativeLocation.lat).toFixed(6)),
-        lon: Number(Number(nativeLocation.lon).toFixed(6)),
-        alt_m: Number(Number(nativeLocation.alt_m || 0).toFixed(1)),
-      };
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.includes("404")) {
-      throw error;
-    }
-  }
+let locationWatch = null;
+let nativeRefresh = null;
+let locationError = "";
+let acquisition = null;
 
-  const nativeLocationApi = window.pywebview?.api?.native_location;
-  if (typeof nativeLocationApi === "function") {
-    const native = await nativeLocationApi();
-    const payload = {
-      browser_location: {
-        lat: Number(Number(native.lat).toFixed(6)),
-        lon: Number(Number(native.lon).toFixed(6)),
-        alt_m: Number(Number(native.alt_m || 0).toFixed(1)),
-      },
-    };
-    await api.post("/api/v1/location", payload);
-    return payload.browser_location;
-  }
-  if (!navigator.geolocation) {
-    throw new Error("Browser geolocation not supported");
-  }
-  return new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const payload = {
-          browser_location: {
-            lat: Number(pos.coords.latitude.toFixed(6)),
-            lon: Number(pos.coords.longitude.toFixed(6)),
-            alt_m: Number((pos.coords.altitude || 0).toFixed(1)),
-          },
-        };
-        try {
-          await api.post("/api/v1/location", payload);
-          resolve(payload.browser_location);
-        } catch (err) {
-          reject(err);
-        }
-      },
-      (err) => reject(err),
-      { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
-    );
-  });
+function describeLocation(location) {
+  if (!location?.available) return "Location unavailable";
+  const labels = { radio_gps: "Radio GPS", browser: "Browser device", desktop: "Desktop device", manual: "Manual coordinates" };
+  const fixAge = location.timestamp ? Math.max(0, (Date.now() - new Date(location.timestamp).getTime()) / 1000) : location.age_seconds;
+  if (fixAge != null && fixAge > (location.source === "radio_gps" ? 30 : 120)) return "Location unavailable (stale fix)";
+  const age = fixAge == null ? "" : ` | ${Math.floor(fixAge)} s old`;
+  const accuracy = location.accuracy_m == null ? "" : ` | accuracy ±${Math.round(location.accuracy_m)} m`;
+  return `${labels[location.source] || location.source}: ${Number(location.lat).toFixed(4)}, ${Number(location.lon).toFixed(4)}${age}${accuracy}`;
 }
 
+async function publishDeviceLocation(point) {
+  if (point.lat == null || point.lon == null || !Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lon))) {
+    throw new Error("Device returned invalid coordinates");
+  }
+  const timestamp = new Date(point.timestamp);
+  if (!Number.isFinite(timestamp.getTime()) || Date.now() - timestamp.getTime() > 120000 || timestamp.getTime() - Date.now() > 5000) {
+    throw new Error("Device returned a stale or invalid fix time");
+  }
+  const fix = { ...point, timestamp: timestamp.toISOString() };
+  await api.post("/api/v1/location", { browser_location: fix });
+  locationError = "";
+  return fix;
+}
+
+function browserPoint(pos) {
+  return { lat: pos.coords.latitude, lon: pos.coords.longitude, alt_m: pos.coords.altitude ?? 0,
+    accuracy_m: pos.coords.accuracy, timestamp: pos.timestamp, provider: "browser" };
+}
+
+async function deviceLocationFailed(error) {
+  locationError = error?.message || "Device permission denied or location unavailable";
+  await api.post("/api/v1/location/device-unavailable", {}).catch(() => {});
+  await refreshLocationStatus();
+}
+
+async function acquireDeviceLocation() {
+  // Only the embedded desktop bridge belongs to this operating device. A
+  // packaged hosting server is never a reason to query its native provider.
+  const native = window.pywebview?.api?.native_location;
+  if (typeof native === "function") {
+    try {
+      const point = await native();
+      const result = await publishDeviceLocation({ ...point, provider: "desktop", timestamp: Number(point.timestamp) * 1000 });
+      if (nativeRefresh === null) {
+        nativeRefresh = setInterval(() => setBrowserLocation().catch(() => {}), 20000);
+      }
+      return result;
+    } catch (_) {
+      // Unsupported native provider and permission/provider failures all allow
+      // the browser provider to try its own permission and availability.
+    }
+  }
+  if (!navigator.geolocation) throw new Error("Device location is unavailable. Enter manual coordinates in Settings.");
+  const result = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
+    (pos) => publishDeviceLocation(browserPoint(pos)).then(resolve, reject), reject,
+    { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
+  ));
+  if (locationWatch === null) {
+    locationWatch = navigator.geolocation.watchPosition(
+      (pos) => publishDeviceLocation(browserPoint(pos)).catch(deviceLocationFailed),
+      deviceLocationFailed,
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 15000 }
+    );
+  }
+  return result;
+}
+
+async function setBrowserLocation() {
+  if (acquisition) return acquisition;
+  acquisition = acquireDeviceLocation().catch(async (error) => {
+    await deviceLocationFailed(error);
+    throw error;
+  }).finally(() => { acquisition = null; });
+  return acquisition;
+}
+
+async function refreshLocationStatus() {
+  const panel = document.getElementById("orbitdeckLocationStatus");
+  if (!panel) return;
+  try {
+    const data = await api.get("/api/v1/location");
+    panel.querySelector("[data-location-observer]").textContent = `Observer: ${describeLocation(data.resolved)}`;
+    panel.querySelector("[data-location-station]").textContent = `Station: ${describeLocation(data.stationResolved)}${data.controlOwner ? " | this device controls radio" : data.controlOccupied ? " | another device controls radio" : " | radio control unclaimed"}`;
+    panel.querySelector("[data-location-error]").textContent = locationError;
+    panel.querySelector("[data-location-release]").hidden = !data.controlOwner;
+    panel.querySelector("[data-location-claim]").hidden = data.controlOwner || data.controlOccupied;
+  } catch (_) {
+    panel.querySelector("[data-location-station]").textContent = "Station location unavailable: connection lost";
+    panel.querySelector("[data-location-observer]").textContent = "Observer location unavailable: connection lost";
+  }
+}
+
+async function initializeLocationStatus() {
+  const panel = document.createElement("aside");
+  panel.id = "orbitdeckLocationStatus";
+  panel.setAttribute("aria-label", "Location status");
+  panel.style.cssText = "position:relative;z-index:50;padding:8px 12px;background:#10202c;color:#edf5fa;font:12px/1.5 system-ui;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;";
+  panel.innerHTML = '<span data-location-observer>Location unavailable</span><span data-location-station></span><span data-location-error role="status"></span><button type="button" data-location-allow>Allow device location</button><a href="/settings#location" style="color:inherit">Manual coordinates</a><button type="button" data-location-claim>Use this device for radio control</button><button type="button" data-location-release hidden>Release radio control</button>';
+  document.body.prepend(panel);
+  panel.querySelector("[data-location-allow]").onclick = () => setBrowserLocation().then(refreshLocationStatus).catch(() => {});
+  panel.querySelector("[data-location-claim]").onclick = () => api.post("/api/v1/location/control/claim", {}).then(refreshLocationStatus).catch((error) => { locationError = error.message; refreshLocationStatus(); });
+  panel.querySelector("[data-location-release]").onclick = () => api.post("/api/v1/location/control/release", {}).then(refreshLocationStatus);
+  await refreshLocationStatus();
+  setInterval(refreshLocationStatus, 5000);
+  // Restore updates for an existing grant without prompting on every visit.
+  try {
+    const permission = await navigator.permissions?.query({ name: "geolocation" });
+    if (permission?.state === "granted") setBrowserLocation().catch(() => {});
+    if (permission) permission.onchange = () => {
+      if (permission.state === "granted") setBrowserLocation().catch(() => {});
+      else if (permission.state === "denied") deviceLocationFailed(new Error("Device location permission denied. Allow it or enter manual coordinates."));
+    };
+  } catch (_) {}
+  if (window.pywebview?.api?.native_location) setBrowserLocation().catch(() => {});
+}
+window.addEventListener("pywebviewready", () => setBrowserLocation().catch(() => {}));
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initializeLocationStatus);
+else initializeLocationStatus();
+
 window.issTracker = {
+  sessionId,
+  describeLocation,
   api,
   fmtUtc,
   byId,
@@ -413,3 +500,5 @@ window.issTracker = {
   rigModelDefaults,
   createRigConnectController,
 };
+
+})();

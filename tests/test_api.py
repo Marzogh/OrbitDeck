@@ -52,11 +52,16 @@ def make_client(tmp_path):
     main.store = StateStore(str(tmp_path / "state.json"))
     main.tracking_service = TrackingService(str(tmp_path / "latest_catalog.json"))
     main.ingestion_service = DataIngestionService()
+    main.radio_control_service.reset_runtime()
     main.radio_control_service = RigControlService()
     main.aprs_log_store = AprsLogStore(str(tmp_path / "received_log.jsonl"))
     main.aprs_service = AprsService(packet_received_callback=main._handle_aprs_received_packet)
     main.pass_cache_service = PassPredictionCacheService(str(tmp_path / "pass_predictions_cache.json"))
-    return TestClient(main.app)
+    client = TestClient(main.app, headers={"X-OrbitDeck-Session": "test-device"})
+    client.post("/api/v1/location/control/claim", json={})
+    client.post("/api/v1/location", json={"source_mode": "manual", "selected_profile_id": "test",
+        "add_profile": {"id": "test", "name": "Test observer", "point": {"lat": -27.47, "lon": 153.03}}})
+    return client
 
 
 def configure_station_identity(client: TestClient, callsign: str = "VK4ABC") -> None:
@@ -67,10 +72,11 @@ def configure_station_identity(client: TestClient, callsign: str = "VK4ABC") -> 
 def test_packaged_native_location_endpoint_updates_browser_location(tmp_path, monkeypatch):
     client = make_client(tmp_path)
     monkeypatch.setenv("ORBITDECK_PACKAGED_APP", "1")
+    monkeypatch.setattr(main, "desktop_location_capable", lambda: True)
 
     class FakeDesktopApi:
         def native_location(self):
-            return {"lat": -27.47, "lon": 153.03, "alt_m": 12.3}
+            return {"lat": -27.47, "lon": 153.03, "alt_m": 12.3, "timestamp": datetime.now(UTC).timestamp()}
 
     monkeypatch.setattr("app.desktop_main.DesktopApi", FakeDesktopApi)
 

@@ -8,6 +8,7 @@ from threading import Event, Thread
 from typing import Callable
 
 from app.radio.icom_lan_adapter import AudioCodec, IcomRadio
+from app.radio.controllers.ic705 import Ic705Controller
 
 
 AudioRxCallback = Callable[[bytes], None]
@@ -95,6 +96,26 @@ class IcomLanRadioSession:
         self._loop = None
         self._thread = None
         self._radio = None
+
+    def read_gps(self):
+        # Share the existing async CI-V request tracker with APRS control/audio.
+        # No second UDP login and no changes to the bundled vendor library.
+        if self._radio is None or self._loop is None:
+            return None
+
+        async def read():
+            async def query(sub):
+                frame = await asyncio.wait_for(self._radio.send_civ(0x23, sub=sub), timeout=0.8)
+                if frame is None or frame.command != 0x23:
+                    return None
+                return (bytes([frame.sub]) if frame.sub is not None else b"") + frame.data
+
+            if await query(1) != b"\x01\x01":
+                return None
+            payload = await query(0)
+            return Ic705Controller.decode_gps(payload) if payload else None
+
+        return self._run(read())
 
     def snapshot_state(self) -> dict[str, object]:
         self._ensure_loop()

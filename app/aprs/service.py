@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import re
 from socket import AF_INET, SOCK_DGRAM, socket
 from threading import Event, Thread
-from time import sleep
+from time import sleep, monotonic
 from typing import Callable
 
 from app.aprs.afsk import SAMPLE_RATE, ax25_to_afsk
@@ -80,6 +80,8 @@ class AprsService:
         self._wifi_udp_sender: socket | None = None
         self._wifi_udp_port: int | None = None
         self._wifi_snapshot: dict[str, object] | None = None
+        self._gps_fix = None
+        self._next_gps_read = 0.0
         self._retune_stop = Event()
         self._retune_worker: Thread | None = None
         self._runtime = AprsRuntimeState()
@@ -87,6 +89,18 @@ class AprsService:
         self._packet_index: OrderedDict[str, str] = OrderedDict()
         self._pending_sidecar_packet_raw_tnc2: str | None = None
         self._pending_sidecar_packet_lines_remaining = 0
+
+    def location_fix(self):
+        return self._gps_fix if self._runtime.connected and not self._retune_stop.is_set() else None
+
+    def _read_gps_if_due(self, provider):
+        if monotonic() < self._next_gps_read:
+            return
+        self._next_gps_read = monotonic() + 5
+        try:
+            self._gps_fix = provider.read_gps()
+        except Exception:
+            self._gps_fix = None
 
     def runtime(self) -> AprsRuntimeState:
         if self._sidecar is not None:
@@ -514,6 +528,8 @@ class AprsService:
 
     def disconnect(self) -> AprsRuntimeState:
         self._stop_retune_worker()
+        self._gps_fix = None
+        self._next_gps_read = 0.0
         if self._wifi_radio is not None:
             try:
                 self._wifi_radio.stop_audio_rx()
@@ -685,6 +701,7 @@ class AprsService:
         try:
             controller.connect()
             controller.set_frequency("A", int(frequency_hz))
+            self._read_gps_if_due(controller)
         finally:
             controller.disconnect()
 
@@ -884,6 +901,8 @@ class AprsService:
 
         def worker() -> None:
             while not self._retune_stop.wait(max(0.2, float(interval_s))):
+                if self._runtime.transport_mode == RadioTransportMode.wifi and self._wifi_radio is not None:
+                    self._read_gps_if_due(self._wifi_radio)
                 try:
                     target = retune_resolver()
                 except Exception as exc:
