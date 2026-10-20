@@ -14,6 +14,7 @@ from app.radio.civ import build_frame, NAK
 from app.radio.service import RigControlService
 from app.services import LocationService, TrackingService, PassPredictionCacheService
 from app.store import StateStore
+from app.tx_auth import TxAuthManager
 
 NOW = datetime(2026, 10, 20, 12, tzinfo=UTC)
 
@@ -74,7 +75,10 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "tracking_service", TrackingService(tmp_path / "catalog.json"))
     monkeypatch.setattr(main, "pass_cache_service", PassPredictionCacheService(tmp_path / "passes.json"))
     main._invalidate_lite_snapshot_cache()
-    yield TestClient(main.app, headers={"X-OrbitDeck-Session": "owner"})
+    monkeypatch.setattr(main, "tx_auth", TxAuthManager(tmp_path / "auth.json", tmp_path / "auth-secret", pin_iterations=1000))
+    device = TestClient(main.app, headers={"X-OrbitDeck-Session": "owner"})
+    assert device.post("/api/v1/tx-auth/setup", json={"pin": "1234"}).status_code == 200
+    yield device
     main.radio_control_service.reset_runtime()
 
 

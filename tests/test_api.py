@@ -46,6 +46,7 @@ from app.radio.service import RigControlService
 from app.services import DataIngestionService, FrequencyGuideService, TrackingService
 from app.services import PassPredictionCacheService
 from app.store import StateStore
+from app.tx_auth import TxAuthManager
 
 
 def make_client(tmp_path):
@@ -57,10 +58,17 @@ def make_client(tmp_path):
     main.aprs_log_store = AprsLogStore(str(tmp_path / "received_log.jsonl"))
     main.aprs_service = AprsService(packet_received_callback=main._handle_aprs_received_packet)
     main.pass_cache_service = PassPredictionCacheService(str(tmp_path / "pass_predictions_cache.json"))
+    main.tx_auth = TxAuthManager(
+        tmp_path / "tx_auth.json",
+        tmp_path / "tx_auth_secret",
+        pin_iterations=1_000,
+    )
     client = TestClient(main.app, headers={"X-OrbitDeck-Session": "test-device"})
     client.post("/api/v1/location/control/claim", json={})
     client.post("/api/v1/location", json={"source_mode": "manual", "selected_profile_id": "test",
         "add_profile": {"id": "test", "name": "Test observer", "point": {"lat": -27.47, "lon": 153.03}}})
+    response = client.post("/api/v1/tx-auth/setup", json={"pin": "1234"})
+    assert response.status_code == 200
     return client
 
 

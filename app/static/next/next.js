@@ -83,19 +83,24 @@ async function api(path, options = {}) {
 }
 
 async function post(path, body = {}) {
-  return api(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  return window.issTracker.api.post(path, body);
 }
 
 const txAuthorization = {
-  mode: "legacy-open",
+  mode: "pin",
   status() {
-    return { label: "TX policy pending", tone: "attention", detail: "Transmit authorization will connect here after hardware validation." };
+    const auth = window.issTracker.txAuth.status;
+    return {
+      label: auth.authorized ? "TX Unlocked" : auth.inUse ? "TX In Use" : "TX Locked",
+      tone: auth.authorized ? "ready" : "attention",
+      detail: auth.authorized
+        ? "This browser holds TX authorization. Station control ownership is also required."
+        : auth.inUse
+          ? "Another browser holds TX authorization. Its owner must release TX before this browser can unlock."
+          : "Unlock TX with the station PIN before transmitting. Receive and tuning remain available.",
+    };
   },
-  async authorize() { return true; },
+  async authorize() { return window.issTracker.txAuth.requestUnlock(); },
 };
 
 function showNotice(message, error = false) {
@@ -1139,6 +1144,7 @@ async function refreshData(showErrors = true) {
       api("/api/v1/settings/planner"),
       state.aprsTargets ? Promise.resolve(state.aprsTargets) : api("/api/v1/aprs/targets"),
       api("/api/v1/aprs/log?limit=12"),
+      window.issTracker.txAuth.refresh(),
     ]);
     const positionKey = (location) => JSON.stringify([location?.source, location?.lat, location?.lon, location?.alt_m]);
     if (positionKey(state.system?.location) !== positionKey(system.location)) {

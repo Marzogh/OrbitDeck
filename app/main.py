@@ -63,10 +63,11 @@ from app.models import (
     RadioSettingsUpdate,
     SettingsUpdate,
     TimezoneUpdate,
+    TxAuthPinRequest,
 )
 from app.radio.civ import normalize_civ_address
 from app.radio.service import RigControlService
-from app.runtime_paths import desktop_location_capable, packaged_app_runtime, static_path, static_root
+from app.runtime_paths import data_path, desktop_location_capable, packaged_app_runtime, static_path, static_root
 from app.services import (
     CacheService,
     DataIngestionService,
@@ -78,6 +79,8 @@ from app.services import (
     TrackingService,
 )
 from app.store import StateStore
+from app.tx_auth import COOKIE_NAME as TX_AUTH_COOKIE_NAME
+from app.tx_auth import TxAuthManager
 
 try:
     from serial.tools import list_ports  # type: ignore
@@ -95,6 +98,7 @@ pass_cache_service = PassPredictionCacheService()
 ingestion_service = DataIngestionService()
 frequency_guide_service = FrequencyGuideService()
 radio_control_service = RigControlService()
+tx_auth = TxAuthManager(data_path("tx_auth.json"), data_path("tx_auth_secret"))
 
 
 def _handle_aprs_received_packet(entry) -> None:
@@ -122,6 +126,34 @@ _BREW_COMMON_PATHS = (
     "/opt/homebrew/bin/brew",
     "/usr/local/bin/brew",
 )
+
+
+def _tx_auth_token(request: Request) -> str | None:
+    return request.cookies.get(TX_AUTH_COOKIE_NAME)
+
+
+def _require_tx_authorization(request: Request) -> None:
+    if tx_auth.authorized(_tx_auth_token(request)):
+        return
+    code = "tx_auth_required" if tx_auth.configured() else "tx_auth_setup_required"
+    message = (
+        "Unlock TX before using transmit controls. Authorization remains valid until the system restarts."
+        if tx_auth.configured()
+        else "Create a TX PIN before using transmit controls."
+    )
+    raise HTTPException(status_code=401, detail={"code": code, "message": message})
+
+
+def _set_tx_auth_cookie(response: Response, request: Request) -> None:
+    response.set_cookie(
+        key=TX_AUTH_COOKIE_NAME,
+        value=tx_auth.issue_token(),
+        max_age=60 * 60 * 24 * 365,
+        httponly=True,
+        samesite="strict",
+        secure=request.url.scheme == "https",
+        path="/",
+    )
 
 
 def _pass_cache_retention(state) -> timedelta:
@@ -1668,6 +1700,54 @@ _STATIC_ROOT = static_root()
 app.mount("/static", StaticFiles(directory=str(_STATIC_ROOT)), name="static")
 
 
+@app.get("/api/v1/tx-auth/status")
+def get_tx_auth_status(request: Request, response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    return tx_auth.status(_tx_auth_token(request))
+
+
+@app.post("/api/v1/tx-auth/setup")
+def setup_tx_auth(payload: TxAuthPinRequest, request: Request, response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    if tx_auth.configured():
+        raise HTTPException(status_code=409, detail="TX authorization is already configured")
+    try:
+        tx_auth.configure(payload.pin)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _set_tx_auth_cookie(response, request)
+    return {**tx_auth.status(None), "authorized": True}
+
+
+@app.post("/api/v1/tx-auth/unlock")
+def unlock_tx_auth(payload: TxAuthPinRequest, request: Request, response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    if not tx_auth.configured():
+        raise HTTPException(status_code=409, detail="TX authorization has not been configured")
+    if not tx_auth.verify_pin(payload.pin):
+        raise HTTPException(status_code=401, detail="Incorrect TX PIN")
+    try:
+        _set_tx_auth_cookie(response, request)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="TX authorization is already active in another session. Use Lock TX there before unlocking here.",
+        ) from exc
+    return {**tx_auth.status(None), "authorized": True}
+
+
+@app.post("/api/v1/tx-auth/lock")
+def lock_tx_auth(request: Request, response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    _require_tx_authorization(request)
+    if aprs_service.runtime().digipeater_active:
+        aprs_service.disconnect()
+        _invalidate_lite_snapshot_cache()
+    tx_auth.revoke_all()
+    response.delete_cookie(TX_AUTH_COOKIE_NAME, path="/", samesite="strict")
+    return tx_auth.status(None)
+
+
 def _static_file_response(*parts: str) -> FileResponse:
     return FileResponse(str(static_path(*parts)))
 
@@ -1693,6 +1773,11 @@ async def location_browser_context(request: Request, call_next):
             }
         )
         if controlled:
+            if path in {"/api/v1/aprs/send/message", "/api/v1/aprs/send/status", "/api/v1/aprs/send/position"}:
+                try:
+                    _require_tx_authorization(request)
+                except HTTPException as exc:
+                    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
             try:
                 _claim_location_control(session)
             except ValueError as exc:
@@ -2196,7 +2281,9 @@ def get_aprs_settings() -> dict:
 
 
 @app.post("/api/v1/settings/aprs")
-def post_aprs_settings(payload: AprsSettingsUpdate) -> dict:
+def post_aprs_settings(payload: AprsSettingsUpdate, request: Request) -> dict:
+    if bool(payload.future_digipeater_enabled) or bool(payload.digipeater and payload.digipeater.enabled):
+        _require_tx_authorization(request)
     state = store.get()
     try:
         state.aprs_settings = _apply_aprs_settings_update(state.aprs_settings, payload)
@@ -2328,7 +2415,9 @@ def get_aprs_log_settings() -> dict:
 
 
 @app.post("/api/v1/aprs/log/settings")
-def post_aprs_log_settings(payload: AprsLogSettingsUpdate) -> dict:
+def post_aprs_log_settings(payload: AprsLogSettingsUpdate, request: Request) -> dict:
+    if payload.future_digipeater_enabled or bool(payload.digipeater and payload.digipeater.enabled):
+        _require_tx_authorization(request)
     state = store.get()
     state.aprs_settings.log_enabled = payload.log_enabled
     state.aprs_settings.log_max_records = payload.log_max_records
@@ -2527,11 +2616,13 @@ def select_aprs_session(payload: AprsTargetSelectRequest) -> dict:
 
 
 @app.post("/api/v1/aprs/connect")
-def connect_aprs() -> dict:
+def connect_aprs(request: Request) -> dict:
     _ensure_station_identity_ready()
     state, location = _resolved_location_for_aprs()
     try:
         effective_settings = _effective_aprs_settings_for_connect(state)
+        if effective_settings.digipeater.enabled:
+            _require_tx_authorization(request)
         _ensure_wifi_host_reachable(state.radio_settings)
         _validate_aprs_gateway_settings(effective_settings)
         resolved_direwolf = _ensure_direwolf_ready_for_aprs(state)
@@ -2576,7 +2667,8 @@ def emergency_stop_aprs() -> dict:
 
 
 @app.post("/api/v1/aprs/send/message")
-def send_aprs_message(payload: AprsSendMessageRequest) -> dict:
+def send_aprs_message(payload: AprsSendMessageRequest, request: Request) -> dict:
+    _require_tx_authorization(request)
     _ensure_station_identity_ready()
     state = store.get()
     try:
@@ -2599,7 +2691,8 @@ def send_aprs_message(payload: AprsSendMessageRequest) -> dict:
 
 
 @app.post("/api/v1/aprs/send/status")
-def send_aprs_status(payload: AprsSendStatusRequest) -> dict:
+def send_aprs_status(payload: AprsSendStatusRequest, request: Request) -> dict:
+    _require_tx_authorization(request)
     _ensure_station_identity_ready()
     state = store.get()
     try:
@@ -2622,7 +2715,8 @@ def send_aprs_status(payload: AprsSendStatusRequest) -> dict:
 
 
 @app.post("/api/v1/aprs/send/position")
-def send_aprs_position(payload: AprsSendPositionRequest) -> dict:
+def send_aprs_position(payload: AprsSendPositionRequest, request: Request) -> dict:
+    _require_tx_authorization(request)
     _ensure_station_identity_ready()
     state, location = _resolved_location_for_aprs()
     if location is None:

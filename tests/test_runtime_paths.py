@@ -84,3 +84,12 @@ def test_icom_lan_adapter_soft_fails_when_vendor_tree_is_missing(monkeypatch):
 
     with pytest.raises(RuntimeError, match="icom-lan support is not available"):
         module.IcomRadio("host", 50001, "user", "password")
+
+
+def test_debian_postinst_makes_runtime_data_writable_by_service_user():
+    postinst = Path(__file__).resolve().parents[1] / "packaging" / "debian" / "DEBIAN" / "postinst"
+    script = postinst.read_text(encoding="utf-8")
+
+    assert 'chown -R pi:pi "$APP_ROOT/data"' in script
+    assert 'chmod 0700 "$APP_ROOT/data"' in script
+    assert script.index('chown -R pi:pi "$APP_ROOT/data"') < script.index("systemctl restart orbitdeck.service")

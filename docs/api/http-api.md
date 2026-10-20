@@ -47,6 +47,27 @@ Interpretation:
 - `ok` is the basic process liveness flag
 - `timestamp` is the server-side UTC time of the response
 
+## TX authorization
+
+Tracking, receive, tuning, Doppler, and stop actions remain available without authentication. Requests that can cause RF transmission require a boot-scoped authorization cookie.
+
+Endpoints:
+
+- `GET /api/v1/tx-auth/status`
+- `POST /api/v1/tx-auth/setup`
+- `POST /api/v1/tx-auth/unlock`
+- `POST /api/v1/tx-auth/lock`
+
+`setup` is available only until the first TX PIN has been created. `unlock` and `setup` accept `{"pin": "..."}` and set an HTTP-only, same-site cookie. PINs may contain any 4–256 characters. Only one browser session can hold TX authorization; another correct-PIN unlock receives HTTP `409` until the active session calls `lock` or the host reboots. The cookie has no inactivity timeout and survives an OrbitDeck service or browser restart. `status.inUse` indicates that a session owns the current boot's TX lease.
+
+Protected transmit paths currently include:
+
+- APRS message, status, and position sends
+- enabling terrestrial APRS digipeating
+- connecting an APRS session while digipeating is enabled
+
+An unauthorized transmit request returns HTTP `401` with `detail.code` set to `tx_auth_setup_required` or `tx_auth_required`. PTT-off-equivalent paths, disconnect, and APRS emergency stop are deliberately not protected.
+
 ## System state
 
 ### `GET /api/v1/system/state`

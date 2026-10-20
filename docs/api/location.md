@@ -92,3 +92,14 @@ A hosted browser never asks the hosting server for native location. Native
 errors or stale fixes permit browser geolocation fallback. Browser permission
 denial clears the device fix and leaves radio GPS or explicit manual fallback
 available. Runtime location status is never served from the lite offline cache.
+
+## Combined TX PIN enforcement
+
+Radio-control ownership does not authorize transmission. APRS send routes also
+require the exclusive, boot-scoped TX PIN cookie. Releasing or expiring location
+control never expires, transfers or revokes that cookie. Conversely, unlocking
+TX does not displace another device's location ownership or create coordinates.
+A position send needs both leases on the requesting device and an available
+resolved station position. Direct API sends retain these server-side checks.
+The shared browser client preserves its device header through a PIN unlock and
+retries a rejected send at most once. See [TX authorization](../guide/tx-authorization.md).

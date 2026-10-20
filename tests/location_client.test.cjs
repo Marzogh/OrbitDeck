@@ -106,3 +106,82 @@ test('APRS preview uses resolved station rather than the browsing device or last
   state.location.stationResolved = { available: false, lat: null, lon: null };
   assert.match(preview(state, ''), /unavailable/);
 });
+
+test('shared PIN retry preserves the location session and retries only once', async () => {
+  const env = environment();
+  const calls = [];
+  let unlocks = 0;
+  env.api.txAuth.requestUnlock = async () => { unlocks++; return true; };
+  env.context.fetch = async (path, options) => {
+    calls.push({ path, options });
+    const ok = calls.length > 1;
+    return { ok, status: ok ? 200 : 401, json: async () => ok ? { sent: true } : { detail: { code: 'tx_auth_required' } } };
+  };
+  assert.equal((await env.api.api.post('/api/v1/aprs/send/position', { comment: 'test' })).sent, true);
+  assert.equal(unlocks, 1);
+  assert.equal(calls.length, 2);
+  for (const { path, options } of calls) {
+    assert.equal(path, '/api/v1/aprs/send/position');
+    assert.equal(options.headers['X-OrbitDeck-Session'], 'browser-one');
+    assert.equal(JSON.parse(options.body).comment, 'test');
+  }
+});
+
+test('PIN cancellation never retries a send; repeated rejection never loops', async () => {
+  for (const allow of [false, true]) {
+    const env = environment();
+    let calls = 0, prompts = 0;
+    env.api.txAuth.requestUnlock = async () => { prompts++; return allow; };
+    env.context.fetch = async () => {
+      calls++;
+      return { ok: false, status: 401, json: async () => ({ detail: { code: 'tx_auth_setup_required' } }) };
+    };
+    await assert.rejects(env.api.api.post('/api/v1/aprs/send/status', { text: 'test' }), /401/);
+    assert.equal(calls, allow ? 2 : 1);
+    assert.equal(prompts, 1);
+  }
+});
+
+test('operator workspace uses shared PIN status, prompt, and POST transport', async () => {
+  const env = environment();
+  let authorized = true;
+  env.context.fetch = async () => ({ ok: true, json: async () => ({ configured: true, authorized, inUse: true }) });
+  let prompted = 0, posted = 0;
+  env.api.txAuth.requestUnlock = async () => { prompted++; return false; };
+  env.api.api.post = async (path, body) => { posted++; return { path, body }; };
+  const workspace = fs.readFileSync('app/static/next/next.js', 'utf8');
+  const context = { window: { issTracker: env.api } };
+  vm.createContext(context);
+  vm.runInContext(workspace.slice(workspace.indexOf('async function post('), workspace.indexOf('function showNotice(')), context);
+  await env.api.txAuth.refresh();
+  assert.equal(vm.runInContext('txAuthorization.status().label', context), 'TX Unlocked');
+  authorized = false;
+  await env.api.txAuth.refresh();
+  assert.equal(vm.runInContext('txAuthorization.status().label', context), 'TX In Use');
+  assert.equal(await vm.runInContext('txAuthorization.authorize()', context), false);
+  assert.equal(prompted, 1);
+  const response = await vm.runInContext('post("/api/v1/aprs/send/position", {comment: "test"})', context);
+  assert.equal(response.path, '/api/v1/aprs/send/position');
+  assert.equal(posted, 1);
+  assert.ok(!workspace.includes('legacy-open'));
+});
+
+test('lite worker never caches or replays location and TX authorization status', async () => {
+  const listeners = {};
+  let cached = 0, fetched = 0;
+  const context = {
+    self: { addEventListener(name, fn) { listeners[name] = fn; }, location: { origin: 'https://orbitdeck.test' } },
+    URL,
+    caches: { match() { cached++; return Promise.resolve({ authorized: true }); }, open() { cached++; throw new Error('cache must not open'); } },
+    fetch: async () => { fetched++; throw new Error('offline'); },
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync('app/static/lite/sw.js', 'utf8'), context);
+  for (const path of ['/api/v1/location', '/api/v1/tx-auth/status', '/prefix/api/v1/tx-auth/status']) {
+    let response;
+    listeners.fetch({ request: { method: 'GET', url: `https://orbitdeck.test${path}` }, respondWith(promise) { response = promise; } });
+    await assert.rejects(response, /offline/);
+  }
+  assert.equal(fetched, 3);
+  assert.equal(cached, 0);
+});

@@ -17,6 +17,7 @@ nav:
       - Quick Start: guide/quickstart.md
       - First Hour: guide/first-hour.md
       - Common Tasks: guide/common-tasks.md
+      - TX Authorization: guide/tx-authorization.md
       - Core Concepts: guide/concepts.md
       - Glossary: guide/glossary.md
       - Platforms: guide/platforms.md
@@ -27,6 +28,7 @@ nav:
       - Overview: api/index.md
       - HTTP API: api/http-api.md
       - Settings: api/settings.md
+      - Location and Browser Ownership: api/location.md
       - APRS: api/aprs.md
       - Radio Control: api/radio-control.md
       - Frequency Guidance: api/frequency-guidance-model.md

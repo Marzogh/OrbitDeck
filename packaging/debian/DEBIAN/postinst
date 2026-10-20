@@ -12,6 +12,11 @@ fi
 "$VENV/bin/python" -m pip install --upgrade pip
 "$VENV/bin/python" -m pip install --no-index --find-links "$APP_ROOT/vendor/wheels" -r "$APP_ROOT/requirements.txt"
 
+if id pi >/dev/null 2>&1; then
+  chown -R pi:pi "$APP_ROOT/data"
+  chmod 0700 "$APP_ROOT/data"
+fi
+
 if command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload || true
   systemctl enable orbitdeck.service || true

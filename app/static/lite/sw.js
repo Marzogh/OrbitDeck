@@ -1,11 +1,11 @@
-const SHELL_CACHE = "orbitdeck-lite-shell-v22";
+const SHELL_CACHE = "orbitdeck-lite-shell-v24";
 const API_CACHE = "orbitdeck-lite-api-v3";
 
 const SHELL_ASSETS = [
   "/lite",
   "/lite/settings",
-  "/static/common/styles.css?v=20260311c",
-  "/static/common/app.js?v=20261020-location",
+  "/static/common/styles.css?v=20261020-location-tx",
+  "/static/common/app.js?v=20261020-location-tx",
   "/static/lite/lite.js?v=20261020-location",
   "/static/lite/settings.js?v=20261020-location",
 ];
@@ -22,16 +22,18 @@ self.addEventListener("activate", (event) => {
 
 function isApiGet(request) {
   const url = new URL(request.url);
-  return request.method === "GET" && url.pathname.startsWith("/api/v1/");
+  return request.method === "GET"
+    && url.pathname.startsWith("/api/v1/")
+    && !url.pathname.startsWith("/api/v1/tx-auth/");
 }
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
 
-  // Location availability and ownership must always come from the live runtime.
+  // Location ownership and TX authorization must come from the live runtime.
   const requestUrl = new URL(request.url);
-  if (/\/api\/v1\/location(?:\/|$)/.test(requestUrl.pathname)) {
+  if (/\/api\/v1\/(?:location|tx-auth)(?:\/|$)/.test(requestUrl.pathname)) {
     event.respondWith(fetch(request));
     return;
   }

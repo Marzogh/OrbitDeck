@@ -364,3 +364,91 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
 }
+
+/* Shared TX PIN controls used by the operator workspace. */
+.tx-auth-indicator {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 1200;
+  min-height: 38px;
+  padding: 8px 13px;
+  border: 1px solid rgba(248, 113, 113, 0.72);
+  border-radius: 999px;
+  background: rgba(69, 10, 10, 0.94);
+  color: #fecaca;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.34);
+  font: 700 12px/1.1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tx-auth-indicator.is-unlocked {
+  border-color: rgba(250, 204, 21, 0.78);
+  background: rgba(113, 63, 18, 0.96);
+  color: #fef08a;
+}
+
+.tx-auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(2, 6, 23, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.tx-auth-overlay.hidden {
+  display: none;
+}
+
+.tx-auth-dialog {
+  width: min(430px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 22px;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 16px;
+  background: #101827;
+  color: #e2e8f0;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+
+.tx-auth-dialog h2,
+.tx-auth-dialog p {
+  margin: 0;
+}
+
+.tx-auth-dialog p,
+.tx-auth-dialog label {
+  color: #aebbd0;
+}
+
+.tx-auth-dialog input {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+.tx-auth-kicker {
+  color: #fbbf24;
+  font: 700 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.14em;
+}
+
+.tx-auth-error {
+  min-height: 1.25em;
+  color: #fca5a5;
+}
+
+.tx-auth-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.tx-auth-actions button {
+  min-height: 42px;
+}

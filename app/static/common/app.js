@@ -26,6 +26,166 @@ function locationSessionId() {
 }
 const sessionId = locationSessionId();
 const sessionHeaders = { "X-OrbitDeck-Session": sessionId };
+const txAuth = (() => {
+  let status = { configured: false, authorized: false, scope: "system-boot" };
+  let promptPromise = null;
+
+  const updateIndicator = () => {
+    const button = document.getElementById("txAuthIndicator");
+    if (!button) return;
+    button.classList.toggle("is-unlocked", !!status.authorized);
+    button.textContent = status.authorized ? "TX Unlocked" : status.inUse ? "TX In Use" : "TX Locked";
+    button.title = status.authorized
+      ? "This browser holds transmit authorization. Select to lock and release it."
+      : status.inUse
+        ? "Another browser holds transmit authorization. Receive and tuning remain available."
+        : "Receive and tuning remain available. Select to unlock transmit controls.";
+  };
+
+  const requestJson = async (path, options = {}) => {
+    const response = await fetch(path, { ...options, cache: "no-store", headers: { ...sessionHeaders, ...options.headers } });
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch {}
+    if (!response.ok) {
+      throw new Error(errorDetailText(payload) || `${response.status} ${response.statusText}`);
+    }
+    return payload;
+  };
+
+  const refresh = async () => {
+    try {
+      status = await requestJson("/api/v1/tx-auth/status");
+      updateIndicator();
+    } catch {}
+    return status;
+  };
+
+  const ensureShell = () => {
+    if (document.getElementById("txAuthIndicator")) return;
+    const indicator = document.createElement("button");
+    indicator.id = "txAuthIndicator";
+    indicator.className = "tx-auth-indicator";
+    indicator.type = "button";
+    indicator.textContent = "TX Locked";
+    indicator.addEventListener("click", async () => {
+      await refresh();
+      if (status.authorized) {
+        if (!window.confirm("Lock transmit controls on all currently authorized OrbitDeck browsers?")) return;
+        try {
+          status = await requestJson("/api/v1/tx-auth/lock", { method: "POST" });
+          updateIndicator();
+        } catch (error) {
+          window.alert(error instanceof Error ? error.message : String(error));
+        }
+        return;
+      }
+      await requestUnlock();
+    });
+    document.body.appendChild(indicator);
+
+    const overlay = document.createElement("div");
+    overlay.id = "txAuthOverlay";
+    overlay.className = "tx-auth-overlay hidden";
+    overlay.innerHTML = `
+      <form id="txAuthForm" class="tx-auth-dialog">
+        <div class="tx-auth-kicker">TRANSMIT AUTHORIZATION</div>
+        <h2 id="txAuthTitle">Unlock TX</h2>
+        <p id="txAuthDescription">Receive, tracking, and tuning remain available while TX is locked.</p>
+        <label for="txAuthPin">PIN</label>
+        <input id="txAuthPin" type="password" minlength="4" maxlength="256" autocomplete="current-password" required />
+        <label id="txAuthConfirmLabel" for="txAuthConfirm" class="hidden">Confirm PIN</label>
+        <input id="txAuthConfirm" class="hidden" type="password" minlength="4" maxlength="256" autocomplete="new-password" />
+        <div id="txAuthError" class="tx-auth-error" role="alert"></div>
+        <div class="tx-auth-actions">
+          <button id="txAuthCancel" type="button">Cancel</button>
+          <button id="txAuthSubmit" type="submit">Unlock TX</button>
+        </div>
+      </form>`;
+    document.body.appendChild(overlay);
+  };
+
+  const requestUnlock = async () => {
+    if (promptPromise) return promptPromise;
+    promptPromise = (async () => {
+      ensureShell();
+      await refresh();
+      if (status.authorized) return true;
+      const setupMode = !status.configured;
+      const overlay = document.getElementById("txAuthOverlay");
+      const form = document.getElementById("txAuthForm");
+      const pin = document.getElementById("txAuthPin");
+      const confirm = document.getElementById("txAuthConfirm");
+      const confirmLabel = document.getElementById("txAuthConfirmLabel");
+      const errorBox = document.getElementById("txAuthError");
+      document.getElementById("txAuthTitle").textContent = setupMode ? "Create TX PIN" : "Unlock TX";
+      document.getElementById("txAuthDescription").textContent = setupMode
+        ? "Create the PIN used to unlock RF transmission. Authorization lasts until the system restarts."
+        : status.inUse
+          ? "TX is unlocked in another browser. Use Lock TX there before unlocking this session."
+          : "Unlock RF transmission until you explicitly lock it or restart the system. There is no inactivity timeout.";
+      document.getElementById("txAuthSubmit").textContent = setupMode ? "Create And Unlock" : "Unlock TX";
+      pin.autocomplete = setupMode ? "new-password" : "current-password";
+      confirm.classList.toggle("hidden", !setupMode);
+      confirmLabel.classList.toggle("hidden", !setupMode);
+      confirm.required = setupMode;
+      pin.value = "";
+      confirm.value = "";
+      errorBox.textContent = "";
+      overlay.classList.remove("hidden");
+      pin.focus();
+
+      return new Promise((resolve) => {
+        const finish = (result) => {
+          overlay.classList.add("hidden");
+          form.removeEventListener("submit", submit);
+          document.getElementById("txAuthCancel").removeEventListener("click", cancel);
+          resolve(result);
+        };
+        const cancel = () => finish(false);
+        const submit = async (event) => {
+          event.preventDefault();
+          errorBox.textContent = "";
+          if (setupMode && pin.value !== confirm.value) {
+            errorBox.textContent = "PINs do not match.";
+            return;
+          }
+          try {
+            const path = setupMode ? "/api/v1/tx-auth/setup" : "/api/v1/tx-auth/unlock";
+            status = await requestJson(path, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pin: pin.value }),
+            });
+            updateIndicator();
+            finish(true);
+          } catch (error) {
+            errorBox.textContent = error instanceof Error ? error.message : String(error);
+          }
+        };
+        form.addEventListener("submit", submit);
+        document.getElementById("txAuthCancel").addEventListener("click", cancel);
+      });
+    })();
+    try {
+      return await promptPromise;
+    } finally {
+      promptPromise = null;
+    }
+  };
+
+  document.addEventListener("DOMContentLoaded", () => {
+    ensureShell();
+    void refresh();
+  });
+
+  return {
+    get status() { return { ...status }; },
+    refresh,
+    requestUnlock,
+  };
+})();
 
 const api = {
   get: async (path) => {
@@ -41,7 +201,7 @@ const api = {
     }
     return res.json();
   },
-  post: async (path, body) => {
+  post: async (path, body, allowTxUnlock = true) => {
     const res = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...sessionHeaders },
@@ -49,11 +209,21 @@ const api = {
     });
     if (!res.ok) {
       let detail = "";
+      let payload = null;
       try {
-        const payload = await res.json();
+        payload = await res.json();
         const text = errorDetailText(payload);
         detail = text ? `: ${text}` : "";
       } catch {}
+      const authCode = payload?.detail?.code;
+      if (
+        allowTxUnlock
+        && res.status === 401
+        && (authCode === "tx_auth_required" || authCode === "tx_auth_setup_required")
+        && await txAuth.requestUnlock()
+      ) {
+        return api.post(path, body, false);
+      }
       throw new Error(`POST ${path} failed: ${res.status}${detail}`);
     }
     return res.json();
@@ -499,6 +669,7 @@ window.issTracker = {
   formatStationIdentity,
   rigModelDefaults,
   createRigConnectController,
+  txAuth,
 };
 
 })();
